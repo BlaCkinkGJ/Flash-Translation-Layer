@@ -1,3 +1,10 @@
+/**
+ * @file module.c
+ * @brief this deal the initialization and removing of the module
+ * @author Gijun Oh
+ * @version 1.0
+ * @date 2021-09-22
+ */
 #include <assert.h>
 
 #include "include/flash.h"

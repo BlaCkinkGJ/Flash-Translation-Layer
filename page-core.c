@@ -1,3 +1,10 @@
+/**
+ * @file page-core.c
+ * @brief core logic for page ftl
+ * @author Gijun Oh
+ * @version 1.0
+ * @date 2021-09-22
+ */
 #include <errno.h>
 #ifdef __cplusplus
 #include <atomic>

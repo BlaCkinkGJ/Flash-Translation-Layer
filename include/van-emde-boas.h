@@ -1,3 +1,10 @@
+/**
+ * @file van-emde-boas.h
+ * @brief van-emde-boas tree's data structures and macros
+ * @author Gijun Oh
+ * @version 1.0
+ * @date 2021-09-22
+ */
 #ifndef VAN_EMDE_BOAS_H
 #define VAN_EMDE_BOAS_H
 

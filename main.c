@@ -1,3 +1,10 @@
+/**
+ * @file main.c
+ * @brief main program for test the interface
+ * @author Gijun Oh
+ * @version 1.0
+ * @date 2021-09-22
+ */
 #include <assert.h>
 
 #include "include/module.h"

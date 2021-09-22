@@ -1,3 +1,10 @@
+/**
+ * @file flash.c
+ * @brief generic flash control interfaces
+ * @author Gijun Oh
+ * @version 1.0
+ * @date 2021-09-22
+ */
 #include <stdlib.h>
 
 #include "include/module.h"

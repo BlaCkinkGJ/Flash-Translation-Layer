@@ -1,3 +1,10 @@
+/**
+ * @file module.h
+ * @brief creation and deletion of the module's interface
+ * @author Gijun Oh
+ * @version 1.0
+ * @date 2021-09-22
+ */
 #ifndef MODULE_H
 #define MODULE_H
 

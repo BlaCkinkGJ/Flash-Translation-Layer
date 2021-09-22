@@ -1,3 +1,10 @@
+/**
+ * @file van-emde-boas.c
+ * @brief implementation of the van-emde-boas tree
+ * @author Gijun Oh
+ * @version 1.0
+ * @date 2021-09-22
+ */
 #include "include/module.h"
 #include "include/van-emde-boas.h"
 
