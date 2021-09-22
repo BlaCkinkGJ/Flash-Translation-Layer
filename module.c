@@ -9,8 +9,8 @@
 
 #include "include/flash.h"
 #include "include/module.h"
-
 #include "include/page.h"
+#include "include/log.h"
 
 /**
  * @brief submodule list table
@@ -19,7 +19,7 @@
  * @param int flags for flash module
  *
  * @note
- * you must follow the submodule index in the `include/module.h`
+ * You must follow the submodule index in the `include/module.h`
  */
 static int (*submodule_init[])(struct flash_device *, uint64_t) = {
 	/* [PAGE_FTL_MODULE] = */ page_ftl_module_init,
@@ -35,7 +35,7 @@ static int (*submodule_init[])(struct flash_device *, uint64_t) = {
  * @return zero to success, error number to fail
  *
  * @note
- * this function allocates the memory to the __flash.
+ * This function allocates the memory to the __flash.
  * And you must not change this function!!
  */
 int module_init(const int modnum, struct flash_device **__flash, uint64_t flags)
@@ -43,12 +43,12 @@ int module_init(const int modnum, struct flash_device **__flash, uint64_t flags)
 	int err;
 	err = flash_module_init(__flash, flags);
 	if (err) {
-		pr_info("%s\n", "flash initialize failed");
+		pr_err("flash initialize failed\n");
 		return err;
 	}
 	err = submodule_init[modnum](*__flash, flags);
 	if (err) {
-		pr_info("%s\n", "submodule initialize failed");
+		pr_err("submodule initialize failed\n");
 		return err;
 	}
 	return 0;
@@ -67,14 +67,14 @@ int module_exit(struct flash_device *flash)
 	if (flash->f_submodule_exit) {
 		err = flash->f_submodule_exit(flash);
 		if (err) {
-			pr_info("%s\n", "submodule resources free failed");
+			pr_err("submodule resources free failed\n");
 			return err;
 		}
 	}
 
 	err = flash_module_exit(flash);
 	if (err) {
-		pr_info("%s\n", "flash resources free failed");
+		pr_err("flash resources free failed\n");
 		return err;
 	}
 	return 0;

@@ -12,16 +12,9 @@
 extern "C" {
 #endif
 
-#include <stdio.h>
 #include <stdint.h>
 
 #include "flash.h"
-
-#define pr_info(format, ...)                                                   \
-	fprintf(stdout,                                                        \
-		"[" __FILE__ ":%s"                                             \
-		"(%d)] " format,                                               \
-		__func__, __LINE__, __VA_ARGS__)
 
 enum { PAGE_FTL_MODULE = 0 /**< page FTL number*/,
 };

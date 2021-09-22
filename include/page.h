@@ -10,25 +10,31 @@
 
 #include <stdint.h>
 #include <pthread.h>
-#ifdef __cplusplus
-#include <atomic>
-#endif
+
+#include <limits.h>
 
 #include "flash.h"
+#include "atomic.h"
 #include "van-emde-boas.h"
 
 /** follow the linux kernel's value */
-#define SECTOR_SHIFT (9)
+#define PAGE_SHIFT (12)
+
+/** define empty mapping information */
+#define PADDR_EMPTY (UINT_MAX)
 
 /**
  * @brief flash board information
+ *
+ * @note
+ * You MUST NOT think this information based on the
+ * chip datasheet.
  */
 enum { FLASH_NR_SEGMENT = 4096,
        FLASH_PAGES_PER_BLOCK = 128,
        FLASH_PAGE_SIZE = 8192,
        FLASH_TOTAL_CHIPS = 8,
        FLASH_TOTAL_BUS = 8,
-       FLASH_BLOCKS_PER_SEGMENT = FLASH_TOTAL_CHIPS * FLASH_TOTAL_BUS,
 };
 
 /**
@@ -39,24 +45,40 @@ enum { FLASH_FTL_WRITE = 0,
        FLASH_FTL_ERASE,
 };
 
-/** total flash board size */
+/** segment information */
+#define FLASH_BLOCKS_PER_SEGMENT (FLASH_TOTAL_CHIPS * FLASH_TOTAL_BUS)
+#define FLASH_PAGES_PER_SEGMENT                                                \
+	(FLASH_BLOCKS_PER_SEGMENT * FLASH_PAGES_PER_BLOCK)
+/** total flash board size (bytes) */
 #define FLASH_DISK_SIZE                                                        \
-	(FLASH_NR_SEGMENT * FLASH_PAGES_PER_BLOCK * FLASH_TOTAL_CHIPS *        \
-	 FLASH_TOTAL_BUS)
-/** mapping table size */
-#define FLASH_MAP_SIZE (FLASH_DISK_SIZE >> SECTOR_SHIFT)
+	((uint64_t)FLASH_NR_SEGMENT * FLASH_PAGES_PER_SEGMENT * FLASH_PAGE_SIZE)
+/** mapping table size (bytes) */
+#define FLASH_MAP_SIZE (FLASH_DISK_SIZE >> PAGE_SHIFT)
+/** host I/O size (bytes) */
+#define FLASH_HOST_PAGE_SIZE (4096)
+/** number of the cache block */
+#define FLASH_NR_CACHE_BLOCK (1024)
+/** total cache size (bytes) */
+#define FLASH_TOTAL_CACHE_SIZE (FLASH_NR_CACHE_BLOCK * FLASH_HOST_PAGE_SIZE)
+
+/**
+ * @brief hold the metadata and buffer of a cache
+ * @note
+ * You must lock the mutex when you access the metadata.
+ * Do not access the `__buffer` directly.
+ */
+struct page_ftl_cache {
+	pthread_mutex_t mutex;
+	char __buffer[FLASH_TOTAL_CACHE_SIZE];
+};
 
 /**
  * @brief segment information structure
  * @note
- * segment number is same as block number
+ * Segment number is same as block number
  */
 struct page_ftl_segment {
-#ifdef __cplusplus
-	std::atomic<uint64_t> nr_invalid_blocks;
-#else
-	_Atomic uint64_t nr_invalid_blocks;
-#endif
+	atomic64_t nr_invalid_blocks;
 	struct vEB *valid_bits;
 };
 
@@ -76,7 +98,7 @@ struct page_ftl_request {
 	unsigned int flag; /**< flag describes the bio's direction */
 
 	size_t data_len; /**< data length (bytes) */
-	uint64_t sector; /**< sector cursor (divide by sector size(1 << SECTOR_SHIFT bytes)) */
+	uint64_t sector; /**< sector cursor (divide by sector size(1 << PAGE_SHIFT bytes)) */
 
 	const void *data; /**< pointer of the data */
 };
@@ -90,46 +112,5 @@ ssize_t page_ftl_read(struct page_ftl *, struct page_ftl_request *);
 
 int page_ftl_module_init(struct flash_device *, uint64_t flags);
 int page_ftl_module_exit(struct flash_device *);
-
-#ifdef __cplusplus
-template <typename T>
-/**
- * @brief compatible function for stdbool.h
- *
- */
-static inline void atomic_store(std::atomic<T> *v, int arg)
-{
-	*v = arg;
-}
-
-/**
- * @brief compatible function for stdbool.h
- *
- */
-template <class T> static inline T atomic_load(std::atomic<T> *v)
-{
-	return *v;
-}
-
-/**
- * @brief compatible function for stdbool.h
- *
- */
-template <class T>
-static inline void atomic_fetch_add(std::atomic<T> *v, int arg)
-{
-	std::atomic_fetch_add(v, static_cast<T>(arg));
-}
-
-/**
- * @brief compatible function for stdbool.h
- *
- */
-template <class T>
-static inline void atomic_fetch_sub(std::atomic<T> *v, int arg)
-{
-	std::atomic_fetch_sub(v, static_cast<T>(arg));
-}
-#endif
 
 #endif

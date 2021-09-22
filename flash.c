@@ -6,10 +6,11 @@
  * @date 2021-09-22
  */
 #include <stdlib.h>
+#include <errno.h>
 
 #include "include/module.h"
 #include "include/flash.h"
-#include <errno.h>
+#include "include/log.h"
 
 /**
  * @brief initialize the flash module
@@ -20,7 +21,7 @@
  * @return zero to success, error number to fail
  *
  * @note
- * this function allocates the memory to the __flash
+ * This function allocates the memory to the __flash
  */
 int flash_module_init(struct flash_device **__flash, uint64_t flags)
 {
@@ -30,8 +31,7 @@ int flash_module_init(struct flash_device **__flash, uint64_t flags)
 	flash = (struct flash_device *)malloc(sizeof(struct flash_device));
 	if (flash == NULL) {
 		err = errno;
-		pr_info("%s\n",
-			"fail to allocate the flash information pointer");
+		pr_err("fail to allocate the flash information pointer\n");
 		goto exception;
 	}
 	flash->f_op = NULL;
@@ -57,7 +57,7 @@ exception:
 int flash_module_exit(struct flash_device *flash)
 {
 	if (flash == NULL) {
-		pr_info("%s\n", "flash pointer is null detected");
+		pr_err("flash pointer is null detected\n");
 		return 0;
 	}
 

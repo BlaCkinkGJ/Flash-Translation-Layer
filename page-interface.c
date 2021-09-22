@@ -7,7 +7,7 @@
  */
 #include <errno.h>
 
-#include "include/module.h"
+#include "include/log.h"
 #include "include/page.h"
 
 /**
@@ -21,12 +21,12 @@ static int page_ftl_open_interface(struct flash_device *flash)
 {
 	struct page_ftl *pgftl = NULL;
 	if (flash == NULL) {
-		pr_info("%s\n", "flash pointer doesn't exist");
+		pr_err("flash pointer doesn't exist\n");
 		return -EINVAL;
 	}
 	pgftl = (struct page_ftl *)flash->f_private;
 	if (pgftl == NULL) {
-		pr_info("%s\n", "page FTL information doesn't exist");
+		pr_err("page FTL information doesn't exist\n");
 		return -EINVAL;
 	}
 	return page_ftl_open(pgftl);
@@ -52,13 +52,13 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 
 	/** check the pointer validity */
 	if (flash == NULL) {
-		pr_info("%s\n", "flash pointer doesn't exist");
+		pr_err("flash pointer doesn't exist\n");
 		return -EINVAL;
 	}
 
 	pgftl = (struct page_ftl *)flash->f_private;
 	if (pgftl == NULL) {
-		pr_info("%s\n", "page FTL information doesn't exist");
+		pr_err("page FTL information doesn't exist\n");
 		return -EINVAL;
 	}
 
@@ -66,19 +66,19 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 	request = (struct page_ftl_request *)malloc(
 		sizeof(struct page_ftl_request));
 	if (request == NULL) {
-		pr_info("%s\n", "fail to allocate request structure");
+		pr_err("fail to allocate request structure\n");
 		goto exception;
 	}
 
 	request->flag = FLASH_FTL_WRITE;
 	request->data_len = count;
-	request->sector = offset >> SECTOR_SHIFT;
+	request->sector = offset;
 	request->data = buffer;
 
 	/** submit the request */
 	size = page_ftl_submit_request(pgftl, request);
 	if (size < 0) {
-		pr_info("%s\n", "page FTL submit request failed");
+		pr_err("page FTL submit request failed\n");
 		goto exception;
 	}
 	free(request);
@@ -111,12 +111,12 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash,
 
 	/** check the pointer validity */
 	if (flash == NULL) {
-		pr_info("%s\n", "flash pointer doesn't exist");
+		pr_err("flash pointer doesn't exist\n");
 		return -EINVAL;
 	}
 	pgftl = (struct page_ftl *)flash->f_private;
 	if (pgftl == NULL) {
-		pr_info("%s\n", "page FTL information doesn't exist");
+		pr_err("page FTL information doesn't exist\n");
 		return -EINVAL;
 	}
 
@@ -124,19 +124,19 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash,
 	request = (struct page_ftl_request *)malloc(
 		sizeof(struct page_ftl_request));
 	if (request == NULL) {
-		pr_info("%s\n", "fail to allocate request structure");
+		pr_err("fail to allocate request structure\n");
 		goto exception;
 	}
 
 	request->flag = FLASH_FTL_READ;
 	request->data_len = count;
-	request->sector = offset >> SECTOR_SHIFT;
+	request->sector = offset;
 	request->data = buffer;
 
 	/** submit the request */
 	size = page_ftl_submit_request(pgftl, request);
 	if (size < 0) {
-		pr_info("%s\n", "page FTL submit request failed");
+		pr_err("page FTL submit request failed\n");
 		goto exception;
 	}
 	free(request);
@@ -160,12 +160,12 @@ static int page_ftl_close_interface(struct flash_device *flash)
 {
 	struct page_ftl *pgftl = NULL;
 	if (flash == NULL) {
-		pr_info("%s\n", "flash pointer doesn't exist");
+		pr_err("flash pointer doesn't exist\n");
 		return -EINVAL;
 	}
 	pgftl = (struct page_ftl *)flash->f_private;
 	if (pgftl == NULL) {
-		pr_info("%s\n", "page FTL information doesn't exist");
+		pr_err("page FTL information doesn't exist\n");
 		return -EINVAL;
 	}
 	return page_ftl_close(pgftl);
@@ -198,10 +198,15 @@ int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 	pgftl = (struct page_ftl *)malloc(sizeof(struct page_ftl));
 	if (pgftl == NULL) {
 		err = errno;
-		pr_info("%s\n",
-			"fail to allocate the page FTL information pointer");
+		pr_err("fail to allocate the page FTL information pointer\n");
 		goto exception;
 	}
+
+	/** initialize the mapping table */
+	for (uint64_t lpa = 0; lpa < FLASH_MAP_SIZE; lpa++) {
+		pgftl->trans_map[lpa] = PADDR_EMPTY;
+	}
+
 	flash->f_private = (void *)pgftl;
 	return 0;
 
@@ -218,13 +223,13 @@ exception:
  * @return zero to success, error number to fail
  *
  * @note
- * you must not free resources related on the flash module which is parent module
+ * You must not free resources related on the flash module which is parent module
  */
 int page_ftl_module_exit(struct flash_device *flash)
 {
 	struct page_ftl *pgftl = NULL;
 	if (flash == NULL) {
-		pr_info("%s\n", "flash pointer is null detected");
+		pr_err("flash pointer is null detected\n");
 		return 0;
 	}
 

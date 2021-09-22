@@ -9,11 +9,17 @@
 
 #include "include/module.h"
 #include "include/flash.h"
+#include "include/log.h"
 
 int main(void)
 {
 	struct flash_device *flash = NULL;
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, FLASH_DEFAULT_FLAG));
+	pr_debug("test\n");
+	pr_info("fuck\n");
+	pr_err("fuck %s\n", "hello");
+	pr_warn("test %d\n", 12);
 	assert(0 == module_exit(flash));
+
 	return 0;
 }

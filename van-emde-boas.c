@@ -5,7 +5,7 @@
  * @version 1.0
  * @date 2021-09-22
  */
-#include "include/module.h"
+#include "include/log.h"
 #include "include/van-emde-boas.h"
 
 /**
@@ -23,8 +23,8 @@ static struct vEB *__vEB_init(int u)
 
 	v = (struct vEB *)malloc(sizeof(struct vEB) + cluster_size);
 	if (v == NULL) {
-		pr_info("%s\n", "Allocation failed");
-		goto exception;
+		pr_err("allocation failed\n");
+		goto exit;
 	}
 
 	v->u = u;
@@ -42,7 +42,7 @@ static struct vEB *__vEB_init(int u)
 		}
 	}
 
-exception:
+exit:
 	return v;
 }
 
@@ -56,7 +56,8 @@ struct vEB *vEB_init(const int u)
 {
 	int pow_of_2_u = vEB_get_valid_size(u);
 	if (pow_of_2_u == NIL) {
-		pr_info("Invalid set size : %d\n", u);
+		pr_err("invalid set size : %d\n", u);
+		return NULL;
 	}
 	return __vEB_init(pow_of_2_u);
 }
@@ -66,10 +67,15 @@ struct vEB *vEB_init(const int u)
  * 
  * @param V pointer of the van-emde-boase tree
  * @param x the value which wants to insert
+ * @return 0 to success, negative value to fail
  */
-void vEB_tree_insert(struct vEB *V, int x)
+int vEB_tree_insert(struct vEB *V, int x)
 {
 	int u = V->u;
+	if (x >= u || x < 0) {
+		pr_err("invalid value detected %d\n", x);
+		return -1;
+	}
 	if (V->min == NIL) {
 		vEB_empty_tree_insert(V, x);
 	} else {
@@ -92,6 +98,7 @@ void vEB_tree_insert(struct vEB *V, int x)
 			V->max = x;
 		} // end of x > V->max
 	} // end of x > V->max
+	return 0;
 } // end of V->min == NIL
 
 /**
@@ -100,14 +107,18 @@ void vEB_tree_insert(struct vEB *V, int x)
  * @param V pointer of the van-emde-boas
  * @param x value of the position which exists
  * @return true if data find
- * @return false if data doesn't find
+ * @return 0 if data isn't found, 1 if data is found, -1 if fail
  */
-bool vEB_tree_member(struct vEB *V, const int x)
+int vEB_tree_member(struct vEB *V, const int x)
 {
+	if (x >= V->u || x < 0) {
+		pr_err("invalid input detected => %d\n", x);
+		return NIL;
+	}
 	if (x == V->min || x == V->max) {
-		return true;
+		return 1;
 	} else if (V->u == 2) {
-		return false;
+		return 0;
 	} // end of x == V->min || x == V->max
 
 	return vEB_tree_member(V->cluster[vEB_high(V->u, x)], vEB_low(V->u, x));
@@ -122,6 +133,10 @@ bool vEB_tree_member(struct vEB *V, const int x)
  */
 int vEB_tree_successor(struct vEB *V, const int x)
 {
+	if (x >= V->u || x < 0) {
+		pr_err("invalid input detected => %d\n", x);
+		return NIL;
+	}
 	if (V->u == 2) {
 		return ((x == 0 && V->max == 1) ? 1 : NIL);
 	} else if (V->min != NIL && x < V->min) {
@@ -157,6 +172,10 @@ int vEB_tree_successor(struct vEB *V, const int x)
  */
 int vEB_tree_predecessor(struct vEB *V, const int x)
 {
+	if (x >= V->u || x < 0) {
+		pr_err("invalid input detected => %d\n", x);
+		return NIL;
+	}
 	if (V->u == 2) {
 		return ((x == 1 && V->min == 0) ? 0 : NIL);
 	} else if (V->max != NIL && x > V->max) {

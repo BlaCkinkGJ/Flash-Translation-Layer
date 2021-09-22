@@ -14,7 +14,6 @@ extern "C" {
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
 #include <math.h>
 #include <time.h>
@@ -54,8 +53,8 @@ struct vEB {
 };
 
 struct vEB *vEB_init(const int u);
-void vEB_tree_insert(struct vEB *V, int x);
-bool vEB_tree_member(struct vEB *V, const int x);
+int vEB_tree_insert(struct vEB *V, int x);
+int vEB_tree_member(struct vEB *V, const int x);
 int vEB_tree_successor(struct vEB *V, const int x);
 int vEB_tree_predecessor(struct vEB *V, const int x);
 void vEB_tree_delete(struct vEB *V, int x);
@@ -69,7 +68,7 @@ void vEB_free(struct vEB *v);
  */
 static inline int vEB_get_valid_size(const int u)
 {
-	const bool is_power_of_two = u && (!(u & (u - 1)));
+	const int is_power_of_two = u && (!(u & (u - 1)));
 	if (u <= 0) {
 		return NIL;
 	}
