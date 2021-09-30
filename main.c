@@ -6,6 +6,7 @@
  * @date 2021-09-22
  */
 #include <assert.h>
+#include <unistd.h>
 
 #include "include/module.h"
 #include "include/flash.h"
@@ -15,10 +16,9 @@ int main(void)
 {
 	struct flash_device *flash = NULL;
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, FLASH_DEFAULT_FLAG));
-	pr_debug("test\n");
-	pr_info("fuck\n");
-	pr_err("fuck %s\n", "hello");
-	pr_warn("test %d\n", 12);
+	flash->f_op->open(flash);
+	sleep(5);
+	flash->f_op->close(flash);
 	assert(0 == module_exit(flash));
 
 	return 0;

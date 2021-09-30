@@ -10,5 +10,7 @@
 
 ssize_t page_ftl_write(struct page_ftl *pgftl, struct page_ftl_request *request)
 {
+	(void)pgftl;
+	(void)request;
 	return 0;
 }

@@ -1,7 +1,7 @@
 CC = gcc
 CXX = g++
 TARGET = a.out
-TEST_TARGET = van-emde-test.out lru-test.out
+TEST_TARGET = van-emde-test.out lru-test.out bits-test.out
 
 MACROS := -DDEBUG
 
@@ -37,6 +37,9 @@ van-emde-test.out: $(UNITY_ROOT)/src/unity.c ./van-emde-boas.c ./test/van-emde-b
 	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
 lru-test.out: $(UNITY_ROOT)/src/unity.c ./lru.c ./test/lru-test.c
+	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+
+bits-test.out: $(UNITY_ROOT)/src/unity.c ./test/bits-test.c
 	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
 clean:

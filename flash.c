@@ -28,6 +28,8 @@ int flash_module_init(struct flash_device **__flash, uint64_t flags)
 	int err;
 	struct flash_device *flash = NULL;
 
+	(void)flags;
+
 	flash = (struct flash_device *)malloc(sizeof(struct flash_device));
 	if (flash == NULL) {
 		err = errno;

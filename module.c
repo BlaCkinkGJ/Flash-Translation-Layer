@@ -46,11 +46,13 @@ int module_init(const int modnum, struct flash_device **__flash, uint64_t flags)
 		pr_err("flash initialize failed\n");
 		return err;
 	}
+	pr_info("flash initialize success\n");
 	err = submodule_init[modnum](*__flash, flags);
 	if (err) {
 		pr_err("submodule initialize failed\n");
 		return err;
 	}
+	pr_info("submodule initialize success\n");
 	return 0;
 }
 
@@ -70,6 +72,7 @@ int module_exit(struct flash_device *flash)
 			pr_err("submodule resources free failed\n");
 			return err;
 		}
+		pr_info("submodule deallocates success\n");
 	}
 
 	err = flash_module_exit(flash);
@@ -77,5 +80,6 @@ int module_exit(struct flash_device *flash)
 		pr_err("flash resources free failed\n");
 		return err;
 	}
+	pr_info("flash deallocates success\n");
 	return 0;
 }

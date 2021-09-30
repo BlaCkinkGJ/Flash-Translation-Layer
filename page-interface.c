@@ -6,6 +6,7 @@
  * @date 2021-09-22
  */
 #include <errno.h>
+#include <string.h>
 
 #include "include/log.h"
 #include "include/page.h"
@@ -193,6 +194,9 @@ int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 {
 	int err = 0;
 	struct page_ftl *pgftl = NULL;
+
+	(void)flags;
+
 	flash->f_op = &__page_fops;
 
 	pgftl = (struct page_ftl *)malloc(sizeof(struct page_ftl));
@@ -201,6 +205,7 @@ int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 		pr_err("fail to allocate the page FTL information pointer\n");
 		goto exception;
 	}
+	memset(pgftl, 0, sizeof(*pgftl));
 
 	/** initialize the mapping table */
 	for (uint64_t lpa = 0; lpa < FLASH_MAP_SIZE; lpa++) {
@@ -208,6 +213,7 @@ int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 	}
 
 	flash->f_private = (void *)pgftl;
+	flash->f_submodule_exit = page_ftl_module_exit;
 	return 0;
 
 exception:
@@ -235,7 +241,9 @@ int page_ftl_module_exit(struct flash_device *flash)
 
 	pgftl = (struct page_ftl *)flash->f_private;
 	if (pgftl) {
+		page_ftl_close(pgftl);
 		free(pgftl);
+		pr_info("successfully close the page FTL\n");
 	}
 	return 0;
 }

@@ -15,7 +15,7 @@
 
 #include "flash.h"
 #include "atomic.h"
-#include "van-emde-boas.h"
+#include "lru.h"
 
 /** follow the linux kernel's value */
 #define PAGE_SHIFT (12)
@@ -58,18 +58,18 @@ enum { FLASH_FTL_WRITE = 0,
 #define FLASH_HOST_PAGE_SIZE (4096)
 /** number of the cache block */
 #define FLASH_NR_CACHE_BLOCK (1024)
-/** total cache size (bytes) */
-#define FLASH_TOTAL_CACHE_SIZE (FLASH_NR_CACHE_BLOCK * FLASH_HOST_PAGE_SIZE)
 
 /**
  * @brief hold the metadata and buffer of a cache
  * @note
  * You must lock the mutex when you access the metadata.
- * Do not access the `__buffer` directly.
+ * Do not access the `buffer` directly.
  */
 struct page_ftl_cache {
 	pthread_mutex_t mutex;
-	char __buffer[FLASH_TOTAL_CACHE_SIZE];
+	uint64_t *free_block_bits;
+	struct lru_cache *lru;
+	char buffer[FLASH_NR_CACHE_BLOCK][FLASH_HOST_PAGE_SIZE];
 };
 
 /**
@@ -79,7 +79,7 @@ struct page_ftl_cache {
  */
 struct page_ftl_segment {
 	atomic64_t nr_invalid_blocks;
-	struct vEB *valid_bits;
+	uint64_t *valid_bits;
 };
 
 /**
@@ -87,7 +87,8 @@ struct page_ftl_segment {
  */
 struct page_ftl {
 	uint32_t trans_map[FLASH_MAP_SIZE]; /**< page-level mapping table */
-	struct page_ftl_segment segment[FLASH_NR_SEGMENT];
+	struct page_ftl_cache *cache;
+	struct page_ftl_segment *segments;
 	pthread_mutex_t mutex;
 };
 

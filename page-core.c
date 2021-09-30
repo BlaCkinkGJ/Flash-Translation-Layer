@@ -13,9 +13,11 @@
 #endif
 
 #include <assert.h>
+#include <string.h>
 
 #include "include/page.h"
 #include "include/log.h"
+#include "include/bits.h"
 
 /**
  * @brief initialize each segment's metadata
@@ -39,36 +41,81 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 		return -EINVAL;
 	}
 
-	segments = pgftl->segment;
+	segments = (struct page_ftl_segment *)malloc(
+		sizeof(struct page_ftl_segment) * FLASH_NR_SEGMENT);
+	if (segments == NULL) {
+		pr_err("memory allocation failed\n");
+		return -ENOMEM;
+	}
 	for (uint64_t i = 0; i < FLASH_NR_SEGMENT; i++) {
 		segments[i].valid_bits = NULL;
 	}
-
 	for (uint64_t i = 0; i < FLASH_NR_SEGMENT; i++) {
-		struct vEB *valid_bits = NULL;
-		valid_bits = vEB_init(FLASH_PAGES_PER_SEGMENT * compensator);
+		uint64_t *valid_bits = NULL;
+		valid_bits = (uint64_t *)malloc(
+			BITS_TO_BYTES(FLASH_PAGES_PER_SEGMENT * compensator));
 		if (valid_bits == NULL) {
 			pr_err("allocated failed(seq:%lu)", i);
 			return -ENOMEM;
 		}
+		memset(valid_bits, 0,
+		       sizeof(BITS_TO_BYTES(FLASH_NR_CACHE_BLOCK)));
 		segments[i].valid_bits = valid_bits;
 		atomic_store(&segments[i].nr_invalid_blocks, 0);
+		pr_debug(
+			"initialize the segment %ld (bits: %d * %d, size: %ld)\n",
+			i, FLASH_PAGES_PER_SEGMENT, compensator,
+			(uint64_t)(FLASH_PAGES_PER_SEGMENT * compensator) / 8);
 	}
+
+	pgftl->segments = segments;
 	return 0;
 }
 
 /**
- * @brief recovery l2p and metadata from the oob(out-of-bound) area
+ * @brief initialize the cache data structure
  *
- * @param pgftl pointer of the page ftl structure
+ * @param pgftl pointer of the page FTL's data structure
  *
- * @return 0 to success, negative value to fail
- *
- * @todo you must implement this after create the read/write routine
+ * @return 0 to success, -EINVAL to fail
  */
-static int page_ftl_recovery_from_oob(struct page_ftl *pgftl)
+static int page_ftl_init_cache(struct page_ftl *pgftl)
 {
-	(void)pgftl;
+	struct page_ftl_cache *cache = NULL;
+	uint64_t *free_block_bits = NULL;
+	struct lru_cache *lru = NULL;
+
+	cache = (struct page_ftl_cache *)malloc(sizeof(struct page_ftl_cache));
+	if (cache == NULL) {
+		pr_err("memory allocation failed\n");
+		return -ENOMEM;
+	}
+
+	pthread_mutex_init(&cache->mutex, NULL);
+
+	free_block_bits =
+		(uint64_t *)malloc(BITS_TO_BYTES(FLASH_NR_CACHE_BLOCK));
+	if (free_block_bits == NULL) {
+		pr_err("van-emde-boas tree construction failed (size: %ld)\n",
+		       (uint64_t)FLASH_NR_CACHE_BLOCK);
+		return -EINVAL;
+	}
+	memset(free_block_bits, 0, sizeof(BITS_TO_BYTES(FLASH_NR_CACHE_BLOCK)));
+
+	lru = lru_init(FLASH_NR_CACHE_BLOCK, NULL);
+	if (lru == NULL) {
+		pr_err("creation of the LRU cache failed (size: %ld)\n",
+		       (uint64_t)FLASH_NR_SEGMENT);
+		return -EINVAL;
+	}
+
+	cache->free_block_bits = free_block_bits;
+	cache->lru = lru;
+
+	memset(cache->buffer, 0, sizeof(cache->buffer));
+
+	pgftl->cache = cache;
+
 	return 0;
 }
 
@@ -110,6 +157,11 @@ int page_ftl_open(struct page_ftl *pgftl)
 		goto exception;
 	}
 
+	err = page_ftl_init_cache(pgftl);
+	if (err) {
+		goto exception;
+	}
+
 	return 0;
 
 exception:
@@ -146,6 +198,48 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 }
 
 /**
+ * @brief deallocate the ftl's segments
+ *
+ * @param segments pointer of the segment array
+ */
+static void page_ftl_free_segments(struct page_ftl_segment *segments)
+{
+	assert(NULL != segments);
+	for (int i = 0; i < FLASH_NR_SEGMENT; i++) {
+		uint64_t *valid_bits = NULL;
+		valid_bits = segments[i].valid_bits;
+		if (valid_bits == NULL) {
+			continue;
+		}
+		free(valid_bits);
+		segments[i].valid_bits = NULL;
+	}
+}
+
+/**
+ * @brief deallocate the page ftl's cache
+ *
+ * @param cache pointer of the cache
+ *
+ * @return deallocate status of the cache
+ */
+static int page_ftl_free_cache(struct page_ftl_cache *cache)
+{
+	int ret = 0;
+	assert(NULL != cache);
+	if (cache->lru) {
+		ret = lru_free(cache->lru);
+		cache->lru = NULL;
+	}
+	if (cache->free_block_bits) {
+		free(cache->free_block_bits);
+		cache->free_block_bits = NULL;
+	}
+
+	return ret;
+}
+
+/**
  * @brief deallocate the page ftl structure's members
  *
  * @param pgftl pointer of the page ftl structure
@@ -154,23 +248,22 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
  */
 int page_ftl_close(struct page_ftl *pgftl)
 {
-	struct page_ftl_segment *segments = NULL;
-
+	int ret = 0;
 	if (pgftl == NULL) {
 		pr_err("null page ftl structure submitted\n");
-		return 0;
+		return ret;
 	}
 
-	segments = pgftl->segment;
-	if (segments != NULL) {
-		for (int i = 0; i < FLASH_BLOCKS_PER_SEGMENT; i++) {
-			struct vEB *valid_bits = NULL;
-			valid_bits = segments[i].valid_bits;
-			if (valid_bits == NULL) {
-				continue;
-			}
-			vEB_free(valid_bits);
-		}
+	if (pgftl->segments) {
+		page_ftl_free_segments(pgftl->segments);
+		free(pgftl->segments);
+		pgftl->segments = NULL;
 	}
-	return 0;
+
+	if (pgftl->cache) {
+		ret = page_ftl_free_cache(pgftl->cache);
+		free(pgftl->cache);
+		pgftl->cache = NULL;
+	}
+	return ret;
 }
