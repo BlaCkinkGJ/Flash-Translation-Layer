@@ -44,6 +44,16 @@ int lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value);
 uintptr_t lru_get(struct lru_cache *cache, const uint64_t key);
 int lru_free(struct lru_cache *cache);
 
+/**
+ * @brief get evict size of the LRU cache
+ *
+ * @param cache LRU cache structrue pointer
+ *
+ * @return number of the eviction entries
+ *
+ * @note
+ * Default LRU cache's eviction size is 30% of its capacity
+ */
 static inline size_t lru_get_evict_size(struct lru_cache *cache)
 {
 	pr_debug("evict size ==> %ld\n", (size_t)(cache->capacity * 3 / 10));

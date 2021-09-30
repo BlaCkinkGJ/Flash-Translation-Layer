@@ -13,6 +13,14 @@
 #include "include/log.h"
 #include "include/lru.h"
 
+/**
+ * @brief initialize the LRU cache data strcture
+ *
+ * @param capacity number of the entries to insert the LRU
+ * @param deallocate deallcation function for LRU's value
+ *
+ * @return initialized LRU cache data structure pointer
+ */
 struct lru_cache *lru_init(const size_t capacity, lru_dealloc_fn deallocate)
 {
 	struct lru_cache *cache = NULL;
@@ -43,6 +51,14 @@ exception:
 	return NULL;
 }
 
+/**
+ * @brief allocate the single node
+ *
+ * @param key key for identify the node
+ * @param value value for data in the node
+ *
+ * @return allocated node structure pointer
+ */
 static struct lru_node *lru_alloc_node(const uint64_t key, uintptr_t value)
 {
 	struct lru_node *node = NULL;
@@ -56,6 +72,11 @@ static struct lru_node *lru_alloc_node(const uint64_t key, uintptr_t value)
 	return node;
 }
 
+/**
+ * @brief deallcate the allocated node
+ *
+ * @param node node which wants to deallocate
+ */
 static void lru_dealloc_node(struct lru_node *node)
 {
 	assert(NULL != node);
@@ -66,6 +87,17 @@ static void lru_dealloc_node(struct lru_node *node)
 	free(node);
 }
 
+/**
+ * @brief delete the node from the list
+ *
+ * @param head list's head pointer
+ * @param deleted target which wants to delete
+ *
+ * @return 0 for successfully delete, -EINVAL means there is no data in list
+ *
+ * @note
+ * This function doesn't deallocate the node and its data
+ */
 static int lru_delete_node(struct lru_node *head, struct lru_node *deleted)
 {
 	assert(NULL != head);
@@ -82,6 +114,13 @@ static int lru_delete_node(struct lru_node *head, struct lru_node *deleted)
 	return 0;
 }
 
+/**
+ * @brief implementation of the LRU eviction function
+ *
+ * @param cache LRU cache data structure pointer
+ *
+ * @return 0 for successfully evict
+ */
 static int __lru_do_evict(struct lru_cache *cache)
 {
 	struct lru_node *head = cache->head;
@@ -95,6 +134,14 @@ static int __lru_do_evict(struct lru_cache *cache)
 	return ret;
 }
 
+/**
+ * @brief interfaces for execute the eviction process
+ *
+ * @param cache LRU cache data structure pointer
+ * @param nr_evict number of the entries to evict
+ *
+ * @return 0 for successfully evict
+ */
 static int lru_do_evict(struct lru_cache *cache, const uint64_t nr_evict)
 {
 	int ret = 0;
@@ -109,6 +156,12 @@ static int lru_do_evict(struct lru_cache *cache, const uint64_t nr_evict)
 	return ret;
 }
 
+/**
+ * @brief insert the lru node to the list
+ *
+ * @param node pointer of the node, node->next will indicate the newnode
+ * @param newnode newly allocated node to insert
+ */
 static void lru_node_insert(struct lru_node *node, struct lru_node *newnode)
 {
 	assert(NULL != newnode);
@@ -120,6 +173,15 @@ static void lru_node_insert(struct lru_node *node, struct lru_node *newnode)
 	node->next = newnode;
 }
 
+/**
+ * @brief inser the key, value to the LRU cache
+ *
+ * @param cache LRU cache data structure pointer
+ * @param key key which identifies the node
+ * @param value value which contains the data
+ *
+ * @return 0 to success
+ */
 int lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value)
 {
 	struct lru_node *head = cache->head;
@@ -142,6 +204,14 @@ int lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value)
 	return 0;
 }
 
+/**
+ * @brief find the node based on the key
+ *
+ * @param cache LRU cache data structure pointer
+ * @param key key which identifies the node
+ *
+ * @return pointer of the node
+ */
 static struct lru_node *lru_find_node(struct lru_cache *cache,
 				      const uint64_t key)
 {
@@ -156,6 +226,14 @@ static struct lru_node *lru_find_node(struct lru_cache *cache,
 	return NULL;
 }
 
+/**
+ * @brief get data from the LRU cache
+ *
+ * @param cache LRU cache data structrue pointer
+ * @param key key which identifies the node
+ *
+ * @return data in the node's value 
+ */
 uintptr_t lru_get(struct lru_cache *cache, const uint64_t key)
 {
 	struct lru_node *head = cache->head;
@@ -170,6 +248,13 @@ uintptr_t lru_get(struct lru_cache *cache, const uint64_t key)
 	return value;
 }
 
+/**
+ * @brief deallocate the LRU cache structure
+ *
+ * @param cache LRU cache data structure pointer
+ *
+ * @return 0 to success
+ */
 int lru_free(struct lru_cache *cache)
 {
 	int ret = 0;
