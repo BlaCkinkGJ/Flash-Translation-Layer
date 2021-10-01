@@ -24,6 +24,9 @@ extern "C" {
  */
 typedef int (*lru_dealloc_fn)(const uint64_t, uintptr_t);
 
+/**
+ * @brief doubly-linked list data structure
+ */
 struct lru_node {
 	uint64_t key;
 	uintptr_t value;
@@ -31,6 +34,9 @@ struct lru_node {
 	struct lru_node *prev;
 };
 
+/**
+ * @brief main LRU cache data structure
+ */
 struct lru_cache {
 	size_t capacity; /**< total number of the lru_node */
 	size_t size; /**< current number of the lru_node */
