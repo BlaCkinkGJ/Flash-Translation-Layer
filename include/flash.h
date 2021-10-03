@@ -16,6 +16,48 @@ extern "C" {
 #include <stdint.h>
 #include <pthread.h>
 
+/** follow the linux kernel's value */
+#define PAGE_SHIFT (12)
+
+/** define empty mapping information */
+#define PADDR_EMPTY (UINT32_MAX)
+
+/**
+ * @brief flash board information
+ *
+ * @note
+ * You MUST NOT think this information based on the
+ * chip datasheet.
+ */
+enum { FLASH_NR_SEGMENT = 4096,
+       FLASH_PAGES_PER_BLOCK = 128,
+       FLASH_PAGE_SIZE = 8192,
+       FLASH_TOTAL_CHIPS = 8,
+       FLASH_TOTAL_BUS = 8,
+};
+
+/**
+ * @brief flash board I/O direction
+ */
+enum { FLASH_FTL_WRITE = 0,
+       FLASH_FTL_READ,
+       FLASH_FTL_ERASE,
+};
+
+/** segment information */
+#define FLASH_BLOCKS_PER_SEGMENT (FLASH_TOTAL_CHIPS * FLASH_TOTAL_BUS)
+#define FLASH_PAGES_PER_SEGMENT                                                \
+	(FLASH_BLOCKS_PER_SEGMENT * FLASH_PAGES_PER_BLOCK)
+/** total flash board size (bytes) */
+#define FLASH_DISK_SIZE                                                        \
+	((uint64_t)FLASH_NR_SEGMENT * FLASH_PAGES_PER_SEGMENT * FLASH_PAGE_SIZE)
+/** mapping table size (bytes) */
+#define FLASH_MAP_SIZE (FLASH_DISK_SIZE >> PAGE_SHIFT)
+/** host I/O size (bytes) */
+#define FLASH_HOST_PAGE_SIZE (4096)
+/** number of the cache block */
+#define FLASH_NR_CACHE_BLOCK (1024)
+
 /**
  * @brief flags related on the flash and submodule
  */

@@ -29,43 +29,50 @@
 static int page_ftl_init_segment(struct page_ftl *pgftl)
 {
 	int compensator;
-	struct page_ftl_segment *segments = NULL;
+	size_t nr_segments;
+	size_t nr_pages_per_segment;
+	size_t page_size;
 
-	assert(0 < FLASH_HOST_PAGE_SIZE);
-	assert(0 < FLASH_PAGE_SIZE);
+	struct page_ftl_segment *segments;
 
-	compensator = FLASH_PAGE_SIZE / FLASH_HOST_PAGE_SIZE;
-	if (FLASH_PAGE_SIZE < FLASH_HOST_PAGE_SIZE) {
-		pr_err("flash page size must larger than host page size (%d >= %d)\n",
-		       FLASH_PAGE_SIZE, FLASH_HOST_PAGE_SIZE);
+	assert(0 < PAGE_SIZE);
+
+	nr_segments = device_get_nr_segments(pgftl->dev);
+	nr_pages_per_segment = device_get_pages_per_segment(pgftl->dev);
+	page_size = device_get_page_size(pgftl->dev);
+
+	compensator = page_size / PAGE_SIZE;
+	if (page_size < PAGE_SIZE) {
+		pr_err("flash page size must larger than host page size (%lu >= %d)\n",
+		       page_size, PAGE_SIZE);
 		return -EINVAL;
 	}
 
 	segments = (struct page_ftl_segment *)malloc(
-		sizeof(struct page_ftl_segment) * FLASH_NR_SEGMENT);
+		sizeof(struct page_ftl_segment) * nr_segments);
 	if (segments == NULL) {
 		pr_err("memory allocation failed\n");
 		return -ENOMEM;
 	}
-	for (uint64_t i = 0; i < FLASH_NR_SEGMENT; i++) {
+	for (size_t i = 0; i < nr_segments; i++) {
 		segments[i].valid_bits = NULL;
 	}
-	for (uint64_t i = 0; i < FLASH_NR_SEGMENT; i++) {
+	for (size_t i = 0; i < nr_segments; i++) {
 		uint64_t *valid_bits = NULL;
 		valid_bits = (uint64_t *)malloc(
-			BITS_TO_BYTES(FLASH_PAGES_PER_SEGMENT * compensator));
+			BITS_TO_BYTES(nr_pages_per_segment * compensator));
 		if (valid_bits == NULL) {
 			pr_err("allocated failed(seq:%lu)", i);
 			return -ENOMEM;
 		}
 		memset(valid_bits, 0,
-		       sizeof(BITS_TO_BYTES(FLASH_NR_CACHE_BLOCK)));
+		       BITS_TO_BYTES(nr_pages_per_segment * compensator));
 		segments[i].valid_bits = valid_bits;
 		atomic_store(&segments[i].nr_invalid_blocks, 0);
 		pr_debug(
-			"initialize the segment %ld (bits: %d * %d, size: %ld)\n",
-			i, FLASH_PAGES_PER_SEGMENT, compensator,
-			(uint64_t)(FLASH_PAGES_PER_SEGMENT * compensator) / 8);
+			"initialize the segment %ld (bits: %lu * %d, size: %lu)\n",
+			i, nr_pages_per_segment, compensator,
+			(uint64_t)(nr_pages_per_segment * compensator) / 8);
 	}
 
 	pgftl->segments = segments;
@@ -94,18 +101,19 @@ static int page_ftl_init_cache(struct page_ftl *pgftl)
 	pthread_mutex_init(&cache->mutex, NULL);
 
 	free_block_bits =
-		(uint64_t *)malloc(BITS_TO_BYTES(FLASH_NR_CACHE_BLOCK));
+		(uint64_t *)malloc(BITS_TO_BYTES(PAGE_FTL_NR_CACHE_BLOCK));
 	if (free_block_bits == NULL) {
-		pr_err("van-emde-boas tree construction failed (size: %ld)\n",
-		       (uint64_t)FLASH_NR_CACHE_BLOCK);
+		pr_err("free block bitmap construction failed (size: %ld)\n",
+		       (uint64_t)PAGE_FTL_NR_CACHE_BLOCK);
 		return -EINVAL;
 	}
-	memset(free_block_bits, 0, sizeof(BITS_TO_BYTES(FLASH_NR_CACHE_BLOCK)));
+	memset(free_block_bits, 0,
+	       sizeof(BITS_TO_BYTES(PAGE_FTL_NR_CACHE_BLOCK)));
 
-	lru = lru_init(FLASH_NR_CACHE_BLOCK, NULL);
+	lru = lru_init(PAGE_FTL_NR_CACHE_BLOCK, NULL);
 	if (lru == NULL) {
 		pr_err("creation of the LRU cache failed (size: %ld)\n",
-		       (uint64_t)FLASH_NR_SEGMENT);
+		       (uint64_t)PAGE_FTL_NR_CACHE_BLOCK);
 		return -EINVAL;
 	}
 
@@ -125,32 +133,36 @@ static int page_ftl_init_cache(struct page_ftl *pgftl)
  * @param pgftl pointer of the page ftl structure
  *
  * @return zero to success, negative number to fail
- *
- * @note
- * Each segment's van-emde-boas tree size is
- * FLASH_BLOCKS_PER_SEGMENT * FLASH_PAGES_PER_BLOCK * (FLASH_PAGE_SIZE / FLASH_HOST_IO_SIZE).
- *
- * This means we adjust the page io size to the host io size. For example,
- * the Linux's normal io size is 4096 bytes. However, our flash boards's page size
- * is 8192 bytes (double of the Linux's io size). Therefore, we must bitmap to adjust
- * that size. As a result, we use the `compensator`.
- *
- * Van-emde-boas tree's overhead is following below. (adopt the default option)
- * 1. bits per describe segment = (8192(pages per segment) * 2(compensator))/8(bits per byte) = 2048
- * 2. segments per flash = 4096
- * 3. segments per flash * bits per describe segment = 4096 * 2048 = 8388608 = 8MiB
- *
- * Mapping table overhead is following below. (adopt the default option)
- * 1. flash board size = 4096(# of segments) * 8192(pages per segment) * 8192(page size) = 256GiB
- * 2. entries per mapping table = 256GiB(flash board size) / 4KiB(host page size) = 67108864
- * 3. mapping table size = 4(entry size) * 67108864(entries per mapping table) = 256MiB
- * 
  */
 int page_ftl_open(struct page_ftl *pgftl)
 {
 	int err;
+	size_t map_size;
+
+	struct device *dev;
+
+	assert(NULL != pgftl->dev);
 
 	pthread_mutex_init(&pgftl->mutex, NULL);
+
+	dev = pgftl->dev;
+	err = dev->d_op->open(dev);
+	if (err) {
+		pr_err("device open failed\n");
+		err = -EINVAL;
+		goto exception;
+	}
+
+	map_size = page_ftl_get_map_size(pgftl);
+	pgftl->trans_map = (uint32_t *)malloc(map_size);
+	if (pgftl->trans_map == NULL) {
+		pr_err("cannot allocate the memory for mapping table\n");
+		goto exception;
+	}
+	/** initialize the mapping table */
+	for (uint32_t lpn = 0; lpn < map_size / sizeof(uint32_t); lpn++) {
+		pgftl->trans_map[lpn] = PADDR_EMPTY;
+	}
 
 	err = page_ftl_init_segment(pgftl);
 	if (err) {
@@ -179,7 +191,7 @@ exception:
  * fail to return the nugative value
  */
 ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
-				struct page_ftl_request *request)
+				struct device_request *request)
 {
 	if (pgftl == NULL || request == NULL) {
 		pr_err("null detected (pgftl:%p, request:%p)\n", pgftl,
@@ -202,10 +214,14 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
  *
  * @param segments pointer of the segment array
  */
-static void page_ftl_free_segments(struct page_ftl_segment *segments)
+static void page_ftl_free_segments(struct page_ftl *pgftl)
 {
+	struct page_ftl_segment *segments = pgftl->segments;
+	size_t nr_segments;
+	size_t i;
 	assert(NULL != segments);
-	for (int i = 0; i < FLASH_NR_SEGMENT; i++) {
+	nr_segments = device_get_nr_segments(pgftl->dev);
+	for (i = 0; i < nr_segments; i++) {
 		uint64_t *valid_bits = NULL;
 		valid_bits = segments[i].valid_bits;
 		if (valid_bits == NULL) {
@@ -255,7 +271,7 @@ int page_ftl_close(struct page_ftl *pgftl)
 	}
 
 	if (pgftl->segments) {
-		page_ftl_free_segments(pgftl->segments);
+		page_ftl_free_segments(pgftl);
 		free(pgftl->segments);
 		pgftl->segments = NULL;
 	}
@@ -264,6 +280,16 @@ int page_ftl_close(struct page_ftl *pgftl)
 		ret = page_ftl_free_cache(pgftl->cache);
 		free(pgftl->cache);
 		pgftl->cache = NULL;
+	}
+
+	if (pgftl->trans_map) {
+		free(pgftl->trans_map);
+		pgftl->trans_map = NULL;
+	}
+
+	if (pgftl->dev && pgftl->dev->d_op) {
+		struct device *dev = pgftl->dev;
+		ret = dev->d_op->close(dev);
 	}
 	return ret;
 }

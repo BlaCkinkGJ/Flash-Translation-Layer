@@ -11,15 +11,17 @@
 #include "include/module.h"
 #include "include/flash.h"
 #include "include/log.h"
+#include "include/device.h"
 
 int main(void)
 {
 	struct flash_device *flash = NULL;
-	assert(0 == module_init(PAGE_FTL_MODULE, &flash, FLASH_DEFAULT_FLAG));
+	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
+	pr_info("module initialize\n");
 	flash->f_op->open(flash);
-	sleep(5);
 	flash->f_op->close(flash);
 	assert(0 == module_exit(flash));
+	pr_info("module deallcation\n");
 
 	return 0;
 }

@@ -10,6 +10,7 @@
 
 #include "include/log.h"
 #include "include/page.h"
+#include "include/device.h"
 
 /**
  * @brief open the page flash translation layer based device
@@ -49,7 +50,7 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 {
 	ssize_t size = -1;
 	struct page_ftl *pgftl = NULL;
-	struct page_ftl_request *request = NULL;
+	struct device_request *request = NULL;
 
 	/** check the pointer validity */
 	if (flash == NULL) {
@@ -64,8 +65,8 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 	}
 
 	/** allocate the request */
-	request = (struct page_ftl_request *)malloc(
-		sizeof(struct page_ftl_request));
+	request =
+		(struct device_request *)malloc(sizeof(struct device_request));
 	if (request == NULL) {
 		pr_err("fail to allocate request structure\n");
 		goto exception;
@@ -108,7 +109,7 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash,
 {
 	ssize_t size = -1;
 	struct page_ftl *pgftl = NULL;
-	struct page_ftl_request *request = NULL;
+	struct device_request *request = NULL;
 
 	/** check the pointer validity */
 	if (flash == NULL) {
@@ -122,8 +123,8 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash,
 	}
 
 	/** allocate the request */
-	request = (struct page_ftl_request *)malloc(
-		sizeof(struct page_ftl_request));
+	request =
+		(struct device_request *)malloc(sizeof(struct device_request));
 	if (request == NULL) {
 		pr_err("fail to allocate request structure\n");
 		goto exception;
@@ -193,6 +194,7 @@ const struct flash_operations __page_fops = {
 int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 {
 	int err = 0;
+	int modnum = flags;
 	struct page_ftl *pgftl = NULL;
 
 	(void)flags;
@@ -207,9 +209,10 @@ int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 	}
 	memset(pgftl, 0, sizeof(*pgftl));
 
-	/** initialize the mapping table */
-	for (uint64_t lpa = 0; lpa < FLASH_MAP_SIZE; lpa++) {
-		pgftl->trans_map[lpa] = PADDR_EMPTY;
+	err = device_module_init(modnum, &pgftl->dev, 0);
+	if (err) {
+		pr_err("initialize the device module failed\n");
+		goto exception;
 	}
 
 	flash->f_private = (void *)pgftl;
@@ -233,17 +236,32 @@ exception:
  */
 int page_ftl_module_exit(struct flash_device *flash)
 {
+	int ret = 0;
 	struct page_ftl *pgftl = NULL;
+	struct device *dev = NULL;
 	if (flash == NULL) {
-		pr_err("flash pointer is null detected\n");
+		pr_info("flash pointer is null detected\n");
 		return 0;
 	}
 
 	pgftl = (struct page_ftl *)flash->f_private;
-	if (pgftl) {
-		page_ftl_close(pgftl);
-		free(pgftl);
-		pr_info("successfully close the page FTL\n");
+	if (pgftl == NULL) {
+		pr_info("page ftl doesn't exist\n");
+		return 0;
+	}
+	dev = pgftl->dev;
+	page_ftl_close(pgftl);
+	free(pgftl);
+
+	if (dev == NULL) {
+		pr_info("device module doesn't exist\n");
+		return 0;
+	}
+
+	ret = device_module_exit(dev);
+	if (ret) {
+		pr_err("device module exit failed\n");
+		return ret;
 	}
 	return 0;
 }
