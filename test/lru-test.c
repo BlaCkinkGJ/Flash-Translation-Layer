@@ -93,11 +93,31 @@ void test_lru_big_fill(void)
 	TEST_ASSERT_EQUAL_INT(lru_free(cache), 0);
 }
 
+void test_lru_small_fill(void)
+{
+	const int cache_size = 2;
+	const int total_size = 100;
+	struct lru_cache *cache;
+	cache = lru_init(cache_size, dealloc_data);
+	for (int i = 0; i < total_size; i++) {
+		int *data;
+		uintptr_t test;
+		data = (int *)malloc(sizeof(int));
+		*data = i;
+		lru_put(cache, i, (uintptr_t)data);
+		test = lru_get(cache, i);
+		lru_internal_print(cache);
+		TEST_ASSERT_EQUAL_INT(*(int *)test, i);
+	}
+	TEST_ASSERT_EQUAL_INT(lru_free(cache), 0);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_lru_init);
 	RUN_TEST(test_lru_fill);
 	RUN_TEST(test_lru_big_fill);
+	RUN_TEST(test_lru_small_fill);
 	return UNITY_END();
 }

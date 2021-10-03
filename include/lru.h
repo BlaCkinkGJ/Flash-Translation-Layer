@@ -62,8 +62,8 @@ int lru_free(struct lru_cache *cache);
  */
 static inline size_t lru_get_evict_size(struct lru_cache *cache)
 {
-	pr_debug("evict size ==> %ld\n", (size_t)(cache->capacity * 3 / 10));
-	return cache->capacity * 3 / 10;
+	pr_debug("evict size ==> %zu\n", (size_t)(cache->capacity));
+	return cache->capacity;
 }
 
 #ifdef __cplusplus

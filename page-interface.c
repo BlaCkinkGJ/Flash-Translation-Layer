@@ -195,7 +195,7 @@ int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 {
 	int err = 0;
 	int modnum = flags;
-	struct page_ftl *pgftl = NULL;
+	struct page_ftl *pgftl;
 
 	(void)flags;
 

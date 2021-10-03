@@ -20,7 +20,7 @@
 #include "device.h"
 
 #define PAGE_SIZE (_SC_PAGE_SIZE)
-#define PAGE_FTL_NR_CACHE_BLOCK (1024)
+#define PAGE_FTL_NR_CACHE_BLOCK (2)
 #define PADDR_EMPTY (UINT32_MAX)
 
 /**

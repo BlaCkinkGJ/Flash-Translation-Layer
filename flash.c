@@ -26,7 +26,7 @@
 int flash_module_init(struct flash_device **__flash, uint64_t flags)
 {
 	int err;
-	struct flash_device *flash = NULL;
+	struct flash_device *flash;
 
 	(void)flags;
 

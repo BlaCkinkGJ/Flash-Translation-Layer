@@ -61,7 +61,7 @@ exception:
  */
 static struct lru_node *lru_alloc_node(const uint64_t key, uintptr_t value)
 {
-	struct lru_node *node = NULL;
+	struct lru_node *node;
 	node = (struct lru_node *)malloc(sizeof(struct lru_node));
 	if (node == NULL) {
 		pr_err("node allocation failed\n");
@@ -189,7 +189,7 @@ int lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value)
 	assert(NULL != head);
 
 	if (cache->size >= cache->capacity) {
-		pr_debug("eviction is called (size: %ld, cap: %ld)\n",
+		pr_debug("eviction is called (size: %zu, cap: %zu)\n",
 			 cache->size, cache->capacity);
 		lru_do_evict(cache, lru_get_evict_size(cache));
 	}
@@ -237,11 +237,13 @@ static struct lru_node *lru_find_node(struct lru_cache *cache,
 uintptr_t lru_get(struct lru_cache *cache, const uint64_t key)
 {
 	struct lru_node *head = cache->head;
-	struct lru_node *node = NULL;
+	struct lru_node *node;
+
 	uintptr_t value = (uintptr_t)NULL;
+
 	node = lru_find_node(cache, key);
 	if (node) {
-		assert(0 == lru_delete_node(head, node));
+		lru_delete_node(head, node);
 		lru_node_insert(head, node);
 		value = node->value;
 	}
@@ -272,7 +274,7 @@ int lru_free(struct lru_cache *cache)
 		if (cache->deallocate) {
 			ret = cache->deallocate(node->key, node->value);
 			if (ret) {
-				pr_err("deallocate failed (key: %ld, value: %ld)\n",
+				pr_err("deallocate failed (key: %lu, value: %lu)\n",
 				       node->key, node->value);
 				return ret;
 			}

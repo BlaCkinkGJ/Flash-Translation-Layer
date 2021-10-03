@@ -43,7 +43,7 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 
 	compensator = page_size / PAGE_SIZE;
 	if (page_size < PAGE_SIZE) {
-		pr_err("flash page size must larger than host page size (%lu >= %d)\n",
+		pr_err("flash page size must larger than host page size (%zu >= %d)\n",
 		       page_size, PAGE_SIZE);
 		return -EINVAL;
 	}
@@ -58,11 +58,11 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 		segments[i].valid_bits = NULL;
 	}
 	for (size_t i = 0; i < nr_segments; i++) {
-		uint64_t *valid_bits = NULL;
+		uint64_t *valid_bits;
 		valid_bits = (uint64_t *)malloc(
 			BITS_TO_BYTES(nr_pages_per_segment * compensator));
 		if (valid_bits == NULL) {
-			pr_err("allocated failed(seq:%lu)", i);
+			pr_err("allocated failed(seq:%zu)", i);
 			return -ENOMEM;
 		}
 		memset(valid_bits, 0,
@@ -70,13 +70,36 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 		segments[i].valid_bits = valid_bits;
 		atomic_store(&segments[i].nr_invalid_blocks, 0);
 		pr_debug(
-			"initialize the segment %ld (bits: %lu * %d, size: %lu)\n",
+			"initialize the segment %zu (bits: %zu * %d, size: %lu)\n",
 			i, nr_pages_per_segment, compensator,
 			(uint64_t)(nr_pages_per_segment * compensator) / 8);
 	}
 
 	pgftl->segments = segments;
 	return 0;
+}
+
+/**
+ * @brief deallocate the page ftl's cache
+ *
+ * @param cache pointer of the cache
+ *
+ * @return deallocate status of the cache
+ */
+static int page_ftl_free_cache(struct page_ftl_cache *cache)
+{
+	int ret = 0;
+	assert(NULL != cache);
+	if (cache->lru) {
+		ret = lru_free(cache->lru);
+		cache->lru = NULL;
+	}
+	if (cache->free_block_bits) {
+		free(cache->free_block_bits);
+		cache->free_block_bits = NULL;
+	}
+
+	return ret;
 }
 
 /**
@@ -88,7 +111,8 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
  */
 static int page_ftl_init_cache(struct page_ftl *pgftl)
 {
-	struct page_ftl_cache *cache = NULL;
+	int ret = 0;
+	struct page_ftl_cache *cache;
 	uint64_t *free_block_bits = NULL;
 	struct lru_cache *lru = NULL;
 
@@ -103,21 +127,21 @@ static int page_ftl_init_cache(struct page_ftl *pgftl)
 	free_block_bits =
 		(uint64_t *)malloc(BITS_TO_BYTES(PAGE_FTL_NR_CACHE_BLOCK));
 	if (free_block_bits == NULL) {
-		pr_err("free block bitmap construction failed (size: %ld)\n",
+		pr_err("free block bitmap construction failed (size: %lu)\n",
 		       (uint64_t)PAGE_FTL_NR_CACHE_BLOCK);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exception;
 	}
-	memset(free_block_bits, 0,
-	       sizeof(BITS_TO_BYTES(PAGE_FTL_NR_CACHE_BLOCK)));
+	memset(free_block_bits, 0, BITS_TO_BYTES(PAGE_FTL_NR_CACHE_BLOCK));
+	cache->free_block_bits = free_block_bits;
 
 	lru = lru_init(PAGE_FTL_NR_CACHE_BLOCK, NULL);
 	if (lru == NULL) {
-		pr_err("creation of the LRU cache failed (size: %ld)\n",
+		pr_err("creation of the LRU cache failed (size: %lu)\n",
 		       (uint64_t)PAGE_FTL_NR_CACHE_BLOCK);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exception;
 	}
-
-	cache->free_block_bits = free_block_bits;
 	cache->lru = lru;
 
 	memset(cache->buffer, 0, sizeof(cache->buffer));
@@ -125,6 +149,11 @@ static int page_ftl_init_cache(struct page_ftl *pgftl)
 	pgftl->cache = cache;
 
 	return 0;
+exception:
+	if (cache != NULL) {
+		page_ftl_free_cache(cache);
+	}
+	return ret;
 }
 
 /**
@@ -222,7 +251,7 @@ static void page_ftl_free_segments(struct page_ftl *pgftl)
 	assert(NULL != segments);
 	nr_segments = device_get_nr_segments(pgftl->dev);
 	for (i = 0; i < nr_segments; i++) {
-		uint64_t *valid_bits = NULL;
+		uint64_t *valid_bits;
 		valid_bits = segments[i].valid_bits;
 		if (valid_bits == NULL) {
 			continue;
@@ -230,29 +259,6 @@ static void page_ftl_free_segments(struct page_ftl *pgftl)
 		free(valid_bits);
 		segments[i].valid_bits = NULL;
 	}
-}
-
-/**
- * @brief deallocate the page ftl's cache
- *
- * @param cache pointer of the cache
- *
- * @return deallocate status of the cache
- */
-static int page_ftl_free_cache(struct page_ftl_cache *cache)
-{
-	int ret = 0;
-	assert(NULL != cache);
-	if (cache->lru) {
-		ret = lru_free(cache->lru);
-		cache->lru = NULL;
-	}
-	if (cache->free_block_bits) {
-		free(cache->free_block_bits);
-		cache->free_block_bits = NULL;
-	}
-
-	return ret;
 }
 
 /**

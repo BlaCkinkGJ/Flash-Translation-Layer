@@ -25,18 +25,18 @@ int device_module_init(const uint64_t modnum, struct device **__dev,
 	int ret;
 	struct device *dev;
 	dev = (struct device *)malloc(sizeof(struct device));
-	dev->d_private = NULL;
-	dev->d_op = NULL;
-	dev->d_submodule_exit = NULL;
 	if (dev == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
+	dev->d_private = NULL;
+	dev->d_op = NULL;
+	dev->d_submodule_exit = NULL;
 	(void)flags;
 	ret = submodule_init[modnum](dev, flags);
 	if (ret) {
-		pr_err("initialize the submodule failed(modnum:%ld)\n", modnum);
+		pr_err("initialize the submodule failed(modnum:%lu)\n", modnum);
 		goto exception;
 	}
 

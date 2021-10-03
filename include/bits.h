@@ -27,9 +27,8 @@ static inline void reset_bit(uint64_t *bits, uint64_t index)
 static inline uint64_t find_first_zero_bit(uint64_t *bits, uint64_t size,
 					   uint64_t idx)
 {
-	uint64_t bucket;
 	while (idx < size) {
-		bucket = bits[BITS_TO_UINT64(idx)];
+		uint64_t bucket = bits[BITS_TO_UINT64(idx)];
 		if (bucket < (uint64_t)UINT64_MAX) {
 			uint64_t diff = 0;
 			for (diff = 0; diff < BITS_PER_UINT64; diff++) {
@@ -48,9 +47,8 @@ static inline uint64_t find_first_zero_bit(uint64_t *bits, uint64_t size,
 static inline uint64_t find_first_one_bit(uint64_t *bits, uint64_t size,
 					  uint64_t idx)
 {
-	uint64_t bucket;
 	while (idx < size) {
-		bucket = bits[BITS_TO_UINT64(idx)];
+		uint64_t bucket = bits[BITS_TO_UINT64(idx)];
 		if (bucket > (uint64_t)0x0) {
 			uint64_t diff = 0;
 			for (diff = 0; diff < BITS_PER_UINT64; diff++) {
