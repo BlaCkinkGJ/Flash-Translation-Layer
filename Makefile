@@ -47,6 +47,10 @@ check:
 	@echo "[[ FLAWFINDER ROUTINE ]]"
 	flawfinder *.c include/*.h
 
+documents:
+	doxygen -s Doxyfile
+
 clean:
 	@$(RM) *.o ./test/*.o ./unity/src/*.o $(TARGET) $(TEST_TARGET)
+	@$(RM) -rf doxygen/
 
