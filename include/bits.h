@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <limits.h>
 
-#define BITS_NOT_FOUND (UINT64_MAX)
+#define BITS_NOT_FOUND ((uint64_t)UINT64_MAX)
 
 #define BITS_PER_BYTE (8)
 #define BITS_PER_UINT64 (BITS_PER_BYTE * sizeof(uint64_t))

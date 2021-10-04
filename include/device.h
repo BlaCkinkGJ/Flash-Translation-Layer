@@ -10,6 +10,9 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <pthread.h>
+
+#define PADDR_EMPTY ((uint32_t)UINT32_MAX)
 
 struct device_request;
 struct device_operations;
@@ -41,6 +44,9 @@ typedef void (*device_end_req_fn)(struct device_request *);
 
 /**
  * @brief generic device address format
+ *
+ * @note
+ * `seqnum` is used for distinguish the each host pages in a device page
  */
 struct device_address {
 	union {
@@ -61,7 +67,7 @@ struct device_request {
 	unsigned int flag; /**< flag describes the bio's direction */
 
 	size_t data_len; /**< data length (bytes) */
-	uint64_t sector; /**< sector cursor (divide by sector size(1 << PAGE_SHIFT bytes)) */
+	size_t sector; /**< sector cursor (bytes) */
 	struct device_address paddr; /**< this contains the ppa */
 
 	void *data; /**< pointer of the data */
@@ -106,6 +112,7 @@ struct device_info {
  * @brief metadata of the device
  */
 struct device {
+	pthread_mutex_t mutex;
 	const struct device_operations *d_op;
 	struct device_info info;
 	void *d_private; /**< generally contain the sub-layer's data structure */
@@ -140,6 +147,12 @@ static inline size_t device_get_nr_segments(struct device *dev)
 	return package->nr_blocks;
 }
 
+static inline size_t device_get_blocks_per_segment(struct device *dev)
+{
+	struct device_info *info = &dev->info;
+	return (info->nr_bus * info->nr_chips);
+}
+
 /**
  * @brief get the number of pages in a segment
  *
@@ -153,7 +166,7 @@ static inline size_t device_get_pages_per_segment(struct device *dev)
 	struct device_package *package = &info->package;
 	struct device_block *block = &package->block;
 
-	return (info->nr_bus * info->nr_chips) * block->nr_pages;
+	return device_get_blocks_per_segment(dev) * block->nr_pages;
 }
 
 /**

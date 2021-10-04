@@ -32,7 +32,7 @@ int flash_module_init(struct flash_device **__flash, uint64_t flags)
 
 	flash = (struct flash_device *)malloc(sizeof(struct flash_device));
 	if (flash == NULL) {
-		err = errno;
+		err = -errno;
 		pr_err("fail to allocate the flash information pointer\n");
 		goto exception;
 	}

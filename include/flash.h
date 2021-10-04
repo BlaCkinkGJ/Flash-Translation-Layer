@@ -16,12 +16,6 @@ extern "C" {
 #include <stdint.h>
 #include <pthread.h>
 
-/** follow the linux kernel's value */
-#define PAGE_SHIFT (12)
-
-/** define empty mapping information */
-#define PADDR_EMPTY (UINT32_MAX)
-
 /**
  * @brief flags related on the flash and submodule
  */

@@ -3,6 +3,8 @@
 
 #ifdef __cplusplus
 #include <atomic>
+#else
+#include <stdatomic.h>
 #endif
 
 #ifdef __cplusplus
