@@ -49,6 +49,8 @@ struct device_request {
 
 	void *data; /**< pointer of the data */
 	device_end_req_fn end_rq; /**< end request function */
+
+	void *rq_private; /**< contain the request's private data */
 };
 
 /**
