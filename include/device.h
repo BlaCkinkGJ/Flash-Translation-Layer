@@ -14,6 +14,9 @@
 struct device_request;
 struct device_operations;
 
+/**
+ * @brief flash board I/O direction
+ */
 enum { DEVICE_WRITE = 0,
        DEVICE_READ,
        DEVICE_ERASE,

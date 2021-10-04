@@ -228,9 +228,9 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 		return -EINVAL;
 	}
 	switch (request->flag) {
-	case FLASH_FTL_WRITE:
+	case DEVICE_WRITE:
 		return page_ftl_write(pgftl, request);
-	case FLASH_FTL_READ:
+	case DEVICE_ERASE:
 		return page_ftl_read(pgftl, request);
 	default:
 		pr_err("invalid flag detected: %u\n", request->flag);

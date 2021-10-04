@@ -9,54 +9,67 @@ TEST_TARGET = lru-test.out bits-test.out ramdisk-test.out
 MACROS := -DDEBUG
 
 CFLAGS := -Wall \
-				-Wextra \
-				-Wpointer-arith \
-				-Wcast-align \
-				-Wwrite-strings \
-				-Wswitch-default \
-				-Wunreachable-code \
-				-Winit-self \
-				-Wmissing-field-initializers \
-				-Wno-unknown-pragmas \
-				-Wstrict-prototypes \
-				-Wundef \
-				-Wold-style-definition
-CXXFLAGS := -Wall
+          -Wextra \
+          -Wpointer-arith \
+          -Wcast-align \
+          -Wwrite-strings \
+          -Wswitch-default \
+          -Wunreachable-code \
+          -Winit-self \
+          -Wmissing-field-initializers \
+          -Wno-unknown-pragmas \
+          -Wundef
+CXXFLAGS := -Wall \
 
 UNITY_ROOT := ./unity
 LIBS := -lm -lpthread -liberty
 
 INCLUDES := -I./ -I./unity/src
 
+DEVICE_SRCS := device/ramdisk/*.c \
+               device/bluedbm/*.c \
+               device/*.c
+
+UTIL_SRCS := util/*.c
+
+FTL_SRCS := ftl/page/*.c
+
+INTERFACE_SRCS := interface/*.c
+
+SRCS := $(DEVICE_SRCS) \
+        $(UTIL_SRCS) \
+        $(FTL_SRCS) \
+        $(INTERFACE_SRCS) \
+        main.c
+
 all: $(TARGET)
 
 test: $(TEST_TARGET)
-	./lru-test.out
-	./bits-test.out
 
-$(TARGET): *.c
-	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -c *.c $(LIBS)
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ *.c $(LIBS)
+$(TARGET): $(SRCS)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -c $^ $(LIBS)
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
-lru-test.out: $(UNITY_ROOT)/src/unity.c ./lru.c ./test/lru-test.c
+lru-test.out: $(UNITY_ROOT)/src/unity.c ./util/lru.c ./test/lru-test.c
 	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
 bits-test.out: $(UNITY_ROOT)/src/unity.c ./test/bits-test.c
 	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
-ramdisk-test.out: $(UNITY_ROOT)/src/unity.c ./ramdisk.c ./device.c ./bluedbm.c ./test/ramdisk-test.c
+ramdisk-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/ramdisk-test.c
 	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
-	cppcheck --quiet --enable=all --inconclusive --std=posix -I include/ *.c 
+	cppcheck --quiet --enable=all --inconclusive --std=posix -I include/ $(SRCS)
 	@echo "[[ FLAWFINDER ROUTINE ]]"
-	flawfinder *.c include/*.h
+	flawfinder $(SRCS) include/*.h
 
 documents:
 	doxygen -s Doxyfile
 
 clean:
-	@$(RM) *.o ./test/*.o ./unity/src/*.o $(TARGET) $(TEST_TARGET)
-	@$(RM) -rf doxygen/
+	find . -name '*.o' | xargs -i @rm {}
+	@rm -f $(TARGET) $(TEST_TARGET)
+	@rm -rf doxygen/
 

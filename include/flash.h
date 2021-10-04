@@ -23,14 +23,6 @@ extern "C" {
 #define PADDR_EMPTY (UINT32_MAX)
 
 /**
- * @brief flash board I/O direction
- */
-enum { FLASH_FTL_WRITE = 0,
-       FLASH_FTL_READ,
-       FLASH_FTL_ERASE,
-};
-
-/**
  * @brief flags related on the flash and submodule
  */
 enum { FLASH_DEFAULT_FLAG = 0 /**< flash default flags */,
@@ -62,6 +54,8 @@ struct flash_operations {
 			 off_t offset); /**< write to the flash */
 	ssize_t (*read)(struct flash_device *, void *buffer, size_t count,
 			off_t offset); /**< read from the flash */
+	int (*ioctl)(struct flash_device *, unsigned int request,
+		     ...); /**< for other instruction sets (barely use) */
 	int (*close)(struct flash_device *); /** close the flash device */
 };
 

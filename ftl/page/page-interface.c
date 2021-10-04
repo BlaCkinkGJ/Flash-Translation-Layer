@@ -72,7 +72,7 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		goto exception;
 	}
 
-	request->flag = FLASH_FTL_WRITE;
+	request->flag = DEVICE_WRITE;
 	request->data_len = count;
 	request->sector = offset;
 	request->data = buffer;
@@ -129,7 +129,7 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 		goto exception;
 	}
 
-	request->flag = FLASH_FTL_READ;
+	request->flag = DEVICE_READ;
 	request->data_len = count;
 	request->sector = offset;
 	request->data = buffer;
@@ -179,6 +179,7 @@ const struct flash_operations __page_fops = {
 	.open = page_ftl_open_interface,
 	.write = page_ftl_write_interface,
 	.read = page_ftl_read_interface,
+	.ioctl = NULL,
 	.close = page_ftl_close_interface,
 };
 
