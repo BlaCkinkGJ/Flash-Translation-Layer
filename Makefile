@@ -69,7 +69,7 @@ documents:
 	doxygen -s Doxyfile
 
 clean:
-	find . -name '*.o' | xargs -i @rm {}
-	@rm -f $(TARGET) $(TEST_TARGET)
-	@rm -rf doxygen/
+	find . -name '*.o' | xargs -i rm -f {}
+	rm -f $(TARGET) $(TEST_TARGET)
+	rm -rf doxygen/
 
