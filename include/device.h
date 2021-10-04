@@ -14,6 +14,11 @@
 struct device_request;
 struct device_operations;
 
+enum { DEVICE_WRITE = 0,
+       DEVICE_READ,
+       DEVICE_ERASE,
+};
+
 enum { RAMDISK_MODULE = 0,
        BLUEDBM_MODULE,
 };
@@ -40,26 +45,38 @@ struct device_request {
 
 	size_t data_len; /**< data length (bytes) */
 	uint64_t sector; /**< sector cursor (divide by sector size(1 << PAGE_SHIFT bytes)) */
-	struct device_address paddr;
+	struct device_address paddr; /**< this contains the ppa */
 
-	const void *data; /**< pointer of the data */
+	void *data; /**< pointer of the data */
 	device_end_req_fn end_rq; /**< end request function */
 };
 
+/**
+ * @brief flash board's page information
+ */
 struct device_page {
 	size_t size; /**< byte */
 };
 
+/**
+ * @brief flash board's block information
+ */
 struct device_block {
 	struct device_page page;
 	size_t nr_pages;
 };
 
+/**
+ * @brief flash board's package(nand chip) information
+ */
 struct device_package {
 	struct device_block block;
 	size_t nr_blocks;
 };
 
+/**
+ * @brief flash board's architecture information
+ */
 struct device_info {
 	struct device_package package;
 	size_t nr_bus; /**< bus equal to channel */
@@ -81,28 +98,14 @@ struct device {
  */
 struct device_operations {
 	int (*open)(struct device *);
-	ssize_t (*write)(struct device *, struct device_address, void *);
-	ssize_t (*read)(struct device *, struct device_address, void *);
-	ssize_t (*erase)(struct device *, struct device_address);
+	ssize_t (*write)(struct device *, struct device_request *);
+	ssize_t (*read)(struct device *, struct device_request *);
+	ssize_t (*erase)(struct device *, struct device_request *);
 	int (*close)(struct device *);
 };
 
 int device_module_init(const uint64_t modnum, struct device **, uint64_t flags);
 int device_module_exit(struct device *);
-
-static inline uint64_t device_get_total_size(struct device *dev)
-{
-	struct device_info *info = &dev->info;
-	struct device_package *package = &info->package;
-	struct device_block *block = &package->block;
-	struct device_page *page = &block->page;
-
-	size_t nr_segments = package->nr_blocks;
-	size_t nr_blocks_per_segment = info->nr_bus * info->nr_chips;
-	size_t nr_pages_per_segment = nr_blocks_per_segment * block->nr_pages;
-
-	return nr_segments * nr_pages_per_segment * page->size;
-}
 
 static inline size_t device_get_nr_segments(struct device *dev)
 {
@@ -127,6 +130,20 @@ static inline size_t device_get_page_size(struct device *dev)
 	struct device_block *block = &package->block;
 	struct device_page *page = &block->page;
 	return page->size;
+}
+
+static inline size_t device_get_total_size(struct device *dev)
+{
+	size_t nr_segments = device_get_nr_segments(dev);
+	size_t nr_pages_per_segment = device_get_pages_per_segment(dev);
+	size_t page_size = device_get_page_size(dev);
+
+	return nr_segments * nr_pages_per_segment * page_size;
+}
+
+static inline size_t device_get_total_pages(struct device *dev)
+{
+	return device_get_total_size(dev) / device_get_page_size(dev);
 }
 
 #endif

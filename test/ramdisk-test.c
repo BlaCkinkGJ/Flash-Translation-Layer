@@ -1,0 +1,189 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#include "include/ramdisk.h"
+#include "include/device.h"
+#include "unity.h"
+
+struct device *dev;
+
+void setUp(void)
+{
+	int ret;
+	ret = device_module_init(RAMDISK_MODULE, &dev, 0);
+	TEST_ASSERT_EQUAL_INT(0, ret);
+}
+
+void tearDown(void)
+{
+	TEST_ASSERT_NOT_NULL(dev);
+	device_module_exit(dev);
+}
+
+void test_open_and_close(void)
+{
+	TEST_ASSERT_NOT_NULL(dev->d_op);
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
+}
+
+void test_full_write(void)
+{
+	struct device_request request;
+	struct device_address addr;
+	char *buffer;
+	size_t page_size;
+	size_t total_pages;
+
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev));
+	page_size = device_get_page_size(dev);
+	total_pages = device_get_total_pages(dev);
+
+	buffer = (char *)malloc(page_size);
+	TEST_ASSERT_NOT_NULL(buffer);
+	memset(buffer, 0, page_size);
+
+	/**< note that all I/O functions run synchronously */
+	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
+		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		request.paddr = addr;
+		request.data_len = page_size;
+		request.end_rq = NULL;
+		request.flag = DEVICE_WRITE;
+		request.sector = 0;
+		request.data = buffer;
+		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+	}
+
+	memset(buffer, 0, page_size);
+	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
+		request.paddr = addr;
+		request.data_len = page_size;
+		request.end_rq = NULL;
+		request.flag = DEVICE_READ;
+		request.sector = 0;
+		request.data = buffer;
+		TEST_ASSERT_EQUAL_INT(0, dev->d_op->read(dev, &request));
+		TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
+}
+
+void test_overwrite(void)
+{
+	struct device_request request;
+	struct device_address addr;
+	char *buffer;
+	size_t page_size;
+	size_t total_pages;
+
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev));
+	page_size = device_get_page_size(dev);
+	total_pages = device_get_total_pages(dev);
+	buffer = (char *)malloc(page_size);
+	TEST_ASSERT_NOT_NULL(buffer);
+	memset(buffer, 0, page_size);
+
+	/**< note that all I/O functions run synchronously */
+	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
+		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		request.paddr = addr;
+		request.data_len = page_size;
+		request.end_rq = NULL;
+		request.flag = DEVICE_WRITE;
+		request.sector = 0;
+		request.data = buffer;
+		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+	}
+
+	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
+		request.paddr = addr;
+		request.data_len = page_size;
+		request.end_rq = NULL;
+		request.flag = DEVICE_WRITE;
+		request.sector = 0;
+		request.data = buffer;
+		TEST_ASSERT_EQUAL_INT(-EINVAL, dev->d_op->write(dev, &request));
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
+}
+
+void test_erase(void)
+{
+	struct device_request request;
+	struct device_address addr;
+	char *buffer;
+	size_t page_size;
+	size_t total_pages;
+	size_t nr_segments;
+	size_t nr_pages_per_segment;
+	size_t segnum;
+
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev));
+	page_size = device_get_page_size(dev);
+	total_pages = device_get_total_pages(dev);
+	buffer = (char *)malloc(page_size);
+	TEST_ASSERT_NOT_NULL(buffer);
+	memset(buffer, 0, page_size);
+
+	/**< note that all I/O functions run synchronously */
+	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
+		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		request.paddr = addr;
+		request.data_len = page_size;
+		request.end_rq = NULL;
+		request.flag = DEVICE_WRITE;
+		request.sector = 0;
+		request.data = buffer;
+		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+	}
+
+	nr_segments = device_get_nr_segments(dev);
+	for (segnum = 0; segnum < nr_segments - 1; segnum++) {
+		addr.lpn = 0;
+		addr.format.block = segnum;
+		request.paddr = addr;
+		request.flag = DEVICE_ERASE;
+		TEST_ASSERT_EQUAL_INT(0, dev->d_op->erase(dev, &request));
+	};
+
+	nr_pages_per_segment = device_get_pages_per_segment(dev);
+	for (addr.lpn = 0; addr.lpn < total_pages - nr_pages_per_segment;
+	     addr.lpn++) {
+		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		request.paddr = addr;
+		request.data_len = page_size;
+		request.end_rq = NULL;
+		request.flag = DEVICE_WRITE;
+		request.sector = 0;
+		request.data = buffer;
+		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+	}
+
+	for (; addr.lpn < total_pages; addr.lpn++) {
+		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		request.paddr = addr;
+		request.data_len = page_size;
+		request.end_rq = NULL;
+		request.flag = DEVICE_WRITE;
+		request.sector = 0;
+		request.data = buffer;
+		TEST_ASSERT_EQUAL_INT(-EINVAL, dev->d_op->write(dev, &request));
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
+}
+
+int main(void)
+{
+	UNITY_BEGIN();
+	RUN_TEST(test_open_and_close);
+	RUN_TEST(test_full_write);
+	RUN_TEST(test_overwrite);
+	RUN_TEST(test_erase);
+	return UNITY_END();
+}

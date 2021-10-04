@@ -18,6 +18,12 @@ static inline void set_bit(uint64_t *bits, uint64_t index)
 		((uint64_t)0x1 << (index % BITS_PER_UINT64));
 }
 
+static inline int get_bit(uint64_t *bits, uint64_t index)
+{
+	return (bits[BITS_TO_UINT64(index)] &
+		((uint64_t)0x1 << (index % BITS_PER_UINT64))) > 0;
+}
+
 static inline void reset_bit(uint64_t *bits, uint64_t index)
 {
 	bits[BITS_TO_UINT64(index)] &=

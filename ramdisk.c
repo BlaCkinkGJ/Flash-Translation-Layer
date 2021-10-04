@@ -10,14 +10,18 @@
 #include <errno.h>
 #include <string.h>
 
+#include "include/flash.h"
 #include "include/ramdisk.h"
 #include "include/device.h"
 #include "include/log.h"
+#include "include/bits.h"
 
-static int ramdisk_open(struct device *dev)
+int ramdisk_open(struct device *dev)
 {
 	int ret = 0;
 	char *buffer;
+	uint64_t bitmap_size;
+	uint64_t *is_used;
 	struct ramdisk *ramdisk;
 
 	struct device_info *info = &dev->info;
@@ -35,6 +39,7 @@ static int ramdisk_open(struct device *dev)
 	ramdisk = (struct ramdisk *)dev->d_private;
 	ramdisk->size = device_get_total_size(dev);
 
+	pr_info("ramdisk generated (size: %zu bytes)\n", ramdisk->size);
 	buffer = (char *)malloc(ramdisk->size);
 	if (buffer == NULL) {
 		pr_err("memory allocation failed\n");
@@ -44,50 +49,127 @@ static int ramdisk_open(struct device *dev)
 	memset(buffer, 0, ramdisk->size);
 	ramdisk->buffer = buffer;
 
+	bitmap_size = BITS_TO_BYTES(ramdisk->size / page->size);
+	is_used = (uint64_t *)malloc(bitmap_size);
+	if (is_used == NULL) {
+		pr_err("memory allocation failed\n");
+		ret = -ENOMEM;
+		goto exception;
+	}
+	pr_info("bitmap generated (size: %zu bytes)\n", bitmap_size);
+	memset(is_used, 0, bitmap_size);
+	ramdisk->is_used = is_used;
+
 	return ret;
 exception:
+	ramdisk_close(dev);
 	return ret;
 }
 
-static ssize_t ramdisk_write(struct device *dev, struct device_address addr,
-			     void *buffer)
+ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 {
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
+	struct device_address addr = request->paddr;
 	size_t page_size = device_get_page_size(dev);
-	memcpy(&ramdisk->buffer[addr.lpn], buffer, page_size);
-	return 0;
-}
+	int is_used;
 
-static ssize_t ramdisk_read(struct device *dev, struct device_address addr,
-			    void *buffer)
-{
-	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
-	size_t page_size = device_get_page_size(dev);
-	memcpy(buffer, &ramdisk->buffer[addr.lpn], page_size);
-	return 0;
-}
+	if (request->data == NULL) {
+		pr_err("you do not pass the data pointer to NULL\n");
+		return -ENODATA;
+	}
 
-static ssize_t ramdisk_erase(struct device *dev, struct device_address addr)
-{
-	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
-	size_t page_size;
-	uint32_t nr_pages_per_segment;
-	uint32_t lpn;
+	if (request->flag != DEVICE_WRITE) {
+		pr_err("request type is not matched (expected: %u, current: %u)\n",
+		       (unsigned int)DEVICE_WRITE, request->flag);
+		return -EINVAL;
+	}
 
-	page_size = device_get_page_size(dev);
-	nr_pages_per_segment = (uint32_t)device_get_pages_per_segment(dev);
-	for (lpn = addr.lpn; lpn < addr.lpn + nr_pages_per_segment; lpn++) {
-		memset(&ramdisk->buffer[lpn], 0, page_size);
+	if (request->data_len != page_size) {
+		pr_err("data write size is must be %zu (current: %zu)\n",
+		       request->data_len, page_size);
+		return -EINVAL;
+	}
+
+	is_used = get_bit(ramdisk->is_used, addr.lpn);
+	if (is_used == 1) {
+		pr_err("you overwrite the already written page\n");
+		return -EINVAL;
+	}
+	set_bit(ramdisk->is_used, addr.lpn);
+	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
+	       request->data_len);
+	if (request->end_rq) {
+		request->end_rq(request);
 	}
 	return 0;
 }
 
-static int ramdisk_close(struct device *dev)
+ssize_t ramdisk_read(struct device *dev, struct device_request *request)
+{
+	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
+	struct device_address addr = request->paddr;
+
+	if (request->data == NULL) {
+		pr_err("you do not pass the data pointer to NULL\n");
+		return -ENODATA;
+	}
+
+	if (request->flag != DEVICE_READ) {
+		pr_err("request type is not matched (expected: %u, current: %u)\n",
+		       (unsigned int)DEVICE_READ, request->flag);
+		return -EINVAL;
+	}
+
+	size_t page_size = device_get_page_size(dev);
+	if (request->data_len != page_size) {
+		pr_err("data read size is must be %zu (current: %zu)\n",
+		       request->data_len, page_size);
+		return -EINVAL;
+	}
+	memcpy(request->data, &ramdisk->buffer[addr.lpn * page_size],
+	       request->data_len);
+	if (request->end_rq) {
+		request->end_rq(request);
+	}
+	return 0;
+}
+
+ssize_t ramdisk_erase(struct device *dev, struct device_request *request)
+{
+	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
+	struct device_address addr = request->paddr;
+	size_t page_size;
+	uint32_t nr_pages_per_segment;
+	uint32_t lpn;
+
+	if (request->flag != DEVICE_ERASE) {
+		pr_err("request type is not matched (expected: %u, current: %u)\n",
+		       (unsigned int)DEVICE_ERASE, request->flag);
+		return -EINVAL;
+	}
+
+	page_size = device_get_page_size(dev);
+	nr_pages_per_segment = (uint32_t)device_get_pages_per_segment(dev);
+	for (lpn = addr.lpn; lpn < addr.lpn + nr_pages_per_segment; lpn++) {
+		memset(&ramdisk->buffer[lpn * page_size], 0, page_size);
+		reset_bit(ramdisk->is_used, lpn);
+	}
+	if (request->end_rq) {
+		request->end_rq(request);
+	}
+	return 0;
+}
+
+int ramdisk_close(struct device *dev)
 {
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
 	if (ramdisk->buffer != NULL) {
 		free(ramdisk->buffer);
 		ramdisk->buffer = NULL;
+	}
+	if (ramdisk->is_used != NULL) {
+		free(ramdisk->is_used);
+		ramdisk->is_used = NULL;
 	}
 	ramdisk->size = 0;
 	return 0;

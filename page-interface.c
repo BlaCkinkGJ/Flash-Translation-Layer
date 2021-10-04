@@ -45,7 +45,7 @@ static int page_ftl_open_interface(struct flash_device *flash)
  * @return positive or zero write size to success, negative number to fail
  */
 static ssize_t page_ftl_write_interface(struct flash_device *flash,
-					const void *buffer, size_t count,
+					void *buffer, size_t count,
 					off_t offset)
 {
 	ssize_t size = -1;
@@ -103,9 +103,8 @@ exception:
  *
  * @return positive or zero read size to success, negative number to fail
  */
-static ssize_t page_ftl_read_interface(struct flash_device *flash,
-				       const void *buffer, size_t count,
-				       off_t offset)
+static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
+				       size_t count, off_t offset)
 {
 	ssize_t size = -1;
 	struct page_ftl *pgftl = NULL;

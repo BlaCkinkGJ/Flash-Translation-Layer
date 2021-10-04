@@ -39,17 +39,17 @@ void test_lru_fill(void)
 	struct lru_cache *cache;
 	cache = lru_init(10, NULL);
 	for (int i = 1; i <= 10; i++) {
-		TEST_ASSERT_EQUAL_INT(lru_put(cache, i, i * 2), 0);
+		TEST_ASSERT_EQUAL_INT(0, lru_put(cache, i, i * 2));
 	}
 	lru_internal_print(cache);
 	for (int i = 1; i <= 10; i++) {
-		TEST_ASSERT_EQUAL_INT(lru_get(cache, i), i * 2);
+		TEST_ASSERT_EQUAL_INT(i * 2, lru_get(cache, i));
 		printf("=========================\n");
 		lru_internal_print(cache);
 	}
 	lru_internal_print(cache);
 	for (int i = 1; i <= 10; i++) {
-		TEST_ASSERT_EQUAL_INT(lru_put(cache, i + 10, (i + 10) * 2), 0);
+		TEST_ASSERT_EQUAL_INT(0, lru_put(cache, i + 10, (i + 10) * 2));
 		printf("=========================\n");
 		lru_internal_print(cache);
 	}
@@ -86,11 +86,11 @@ void test_lru_big_fill(void)
 		} else {
 			uintptr_t data = lru_get(cache, i);
 			TEST_ASSERT_NOT_NULL((void *)data);
-			TEST_ASSERT_EQUAL_INT(*(int *)data, i);
+			TEST_ASSERT_EQUAL_INT(i, *(int *)data);
 		}
 		counter += 1;
 	}
-	TEST_ASSERT_EQUAL_INT(lru_free(cache), 0);
+	TEST_ASSERT_EQUAL_INT(0, lru_free(cache));
 }
 
 void test_lru_small_fill(void)
@@ -107,9 +107,9 @@ void test_lru_small_fill(void)
 		lru_put(cache, i, (uintptr_t)data);
 		test = lru_get(cache, i);
 		lru_internal_print(cache);
-		TEST_ASSERT_EQUAL_INT(*(int *)test, i);
+		TEST_ASSERT_EQUAL_INT(i, *(int *)test);
 	}
-	TEST_ASSERT_EQUAL_INT(lru_free(cache), 0);
+	TEST_ASSERT_EQUAL_INT(0, lru_free(cache));
 }
 
 int main(void)

@@ -4,7 +4,7 @@
 #include "include/bluedbm.h"
 #include "include/log.h"
 
-static int bluedbm_open(struct device *dev)
+int bluedbm_open(struct device *dev)
 {
 	struct bluedbm *bdbm;
 
@@ -26,32 +26,28 @@ static int bluedbm_open(struct device *dev)
 	return 0;
 }
 
-static ssize_t bluedbm_write(struct device *dev, struct device_address addr,
-			     void *buffer)
+ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 {
 	(void)dev;
-	(void)addr;
-	(void)buffer;
+	(void)request;
 	return 0;
 }
 
-static ssize_t bluedbm_read(struct device *dev, struct device_address addr,
-			    void *buffer)
+ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 {
 	(void)dev;
-	(void)addr;
-	(void)buffer;
+	(void)request;
 	return 0;
 }
 
-static ssize_t bluedbm_erase(struct device *dev, struct device_address addr)
+ssize_t bluedbm_erase(struct device *dev, struct device_request *request)
 {
 	(void)dev;
-	(void)addr;
+	(void)request;
 	return 0;
 }
 
-static int bluedbm_close(struct device *dev)
+int bluedbm_close(struct device *dev)
 {
 	(void)dev;
 	return 0;

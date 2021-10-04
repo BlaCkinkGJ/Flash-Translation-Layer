@@ -1,7 +1,10 @@
+# You can generate the compile_commands.json file by using
+# `bear make all test`
+
 CC = gcc
 CXX = g++
 TARGET = a.out
-TEST_TARGET = lru-test.out bits-test.out
+TEST_TARGET = lru-test.out bits-test.out ramdisk-test.out
 
 MACROS := -DDEBUG
 
@@ -39,6 +42,9 @@ lru-test.out: $(UNITY_ROOT)/src/unity.c ./lru.c ./test/lru-test.c
 	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
 bits-test.out: $(UNITY_ROOT)/src/unity.c ./test/bits-test.c
+	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+
+ramdisk-test.out: $(UNITY_ROOT)/src/unity.c ./ramdisk.c ./device.c ./bluedbm.c ./test/ramdisk-test.c
 	$(CC) -g -pg $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
 check:
