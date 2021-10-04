@@ -83,3 +83,6 @@ GTAGS
 
 # doxygen result directory
 doxygen/
+
+# compile commands
+compile_commands.json
