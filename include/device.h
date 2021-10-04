@@ -17,17 +17,31 @@ struct device_operations;
 /**
  * @brief flash board I/O direction
  */
-enum { DEVICE_WRITE = 0,
-       DEVICE_READ,
-       DEVICE_ERASE,
+enum { DEVICE_WRITE = 0 /**< write flag */,
+       DEVICE_READ /**< read flag */,
+       DEVICE_ERASE /**< erase flag */,
 };
 
-enum { RAMDISK_MODULE = 0,
-       BLUEDBM_MODULE,
+/**
+ * @brief support module list
+ */
+enum { RAMDISK_MODULE = 0 /**< select the ramdisk module */,
+       BLUEDBM_MODULE /**< select the bluedbm module */,
 };
 
+/**
+ * @brief I/O end request function
+ *
+ * @param request device request structure's pointer
+ *
+ * @note
+ * You must specify the call routine of this function in your custom device module
+ */
 typedef void (*device_end_req_fn)(struct device_request *);
 
+/**
+ * @brief generic device address format
+ */
 struct device_address {
 	union {
 		struct {
@@ -105,13 +119,20 @@ struct device_operations {
 	int (*open)(struct device *);
 	ssize_t (*write)(struct device *, struct device_request *);
 	ssize_t (*read)(struct device *, struct device_request *);
-	ssize_t (*erase)(struct device *, struct device_request *);
+	int (*erase)(struct device *, struct device_request *);
 	int (*close)(struct device *);
 };
 
 int device_module_init(const uint64_t modnum, struct device **, uint64_t flags);
 int device_module_exit(struct device *);
 
+/**
+ * @brief get the number of segments in a flash board
+ *
+ * @param dev device structure pointer
+ *
+ * @return the number of segments in a flash board
+ */
 static inline size_t device_get_nr_segments(struct device *dev)
 {
 	struct device_info *info = &dev->info;
@@ -119,6 +140,13 @@ static inline size_t device_get_nr_segments(struct device *dev)
 	return package->nr_blocks;
 }
 
+/**
+ * @brief get the number of pages in a segment
+ *
+ * @param dev device structure pointer
+ *
+ * @return the number of pages in a segment
+ */
 static inline size_t device_get_pages_per_segment(struct device *dev)
 {
 	struct device_info *info = &dev->info;
@@ -128,6 +156,13 @@ static inline size_t device_get_pages_per_segment(struct device *dev)
 	return (info->nr_bus * info->nr_chips) * block->nr_pages;
 }
 
+/**
+ * @brief get flash board's NAND page size
+ *
+ * @param dev device structure pointer
+ *
+ * @return NAND page size (generally, 8192 or 4096)
+ */
 static inline size_t device_get_page_size(struct device *dev)
 {
 	struct device_info *info = &dev->info;
@@ -137,6 +172,13 @@ static inline size_t device_get_page_size(struct device *dev)
 	return page->size;
 }
 
+/**
+ * @brief total size of a flash board
+ *
+ * @param dev device structure pointer
+ *
+ * @return flash board's total size (byte)
+ */
 static inline size_t device_get_total_size(struct device *dev)
 {
 	size_t nr_segments = device_get_nr_segments(dev);
@@ -146,6 +188,13 @@ static inline size_t device_get_total_size(struct device *dev)
 	return nr_segments * nr_pages_per_segment * page_size;
 }
 
+/**
+ * @brief get total the number of pages in a flash board
+ *
+ * @param dev device structure pointer
+ *
+ * @return the number of pages in a flash board.
+ */
 static inline size_t device_get_total_pages(struct device *dev)
 {
 	return device_get_total_size(dev) / device_get_page_size(dev);

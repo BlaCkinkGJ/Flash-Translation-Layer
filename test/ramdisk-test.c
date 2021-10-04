@@ -54,7 +54,8 @@ void test_full_write(void)
 		request.flag = DEVICE_WRITE;
 		request.sector = 0;
 		request.data = buffer;
-		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+		TEST_ASSERT_EQUAL_INT(request.data_len,
+				      dev->d_op->write(dev, &request));
 	}
 
 	memset(buffer, 0, page_size);
@@ -65,7 +66,8 @@ void test_full_write(void)
 		request.flag = DEVICE_READ;
 		request.sector = 0;
 		request.data = buffer;
-		TEST_ASSERT_EQUAL_INT(0, dev->d_op->read(dev, &request));
+		TEST_ASSERT_EQUAL_INT(request.data_len,
+				      dev->d_op->read(dev, &request));
 		TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 	}
 
@@ -97,7 +99,8 @@ void test_overwrite(void)
 		request.flag = DEVICE_WRITE;
 		request.sector = 0;
 		request.data = buffer;
-		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+		TEST_ASSERT_EQUAL_INT(request.data_len,
+				      dev->d_op->write(dev, &request));
 	}
 
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
@@ -141,7 +144,8 @@ void test_erase(void)
 		request.flag = DEVICE_WRITE;
 		request.sector = 0;
 		request.data = buffer;
-		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+		TEST_ASSERT_EQUAL_INT(request.data_len,
+				      dev->d_op->write(dev, &request));
 	}
 
 	nr_segments = device_get_nr_segments(dev);
@@ -164,7 +168,8 @@ void test_erase(void)
 		request.flag = DEVICE_WRITE;
 		request.sector = 0;
 		request.data = buffer;
-		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+		TEST_ASSERT_EQUAL_INT(request.data_len,
+				      dev->d_op->write(dev, &request));
 	}
 
 	for (; addr.lpn < total_pages; addr.lpn++) {
@@ -222,7 +227,8 @@ void test_end_rq_works(void)
 		request.sector = 0;
 		request.data = buffer;
 		request.rq_private = (void *)is_check;
-		TEST_ASSERT_EQUAL_INT(0, dev->d_op->write(dev, &request));
+		TEST_ASSERT_EQUAL_INT(request.data_len,
+				      dev->d_op->write(dev, &request));
 	}
 
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
@@ -237,7 +243,8 @@ void test_end_rq_works(void)
 		request.flag = DEVICE_READ;
 		request.sector = 0;
 		request.data = buffer;
-		TEST_ASSERT_EQUAL_INT(0, dev->d_op->read(dev, &request));
+		TEST_ASSERT_EQUAL_INT(request.data_len,
+				      dev->d_op->read(dev, &request));
 		TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 	}
 

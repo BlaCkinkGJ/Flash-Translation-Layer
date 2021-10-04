@@ -40,7 +40,7 @@ ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 	return 0;
 }
 
-ssize_t bluedbm_erase(struct device *dev, struct device_request *request)
+int bluedbm_erase(struct device *dev, struct device_request *request)
 {
 	(void)dev;
 	(void)request;

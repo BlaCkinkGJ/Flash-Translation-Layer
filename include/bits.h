@@ -12,24 +12,53 @@
 #define BITS_TO_BYTES(x) (x / BITS_PER_BYTE)
 #define BITS_TO_UINT64(x) (x / BITS_PER_UINT64)
 
+/**
+ * @brief set the index position bit in the array(uint64_t)
+ *
+ * @param bits array which contains the bitmap
+ * @param index set position (bit position NOT byte or uint64_t position)
+ */
 static inline void set_bit(uint64_t *bits, uint64_t index)
 {
 	bits[BITS_TO_UINT64(index)] |=
 		((uint64_t)0x1 << (index % BITS_PER_UINT64));
 }
 
+/**
+ * @brief get the value at the index position bit in the array(uint64_t)
+ *
+ * @param bits array which contains the bitmap
+ * @param index get position (bit position NOT byte or uint64_t position)
+ *
+ * @return bit status at the index position
+ */
 static inline int get_bit(uint64_t *bits, uint64_t index)
 {
 	return (bits[BITS_TO_UINT64(index)] &
 		((uint64_t)0x1 << (index % BITS_PER_UINT64))) > 0;
 }
 
+/**
+ * @brief reset the index position bit in the array(uint64_t)
+ *
+ * @param bits array which contains the bitmap
+ * @param index reset position (bit position NOT byte or uint64_t position)
+ */
 static inline void reset_bit(uint64_t *bits, uint64_t index)
 {
 	bits[BITS_TO_UINT64(index)] &=
 		~((uint64_t)0x1 << (index % BITS_PER_UINT64));
 }
 
+/**
+ * @brief find first zero bit in the array(uint64_t)
+ *
+ * @param bits array which contains the bitmap
+ * @param size bitmap's size (the number of bits NOT bytes)
+ * @param idx start position bit
+ *
+ * @return first zero bit position
+ */
 static inline uint64_t find_first_zero_bit(uint64_t *bits, uint64_t size,
 					   uint64_t idx)
 {
@@ -50,6 +79,15 @@ static inline uint64_t find_first_zero_bit(uint64_t *bits, uint64_t size,
 	return BITS_NOT_FOUND;
 }
 
+/**
+ * @brief find first one bit in the array(uint64_t)
+ *
+ * @param bits array which contains the bitmap
+ * @param size bitmap's size (the number of bits NOT bytes)
+ * @param idx start position bit
+ *
+ * @return first one bit position
+ */
 static inline uint64_t find_first_one_bit(uint64_t *bits, uint64_t size,
 					  uint64_t idx)
 {

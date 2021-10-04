@@ -16,6 +16,13 @@
 #include "include/log.h"
 #include "include/bits.h"
 
+/**
+ * @brief open the ramdisk (allocate the device resources)
+ *
+ * @param dev pointer of the device structure
+ *
+ * @return 0 for success, negative value to fail
+ */
 int ramdisk_open(struct device *dev)
 {
 	int ret = 0;
@@ -66,6 +73,14 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief write to the ramdisk
+ *
+ * @param dev pointer of the device structure
+ * @param request pointer of the device request structure
+ *
+ * @return written size (byte)
+ */
 ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 {
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
@@ -101,9 +116,17 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return 0;
+	return request->data_len;
 }
 
+/**
+ * @brief read to the ramdisk
+ *
+ * @param dev pointer of the device structure
+ * @param request pointer of the device request structure
+ *
+ * @return read size (byte)
+ */
 ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 {
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
@@ -131,10 +154,18 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return 0;
+	return request->data_len;
 }
 
-ssize_t ramdisk_erase(struct device *dev, struct device_request *request)
+/**
+ * @brief erase a segment
+ *
+ * @param dev pointer of the device structure
+ * @param request pointer of the device request structure
+ *
+ * @return 0 for success, negative value for fail
+ */
+int ramdisk_erase(struct device *dev, struct device_request *request)
 {
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
 	struct device_address addr = request->paddr;
@@ -160,6 +191,13 @@ ssize_t ramdisk_erase(struct device *dev, struct device_request *request)
 	return 0;
 }
 
+/**
+ * @brief close the ramdisk
+ *
+ * @param dev pointer of the device
+ *
+ * @return 0 for success ,negative value for fail
+ */
 int ramdisk_close(struct device *dev)
 {
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
@@ -175,6 +213,9 @@ int ramdisk_close(struct device *dev)
 	return 0;
 }
 
+/**
+ * @brief ramdisk operations
+ */
 const struct device_operations __ramdisk_dops = {
 	.open = ramdisk_open,
 	.write = ramdisk_write,
@@ -183,6 +224,14 @@ const struct device_operations __ramdisk_dops = {
 	.close = ramdisk_close,
 };
 
+/**
+ * @brief initialize the device module
+ *
+ * @param dev pointer of the device structure
+ * @param flags flags for ramdisk and device
+ *
+ * @return 0 for sucess, negative value for fail
+ */
 int ramdisk_device_init(struct device *dev, uint64_t flags)
 {
 	int ret = 0;
@@ -206,6 +255,13 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief deallocate the device module
+ *
+ * @param dev pointer of the device structure
+ *
+ * @return 0 for success, negative value for fail
+ */
 int ramdisk_device_exit(struct device *dev)
 {
 	struct ramdisk *ramdisk;

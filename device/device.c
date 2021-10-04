@@ -14,11 +14,26 @@
 #include <assert.h>
 #include <errno.h>
 
+/**
+ * @brief initialize the submodule
+ *
+ * @param device pointer of the device structure
+ * @param uint64_t contain the flag information
+ */
 static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [RAMDISK_MODULE] = */ ramdisk_device_init,
 	/* [BULEDBM_MODULE] = */ bluedbm_device_init,
 };
 
+/**
+ * @brief initialize the device module
+ *
+ * @param modnum module's number
+ * @param __dev device structure pointer (will be allocated)
+ * @param flags initializing flag
+ *
+ * @return 0 for success, negative value for fail
+ */
 int device_module_init(const uint64_t modnum, struct device **__dev,
 		       uint64_t flags)
 {
@@ -47,6 +62,13 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief deallocate the device module
+ *
+ * @param dev pointer of the device module's structure
+ *
+ * @return 0 for success, negative value for fail
+ */
 int device_module_exit(struct device *dev)
 {
 	int ret = 0;
