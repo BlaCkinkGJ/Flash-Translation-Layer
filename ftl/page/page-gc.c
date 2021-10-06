@@ -45,6 +45,7 @@ static struct page_ftl_segment *page_ftl_pick_gc_target(struct page_ftl *pgftl)
 		 page_ftl_get_segment_number(pgftl, (uintptr_t)segment),
 		 atomic_load(&segment->nr_valid_pages), segment);
 	pgftl->gc_list = g_list_remove(pgftl->gc_list, segment);
+	atomic_store(&segment->nr_free_pages, 0);
 	return segment;
 }
 
