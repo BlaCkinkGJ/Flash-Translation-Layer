@@ -84,8 +84,7 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		}
 
 		/** allocate the request */
-		request = (struct device_request *)malloc(
-			sizeof(struct device_request));
+		request = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 		if (request == NULL) {
 			pr_err("fail to allocate request structure\n");
 			size = -ENOMEM;
@@ -100,7 +99,6 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		pr_debug("%zu (length: %zu, buffer: %lu, count: %lu)\n",
 			 request->sector, request->data_len,
 			 (uintptr_t)request->data - (uintptr_t)buffer, count);
-		fflush(stdout);
 
 		/** submit the request */
 		size = page_ftl_submit_request(pgftl, request);
@@ -117,7 +115,7 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 
 exception:
 	if (request) {
-		free(request);
+		device_free_request(request);
 	}
 	return size;
 }
@@ -187,8 +185,7 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 		}
 
 		/** allocate the request */
-		request = (struct device_request *)malloc(
-			sizeof(struct device_request));
+		request = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 		if (request == NULL) {
 			pr_err("fail to allocate request structure\n");
 			size = -ENOMEM;
@@ -220,7 +217,7 @@ exception:
 		free(temp);
 	}
 	if (request) {
-		free(request);
+		device_free_request(request);
 	}
 	return size;
 }
@@ -250,24 +247,35 @@ static int page_ftl_close_interface(struct flash_device *flash)
 static int page_ftl_ioctl_interface(struct flash_device *flash,
 				    unsigned int request, ...)
 {
+	struct device_request *device_rq;
 	struct page_ftl *pgftl = NULL;
+
 	if (flash == NULL) {
 		pr_err("flash pointer doesn't exist\n");
 		return -EINVAL;
 	}
+
 	pgftl = (struct page_ftl *)flash->f_private;
 	if (pgftl == NULL) {
 		pr_err("page FTL information doesn't exist\n");
 		return -EINVAL;
 	}
+
+	device_rq = device_alloc_request(DEVICE_DEFAULT_REQUEST);
+	if (device_rq == NULL) {
+		pr_err("request allocation failed\n");
+		return -ENOMEM;
+	}
 	switch (request) {
 	case PAGE_FTL_IOCTL_TRIM:
-		page_ftl_do_gc(pgftl);
+		device_rq->flag = DEVICE_ERASE;
+		page_ftl_submit_request(pgftl, device_rq);
 		break;
 	default:
 		pr_err("invalid command requested(commands: %u)\n", request);
 		return -EINVAL;
 	}
+	device_free_request(device_rq);
 	return 0;
 }
 

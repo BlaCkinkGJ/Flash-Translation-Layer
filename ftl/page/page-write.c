@@ -75,7 +75,13 @@ static void page_ftl_write_end_rq(struct device_request *request)
 		 atomic_load(&segment->nr_valid_pages));
 
 	free(request->data);
-	free(request);
+
+	pthread_mutex_lock(&request->mutex);
+	if (atomic_load(&request->is_finish) == 0) {
+		pthread_cond_signal(&request->cond);
+	}
+	atomic_store(&request->is_finish, 1);
+	pthread_mutex_unlock(&request->mutex);
 }
 
 static ssize_t page_ftl_read_for_overwrite(struct page_ftl *pgftl, size_t lpn,
@@ -90,9 +96,9 @@ static ssize_t page_ftl_read_for_overwrite(struct page_ftl *pgftl, size_t lpn,
 	dev = pgftl->dev;
 	page_size = device_get_page_size(dev);
 
-	read_rq =
-		(struct device_request *)malloc(sizeof(struct device_request));
+	read_rq = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 	if (read_rq == NULL) {
+		pr_err("crete read request failed\n");
 		return -ENOMEM;
 	}
 	read_rq->flag = DEVICE_READ;
@@ -110,7 +116,9 @@ static ssize_t page_ftl_read_for_overwrite(struct page_ftl *pgftl, size_t lpn,
 ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 {
 	struct device *dev;
+	struct device_address paddr;
 	char *buffer;
+	ssize_t ret;
 	size_t page_size;
 
 	size_t lpn, offset;
@@ -138,6 +146,12 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		return -EINVAL;
 	}
 
+	paddr = page_ftl_get_free_page(pgftl); /**< global data retrieve */
+	if (paddr.lpn == PADDR_EMPTY) {
+		pr_err("cannot allocate the valid page from device\n");
+		return -EFAULT;
+	}
+
 	buffer = (char *)malloc(page_size);
 	if (buffer == NULL) {
 		pr_err("memory allocation failed\n");
@@ -156,13 +170,24 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 
 	request->flag = DEVICE_WRITE;
 	request->data = buffer;
-	request->paddr =
-		page_ftl_get_free_page(pgftl); /**< global data retrieve */
+	request->paddr = paddr;
 	request->rq_private = (void *)pgftl;
 	request->data_len = page_size;
 	request->end_rq = page_ftl_write_end_rq;
 
-	dev->d_op->write(dev, request);
+	ret = dev->d_op->write(dev, request);
+	if (ret < 0) {
+		pr_err("device write failed (ppn: %u)\n", request->paddr.lpn);
+		return ret;
+	}
+
+	pthread_mutex_lock(&request->mutex);
+	while (atomic_load(&request->is_finish) == 0) {
+		pthread_cond_wait(&request->cond, &request->mutex);
+	}
+	pthread_mutex_unlock(&request->mutex);
+
+	device_free_request(request);
 
 	return write_size;
 }

@@ -25,16 +25,23 @@ static void page_ftl_read_end_rq(struct device_request *read_rq)
 	memcpy(request->data, &((char *)read_rq->data)[offset],
 	       request->data_len);
 	free(read_rq->data);
-	free(read_rq);
-	free(request);
+	device_free_request(read_rq);
+
+	pthread_mutex_lock(&request->mutex);
+	if (atomic_load(&request->is_finish) == 0) {
+		pthread_cond_signal(&request->cond);
+	}
+	atomic_store(&request->is_finish, 1);
+	pthread_mutex_unlock(&request->mutex);
 }
 
 ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 {
 	struct device *dev;
 	struct device_request *read_rq;
+	struct device_address paddr;
 
-	char *buffer = NULL;
+	char *buffer;
 
 	size_t page_size;
 	size_t lpn, offset;
@@ -42,17 +49,19 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	ssize_t ret = 0;
 	ssize_t data_len;
 
-	read_rq =
-		(struct device_request *)malloc(sizeof(struct device_request));
-	if (read_rq == NULL) {
-		pr_err("memory allocation failed\n");
-		ret = -ENOMEM;
-		goto exception;
-	}
+	buffer = NULL;
+	read_rq = NULL;
 
 	dev = pgftl->dev;
 	page_size = device_get_page_size(dev);
 	lpn = page_ftl_get_lpn(pgftl, request->sector);
+	paddr.lpn = pgftl->trans_map[lpn];
+
+	if (paddr.lpn == PADDR_EMPTY) {
+		pr_err("cannot find the mapping information (lpn: %zu)\n", lpn);
+		ret = -EINVAL;
+		goto exception;
+	}
 
 	request->rq_private = pgftl;
 
@@ -73,24 +82,45 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	}
 	memset(buffer, 0, page_size);
 
+	read_rq = device_alloc_request(DEVICE_DEFAULT_REQUEST);
+	if (read_rq == NULL) {
+		pr_err("request allocation failed\n");
+		ret = -ENOMEM;
+		goto exception;
+	}
+
 	read_rq->flag = DEVICE_READ;
 	read_rq->data = buffer;
 	read_rq->data_len = page_size;
-	read_rq->paddr.lpn = pgftl->trans_map[lpn];
+	read_rq->paddr = paddr;
 	read_rq->rq_private = request;
 	read_rq->end_rq = page_ftl_read_end_rq;
 
 	data_len = request->data_len;
-	dev->d_op->read(dev, read_rq);
-	ret = data_len;
+	ret = dev->d_op->read(dev, read_rq);
+	if (ret < 0) {
+		pr_err("device read failed (ppn: %u)\n", request->paddr.lpn);
+		read_rq = NULL;
+		buffer = NULL;
+		goto exception;
+	}
 
+	pthread_mutex_lock(&request->mutex);
+	while (atomic_load(&request->is_finish) == 0) {
+		pthread_cond_wait(&request->cond, &request->mutex);
+	}
+	pthread_mutex_unlock(&request->mutex);
+
+	device_free_request(request);
+
+	ret = data_len;
 	return ret;
 exception:
 	if (buffer) {
 		free(buffer);
 	}
 	if (read_rq) {
-		free(read_rq);
+		device_free_request(read_rq);
 	}
 	return ret;
 }

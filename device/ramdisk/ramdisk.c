@@ -5,10 +5,12 @@
  * @version 1.0
  * @date 2021-10-03
  */
+#include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "include/flash.h"
 #include "include/ramdisk.h"
@@ -16,6 +18,32 @@
 #include "include/log.h"
 #include "include/bits.h"
 
+static void *ramdisk_write_wake_thread(void *data)
+{
+	struct device_request *request;
+	request = (struct device_request *)data;
+	usleep(220);
+	request->end_rq(request);
+	return NULL;
+}
+
+static void *ramdisk_read_wake_thread(void *data)
+{
+	struct device_request *request;
+	request = (struct device_request *)data;
+	usleep(25);
+	request->end_rq(request);
+	return NULL;
+}
+
+static void *ramdisk_erase_wake_thread(void *data)
+{
+	struct device_request *request;
+	request = (struct device_request *)data;
+	usleep(500 * 64);
+	request->end_rq(request);
+	return NULL;
+}
 /**
  * @brief open the ramdisk (allocate the device resources)
  *
@@ -86,39 +114,57 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
 	struct device_address addr = request->paddr;
 	size_t page_size = device_get_page_size(dev);
-	ssize_t data_size = 0;
+	ssize_t ret = 0;
 	int is_used;
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
-		return -ENODATA;
+		ret = -ENODATA;
+		goto exception;
 	}
 
 	if (request->flag != DEVICE_WRITE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_WRITE, request->flag);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exception;
 	}
 
 	if (request->data_len != page_size) {
 		pr_err("data write size is must be %zu (current: %zu)\n",
 		       request->data_len, page_size);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exception;
 	}
 
 	is_used = get_bit(ramdisk->is_used, addr.lpn);
 	if (is_used == 1) {
 		pr_err("you overwrite the already written page\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exception;
 	}
 	set_bit(ramdisk->is_used, addr.lpn);
 	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
 	       request->data_len);
-	data_size = request->data_len;
+	ret = request->data_len;
+	if (request->end_rq) {
+		int status;
+		pthread_t thread;
+		status =
+			pthread_create(&thread, NULL, ramdisk_write_wake_thread,
+				       (void *)request);
+		if (status != 0) {
+			pr_err("thread creation failed\n");
+			ret = -EFAULT;
+			goto exception;
+		}
+	}
+	return ret;
+exception:
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return data_size;
+	return ret;
 }
 
 /**
@@ -134,39 +180,59 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
 	struct device_address addr = request->paddr;
 	size_t page_size;
-	ssize_t data_size;
+	ssize_t ret;
+
+	ret = 0;
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
-		return -ENODATA;
+		ret = -ENODATA;
+		goto exception;
 	}
 
 	if (request->flag != DEVICE_READ) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_READ, request->flag);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exception;
 	}
 
 	page_size = device_get_page_size(dev);
 	if (request->data_len != page_size) {
 		pr_err("data read size is must be %zu (current: %zu)\n",
 		       request->data_len, page_size);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exception;
 	}
 
 	if (request->paddr.lpn == PADDR_EMPTY) {
 		pr_debug("physical address is not specified...\n");
-		goto exit;
+		ret = -EINVAL;
+		goto exception;
 	}
 
 	memcpy(request->data, &ramdisk->buffer[addr.lpn * page_size],
 	       request->data_len);
-exit:
-	data_size = request->data_len;
+	ret = request->data_len;
+	pr_debug("request->end_rq %p %p\n", request->end_rq,
+		 &((struct device_request *)request->rq_private)->mutex);
+	if (request->end_rq) {
+		int status;
+		pthread_t thread;
+		status = pthread_create(&thread, NULL, ramdisk_read_wake_thread,
+					(void *)request);
+		if (status != 0) {
+			pr_err("thread creation failed\n");
+			ret = -EFAULT;
+			goto exception;
+		}
+	}
+	return ret;
+exception:
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return data_size;
+	return ret;
 }
 
 /**
@@ -185,11 +251,15 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 	size_t segnum;
 	uint32_t nr_pages_per_segment;
 	uint32_t lpn;
+	int ret;
+
+	ret = 0;
 
 	if (request->flag != DEVICE_ERASE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_ERASE, request->flag);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exception;
 	}
 
 	page_size = device_get_page_size(dev);
@@ -203,9 +273,23 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 	}
 
 	if (request->end_rq) {
+		int status;
+		pthread_t thread;
+		status =
+			pthread_create(&thread, NULL, ramdisk_erase_wake_thread,
+				       (void *)request);
+		if (status < 0) {
+			pr_err("thread creation failed\n");
+			ret = -EFAULT;
+			goto exception;
+		}
+	}
+	return ret;
+exception:
+	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return 0;
+	return ret;
 }
 
 /**

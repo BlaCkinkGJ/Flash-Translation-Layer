@@ -30,7 +30,7 @@ gint page_ftl_gc_list_cmp(gconstpointer a, gconstpointer b)
 
 static void page_ftl_erase_end_rq(struct device_request *request)
 {
-	free(request);
+	device_free_request(request);
 }
 
 static struct page_ftl_segment *page_ftl_pick_gc_target(struct page_ftl *pgftl)
@@ -58,10 +58,9 @@ static int page_ftl_segment_erase(struct page_ftl *pgftl,
 
 	dev = pgftl->dev;
 
-	request =
-		(struct device_request *)malloc(sizeof(struct device_request));
+	request = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 	if (request == NULL) {
-		pr_err("memory allocation failed\n");
+		pr_err("request allocation failed\n");
 		return -ENOMEM;
 	}
 
@@ -87,19 +86,21 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 
 	dev = pgftl->dev;
 	page_size = device_get_page_size(dev);
+	request = NULL;
 
 	buffer = (char *)malloc(page_size);
 	if (buffer == NULL) {
 		pr_err("memory allocation failed\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto exception;
 	}
 	memset(buffer, 0, page_size);
 
-	request =
-		(struct device_request *)malloc(sizeof(struct device_request));
+	request = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 	if (request == NULL) {
-		pr_err("memory allocation failed\n");
-		return -ENOMEM;
+		pr_err("request allocation failed\n");
+		ret = -ENOMEM;
+		goto exception;
 	}
 
 	request->flag = DEVICE_READ;
@@ -116,6 +117,14 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 
 	*__buffer = buffer;
 	return ret;
+exception:
+	if (buffer) {
+		free(buffer);
+	}
+	if (request) {
+		device_free_request(request);
+	}
+	return ret;
 }
 
 static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
@@ -129,10 +138,9 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 	dev = pgftl->dev;
 	page_size = device_get_page_size(dev);
 
-	request =
-		(struct device_request *)malloc(sizeof(struct device_request));
+	request = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 	if (request == NULL) {
-		pr_err("memory allocation failed\n");
+		pr_err("request allocation failed\n");
 		return -ENOMEM;
 	}
 

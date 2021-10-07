@@ -47,6 +47,7 @@ struct page_ftl {
 	struct page_ftl_segment *segments;
 	struct device *dev;
 	pthread_mutex_t mutex;
+	pthread_rwlock_t rwlock;
 
 	GList *gc_list; /**< garbage collection target list */
 	uint64_t *gc_seg_bits; /**< to find segnum is in gc list or not */
@@ -66,7 +67,6 @@ int page_ftl_module_exit(struct flash_device *);
 /* page-map.c */
 struct device_address page_ftl_get_free_page(struct page_ftl *);
 int page_ftl_update_map(struct page_ftl *, size_t sector, uint32_t ppn);
-struct device_address page_ftl_get_map(struct page_ftl *, size_t sector);
 
 /* page-core.c */
 int page_ftl_segment_data_init(struct page_ftl *, struct page_ftl_segment *);

@@ -12,10 +12,18 @@
 #include <stdint.h>
 #include <pthread.h>
 
+#include "include/atomic.h"
+
 #define PADDR_EMPTY ((uint32_t)UINT32_MAX)
 
 struct device_request;
 struct device_operations;
+
+/**
+ * @brief request allocation flags
+ */
+enum { DEVICE_DEFAULT_REQUEST = 0,
+};
 
 /**
  * @brief flash board I/O direction
@@ -73,6 +81,11 @@ struct device_request {
 	void *data; /**< pointer of the data */
 	device_end_req_fn end_rq; /**< end request function */
 
+	atomic64_t is_finish;
+
+	pthread_mutex_t mutex;
+	pthread_cond_t cond;
+
 	void *rq_private; /**< contain the request's private data */
 };
 
@@ -129,6 +142,9 @@ struct device_operations {
 	int (*erase)(struct device *, struct device_request *);
 	int (*close)(struct device *);
 };
+
+struct device_request *device_alloc_request(uint64_t flags);
+void device_free_request(struct device_request *);
 
 int device_module_init(const uint64_t modnum, struct device **, uint64_t flags);
 int device_module_exit(struct device *);

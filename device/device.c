@@ -27,6 +27,45 @@ static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [BULEDBM_MODULE] = */ bluedbm_device_init,
 };
 
+struct device_request *device_alloc_request(uint64_t flags)
+{
+	struct device_request *request;
+	int ret = 0;
+	(void)flags;
+
+	request =
+		(struct device_request *)malloc(sizeof(struct device_request));
+	if (request == NULL) {
+		pr_err("request allocation failed\n");
+		return NULL;
+	}
+	memset(request, 0, sizeof(struct device_request));
+	ret = pthread_mutex_init(&request->mutex, NULL);
+	if (ret) {
+		pr_err("pthread mutex initialize failed\n");
+		errno = ret;
+		return NULL;
+	}
+
+	ret = pthread_cond_init(&request->cond, NULL);
+	if (ret) {
+		pr_err("pthread conditional variable initialize failed\n");
+		errno = ret;
+		return NULL;
+	}
+
+	atomic_store(&request->is_finish, 0);
+
+	return request;
+}
+
+void device_free_request(struct device_request *request)
+{
+	pthread_cond_destroy(&request->cond);
+	pthread_mutex_destroy(&request->mutex);
+	free(request);
+}
+
 /**
  * @brief initialize the device module
  *

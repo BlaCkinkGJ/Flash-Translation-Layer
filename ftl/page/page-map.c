@@ -53,6 +53,12 @@ retry:
 	idx += 1;
 
 	segment = &pgftl->segments[segnum];
+	if (segment == NULL) {
+		pr_err("fatal error detected: cannot find the segnum %zu\n",
+		       segnum);
+		paddr.lpn = PADDR_EMPTY;
+		return paddr;
+	}
 	nr_free_pages = atomic_load(&segment->nr_free_pages);
 	if (nr_free_pages == 0) {
 		goto retry;
@@ -97,23 +103,4 @@ int page_ftl_update_map(struct page_ftl *pgftl, uint64_t sector, uint32_t ppn)
 	trans_map[lpn] = ppn;
 
 	return 0;
-}
-
-struct device_address page_ftl_get_map(struct page_ftl *pgftl, uint64_t sector)
-{
-	struct device_address paddr;
-	uint64_t lpn;
-	size_t map_size;
-
-	lpn = page_ftl_get_lpn(pgftl, sector);
-	map_size = page_ftl_get_map_size(pgftl) / sizeof(uint32_t);
-	if (lpn >= (uint64_t)map_size) {
-		pr_err("lpn value overflow detected (max: %zu, cur: %lu)\n",
-		       map_size, lpn);
-		paddr.lpn = PADDR_EMPTY;
-		return paddr;
-	}
-	paddr.lpn = pgftl->trans_map[lpn];
-
-	return paddr;
 }
