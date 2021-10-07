@@ -11,8 +11,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <pthread.h>
-
-#include "include/atomic.h"
+#include <glib.h>
 
 #define PADDR_EMPTY ((uint32_t)UINT32_MAX)
 
@@ -81,7 +80,7 @@ struct device_request {
 	void *data; /**< pointer of the data */
 	device_end_req_fn end_rq; /**< end request function */
 
-	atomic64_t is_finish;
+	gint is_finish;
 
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
@@ -128,6 +127,7 @@ struct device {
 	pthread_mutex_t mutex;
 	const struct device_operations *d_op;
 	struct device_info info;
+	uint64_t *badseg_bitmap;
 	void *d_private; /**< generally contain the sub-layer's data structure */
 	int (*d_submodule_exit)(struct device *);
 };

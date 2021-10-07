@@ -18,32 +18,6 @@
 #include "include/log.h"
 #include "include/bits.h"
 
-static void *ramdisk_write_wake_thread(void *data)
-{
-	struct device_request *request;
-	request = (struct device_request *)data;
-	usleep(220);
-	request->end_rq(request);
-	return NULL;
-}
-
-static void *ramdisk_read_wake_thread(void *data)
-{
-	struct device_request *request;
-	request = (struct device_request *)data;
-	usleep(25);
-	request->end_rq(request);
-	return NULL;
-}
-
-static void *ramdisk_erase_wake_thread(void *data)
-{
-	struct device_request *request;
-	request = (struct device_request *)data;
-	usleep(500 * 64);
-	request->end_rq(request);
-	return NULL;
-}
 /**
  * @brief open the ramdisk (allocate the device resources)
  *
@@ -63,6 +37,8 @@ int ramdisk_open(struct device *dev)
 	struct device_package *package = &info->package;
 	struct device_block *block = &package->block;
 	struct device_page *page = &block->page;
+
+	size_t nr_segments;
 
 	info->nr_bus = 8;
 	info->nr_chips = 8;
@@ -84,7 +60,7 @@ int ramdisk_open(struct device *dev)
 	memset(buffer, 0, ramdisk->size);
 	ramdisk->buffer = buffer;
 
-	bitmap_size = BITS_TO_BYTES(ramdisk->size / page->size);
+	bitmap_size = BITS_TO_UINT64_ALIGN(ramdisk->size / page->size);
 	is_used = (uint64_t *)malloc(bitmap_size);
 	if (is_used == NULL) {
 		pr_err("memory allocation failed\n");
@@ -95,6 +71,18 @@ int ramdisk_open(struct device *dev)
 	memset(is_used, 0, bitmap_size);
 	ramdisk->is_used = is_used;
 
+	nr_segments = device_get_nr_segments(dev);
+	dev->badseg_bitmap =
+		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
+	if (dev->badseg_bitmap == NULL) {
+		pr_err("memory allocation failed\n");
+		ret = -ENOMEM;
+		goto exception;
+	}
+	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+	for (uint64_t i = 0; i < 10; i++) {
+		set_bit(dev->badseg_bitmap, i);
+	}
 	return ret;
 exception:
 	ramdisk_close(dev);
@@ -148,16 +136,7 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	       request->data_len);
 	ret = request->data_len;
 	if (request->end_rq) {
-		int status;
-		pthread_t thread;
-		status =
-			pthread_create(&thread, NULL, ramdisk_write_wake_thread,
-				       (void *)request);
-		if (status != 0) {
-			pr_err("thread creation failed\n");
-			ret = -EFAULT;
-			goto exception;
-		}
+		request->end_rq(request);
 	}
 	return ret;
 exception:
@@ -217,15 +196,7 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	pr_debug("request->end_rq %p %p\n", request->end_rq,
 		 &((struct device_request *)request->rq_private)->mutex);
 	if (request->end_rq) {
-		int status;
-		pthread_t thread;
-		status = pthread_create(&thread, NULL, ramdisk_read_wake_thread,
-					(void *)request);
-		if (status != 0) {
-			pr_err("thread creation failed\n");
-			ret = -EFAULT;
-			goto exception;
-		}
+		request->end_rq(request);
 	}
 	return ret;
 exception:
@@ -273,16 +244,7 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 	}
 
 	if (request->end_rq) {
-		int status;
-		pthread_t thread;
-		status =
-			pthread_create(&thread, NULL, ramdisk_erase_wake_thread,
-				       (void *)request);
-		if (status < 0) {
-			pr_err("thread creation failed\n");
-			ret = -EFAULT;
-			goto exception;
-		}
+		request->end_rq(request);
 	}
 	return ret;
 exception:
@@ -301,7 +263,15 @@ exception:
  */
 int ramdisk_close(struct device *dev)
 {
-	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
+	struct ramdisk *ramdisk;
+	if (dev->badseg_bitmap != NULL) {
+		free(dev->badseg_bitmap);
+		dev->badseg_bitmap = NULL;
+	}
+	ramdisk = (struct ramdisk *)dev->d_private;
+	if (ramdisk == NULL) {
+		return 0;
+	}
 	if (ramdisk->buffer != NULL) {
 		free(ramdisk->buffer);
 		ramdisk->buffer = NULL;

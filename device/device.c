@@ -54,7 +54,7 @@ struct device_request *device_alloc_request(uint64_t flags)
 		return NULL;
 	}
 
-	atomic_store(&request->is_finish, 0);
+	g_atomic_int_set(&request->is_finish, 0);
 
 	return request;
 }
@@ -94,6 +94,8 @@ int device_module_init(const uint64_t modnum, struct device **__dev,
 		pr_err("initialize the submodule failed(modnum:%lu)\n", modnum);
 		goto exception;
 	}
+
+	dev->badseg_bitmap = NULL;
 
 	*__dev = dev;
 	return ret;

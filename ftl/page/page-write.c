@@ -10,7 +10,6 @@
 #include "include/device.h"
 #include "include/log.h"
 #include "include/bits.h"
-#include "include/atomic.h"
 
 #include <pthread.h>
 #include <assert.h>
@@ -36,8 +35,8 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 	segment->lpn_list =
 		g_list_remove(segment->lpn_list, GSIZE_TO_POINTER(lpn));
 
-	nr_valid_pages = atomic_load(&segment->nr_valid_pages);
-	atomic_store(&segment->nr_valid_pages, nr_valid_pages - 1);
+	nr_valid_pages = g_atomic_int_get(&segment->nr_valid_pages);
+	g_atomic_int_set(&segment->nr_valid_pages, nr_valid_pages - 1);
 
 	/**< global information update */
 	pgftl->trans_map[lpn] = PADDR_EMPTY;
@@ -70,17 +69,19 @@ static void page_ftl_write_end_rq(struct device_request *request)
 	/**< global information update */
 	page_ftl_update_map(pgftl, request->sector, request->paddr.lpn);
 
-	pr_debug("new address: %lu => %u\n", lpn, pgftl->trans_map[lpn]);
-	pr_debug("%lu/%lu(free/valid)\n", atomic_load(&segment->nr_free_pages),
-		 atomic_load(&segment->nr_valid_pages));
+	pr_debug("new address: %lu => %u (seg: %u)\n", lpn,
+		 pgftl->trans_map[lpn], pgftl->trans_map[lpn] >> 13);
+	pr_debug("%u/%u(free/valid)\n",
+		 g_atomic_int_get(&segment->nr_free_pages),
+		 g_atomic_int_get(&segment->nr_valid_pages));
 
 	free(request->data);
 
 	pthread_mutex_lock(&request->mutex);
-	if (atomic_load(&request->is_finish) == 0) {
+	if (g_atomic_int_get(&request->is_finish) == 0) {
 		pthread_cond_signal(&request->cond);
 	}
-	atomic_store(&request->is_finish, 1);
+	g_atomic_int_set(&request->is_finish, 1);
 	pthread_mutex_unlock(&request->mutex);
 }
 
@@ -182,7 +183,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	}
 
 	pthread_mutex_lock(&request->mutex);
-	while (atomic_load(&request->is_finish) == 0) {
+	while (g_atomic_int_get(&request->is_finish) == 0) {
 		pthread_cond_wait(&request->cond, &request->mutex);
 	}
 	pthread_mutex_unlock(&request->mutex);

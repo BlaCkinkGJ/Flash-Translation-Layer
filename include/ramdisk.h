@@ -10,6 +10,8 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <glib.h>
+#include <sys/time.h>
 
 #include "device.h"
 

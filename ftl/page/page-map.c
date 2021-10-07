@@ -9,7 +9,6 @@
 #include "include/page.h"
 #include "include/device.h"
 #include "include/log.h"
-#include "include/atomic.h"
 
 #include <errno.h>
 
@@ -52,6 +51,10 @@ retry:
 	segnum = (pgftl->alloc_segnum + idx) % nr_segments;
 	idx += 1;
 
+	if (dev->badseg_bitmap && get_bit(dev->badseg_bitmap, segnum)) {
+		goto retry;
+	}
+
 	segment = &pgftl->segments[segnum];
 	if (segment == NULL) {
 		pr_err("fatal error detected: cannot find the segnum %zu\n",
@@ -59,7 +62,7 @@ retry:
 		paddr.lpn = PADDR_EMPTY;
 		return paddr;
 	}
-	nr_free_pages = atomic_load(&segment->nr_free_pages);
+	nr_free_pages = g_atomic_int_get(&segment->nr_free_pages);
 	if (nr_free_pages == 0) {
 		goto retry;
 	}
@@ -76,10 +79,10 @@ retry:
 	paddr.lpn |= offset;
 
 	set_bit(segment->use_bits, offset);
-	atomic_store(&segment->nr_free_pages, nr_free_pages - 1);
+	g_atomic_int_set(&segment->nr_free_pages, nr_free_pages - 1);
 
-	nr_valid_pages = atomic_load(&segment->nr_valid_pages);
-	atomic_store(&segment->nr_valid_pages, nr_valid_pages + 1);
+	nr_valid_pages = g_atomic_int_get(&segment->nr_valid_pages);
+	g_atomic_int_set(&segment->nr_valid_pages, nr_valid_pages + 1);
 
 	return paddr;
 }

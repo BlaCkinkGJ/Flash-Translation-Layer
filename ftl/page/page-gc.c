@@ -13,7 +13,6 @@
 #include <errno.h>
 
 #include "include/page.h"
-#include "include/atomic.h"
 #include "include/log.h"
 #include "include/bits.h"
 
@@ -23,8 +22,8 @@ gint page_ftl_gc_list_cmp(gconstpointer a, gconstpointer b)
 	uint64_t nr_valid_pages[2];
 	segment[0] = (struct page_ftl_segment *)a;
 	segment[1] = (struct page_ftl_segment *)b;
-	nr_valid_pages[0] = atomic_load(&segment[0]->nr_valid_pages);
-	nr_valid_pages[1] = atomic_load(&segment[1]->nr_valid_pages);
+	nr_valid_pages[0] = g_atomic_int_get(&segment[0]->nr_valid_pages);
+	nr_valid_pages[1] = g_atomic_int_get(&segment[1]->nr_valid_pages);
 	return nr_valid_pages[0] - nr_valid_pages[1];
 }
 
@@ -41,11 +40,11 @@ static struct page_ftl_segment *page_ftl_pick_gc_target(struct page_ftl *pgftl)
 	}
 	pgftl->gc_list = g_list_sort(pgftl->gc_list, page_ftl_gc_list_cmp);
 	segment = (struct page_ftl_segment *)pgftl->gc_list->data;
-	pr_debug("gc target: %zd (valid: %lu) => %p\n",
+	pr_debug("gc target: %zd (valid: %u) => %p\n",
 		 page_ftl_get_segment_number(pgftl, (uintptr_t)segment),
-		 atomic_load(&segment->nr_valid_pages), segment);
+		 g_atomic_int_get(&segment->nr_valid_pages), segment);
 	pgftl->gc_list = g_list_remove(pgftl->gc_list, segment);
-	atomic_store(&segment->nr_free_pages, 0);
+	g_atomic_int_set(&segment->nr_free_pages, 0);
 	return segment;
 }
 

@@ -17,7 +17,6 @@
 #include <glib.h>
 
 #include "flash.h"
-#include "atomic.h"
 #include "device.h"
 
 #define PAGE_FTL_CACHE_SIZE (2)
@@ -31,8 +30,8 @@ enum { PAGE_FTL_IOCTL_TRIM = 0,
  * Segment number is same as block number
  */
 struct page_ftl_segment {
-	atomic64_t nr_free_pages;
-	atomic64_t nr_valid_pages;
+	gint nr_free_pages;
+	gint nr_valid_pages;
 
 	uint64_t *use_bits; /**< contain the use page information */
 	GList *lpn_list; /**< lba_list which contains the valid data */

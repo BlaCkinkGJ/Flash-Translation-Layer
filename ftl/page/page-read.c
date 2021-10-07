@@ -28,10 +28,10 @@ static void page_ftl_read_end_rq(struct device_request *read_rq)
 	device_free_request(read_rq);
 
 	pthread_mutex_lock(&request->mutex);
-	if (atomic_load(&request->is_finish) == 0) {
+	if (g_atomic_int_get(&request->is_finish) == 0) {
 		pthread_cond_signal(&request->cond);
 	}
-	atomic_store(&request->is_finish, 1);
+	g_atomic_int_set(&request->is_finish, 1);
 	pthread_mutex_unlock(&request->mutex);
 }
 
@@ -106,7 +106,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	}
 
 	pthread_mutex_lock(&request->mutex);
-	while (atomic_load(&request->is_finish) == 0) {
+	while (g_atomic_int_get(&request->is_finish) == 0) {
 		pthread_cond_wait(&request->cond, &request->mutex);
 	}
 	pthread_mutex_unlock(&request->mutex);

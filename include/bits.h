@@ -9,7 +9,7 @@
 #define BITS_PER_BYTE (8)
 #define BITS_PER_UINT64 (BITS_PER_BYTE * sizeof(uint64_t))
 
-#define BITS_TO_BYTES(x) (x / BITS_PER_BYTE)
+#define BITS_TO_UINT64_ALIGN(x) (((size_t)x / BITS_PER_UINT64 + 1) * sizeof(uint64_t))
 #define BITS_TO_UINT64(x) (x / BITS_PER_UINT64)
 
 /**
