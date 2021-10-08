@@ -7,13 +7,16 @@
 
 CC = gcc
 CXX = g++
-TARGET = libbloom.so a.out
+TARGET = a.out
 TEST_TARGET = lru-test.out bits-test.out ramdisk-test.out
 
 MACROS := -DDEBUG
 
 GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
+DEVICE_INCLUDES = 
+
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
+DEVICE_LIBS = -lzbd
 
 CFLAGS := -Wall \
           -Wextra \
@@ -31,11 +34,12 @@ CFLAGS := -Wall \
 CXXFLAGS := $(CFLAGS)
 
 UNITY_ROOT := ./unity
-LIBS := -lm -lpthread -liberty -lasan $(GLIB_LIBS)
+LIBS := -lm -lpthread -lasan $(GLIB_LIBS) $(DEVICE_LIBS)
 
-INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES)
+INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 DEVICE_SRCS := device/ramdisk/*.c \
                device/bluedbm/*.c \
+	       device/zbd/*.c \
                device/*.c
 
 UTIL_SRCS := util/*.c
