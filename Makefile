@@ -8,10 +8,6 @@
 CC = gcc
 CXX = g++
 TARGET = a.out
-TEST_TARGET = lru-test.out \
-              bits-test.out \
-              ramdisk-test.out \
-              #zone-test.out
 
 MACROS := -DDEBUG
 
@@ -19,7 +15,6 @@ GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
 DEVICE_INCLUDES = 
 
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
-DEVICE_LIBS = #-lzbd
 
 # Device Module Setting
 USE_ZONE_DEVICE = 0
@@ -31,12 +26,25 @@ DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
                -D DEVICE_NR_PAGES_BITS=5 \
                -D DEVICE_NR_BLOCKS_BITS=21 \
                -D DEVICE_USE_ZONED
+
+TEST_TARGET = lru-test.out \
+              bits-test.out \
+              ramdisk-test.out \
+              zone-test.out
+
+DEVICE_LIBS = -lzbd
 else
 # Ramdisk and BlueDBM Setting
 DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
                -D DEVICE_NR_CHIPS_BITS=3 \
                -D DEVICE_NR_PAGES_BITS=7 \
                -D DEVICE_NR_BLOCKS_BITS=19
+
+TEST_TARGET = lru-test.out \
+              bits-test.out \
+              ramdisk-test.out
+
+DEVICE_LIBS =
 endif
 
 CFLAGS := -Wall \
