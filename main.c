@@ -102,7 +102,11 @@ int main(void)
 	int thread_id;
 	size_t status;
 	struct flash_device *flash = NULL;
+#ifdef DEVICE_USE_ZONED
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, ZONE_MODULE));
+#else
+	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
+#endif
 	flash->f_op->open(flash, "/dev/nvme0n2");
 	thread_id =
 		pthread_create(&threads[0], NULL, write_thread, (void *)flash);

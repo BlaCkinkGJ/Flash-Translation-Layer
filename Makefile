@@ -8,7 +8,10 @@
 CC = gcc
 CXX = g++
 TARGET = a.out
-TEST_TARGET = lru-test.out bits-test.out ramdisk-test.out zone-test.out
+TEST_TARGET = lru-test.out \
+              bits-test.out \
+              ramdisk-test.out \
+              #zone-test.out
 
 MACROS := -DDEBUG
 
@@ -16,19 +19,25 @@ GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
 DEVICE_INCLUDES = 
 
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
-DEVICE_LIBS = -lzbd
+DEVICE_LIBS = #-lzbd
 
-# Ramdisk and BlueDBM Setting
-# DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
-#                -D DEVICE_NR_CHIPS_BITS=3 \
-#                -D DEVICE_NR_PAGES_BITS=7 \
-#                -D DEVICE_NR_BLOCKS_BITS=19 \
+# Device Module Setting
+USE_ZONE_DEVICE = 0
 
+ifeq ($(USE_ZONE_DEVICE), 1)
 # Zoned Device's Setting
 DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
                -D DEVICE_NR_CHIPS_BITS=3 \
                -D DEVICE_NR_PAGES_BITS=5 \
                -D DEVICE_NR_BLOCKS_BITS=21 \
+               -D DEVICE_USE_ZONED
+else
+# Ramdisk and BlueDBM Setting
+DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
+               -D DEVICE_NR_CHIPS_BITS=3 \
+               -D DEVICE_NR_PAGES_BITS=7 \
+               -D DEVICE_NR_BLOCKS_BITS=19
+endif
 
 CFLAGS := -Wall \
           -Wextra \
@@ -50,9 +59,18 @@ UNITY_ROOT := ./unity
 LIBS := -lm -lpthread -lasan $(GLIB_LIBS) $(DEVICE_LIBS)
 
 INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
-DEVICE_SRCS := device/ramdisk/*.c \
-               device/bluedbm/*.c \
-               device/zone/*.c \
+
+RAMDISK_SRCS = device/ramdisk/*.c
+BLUEDBM_SRCS = device/bluedbm/*.c
+ifeq ($(USE_ZONE_DEVICE), 1)
+ZONED_SRCS = device/zone/*.c
+else
+ZONED_SRCS =
+endif
+
+DEVICE_SRCS := $(RAMDISK_SRCS) \
+               $(BLUEDBM_SRCS) \
+               $(ZONED_SRCS) \
                device/*.c
 
 UTIL_SRCS := util/*.c
@@ -84,8 +102,10 @@ bits-test.out: $(UNITY_ROOT)/src/unity.c ./test/bits-test.c
 ramdisk-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/ramdisk-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
+ifeq ($(USE_ZONE_DEVICE), 1)
 zone-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/zone-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+endif
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
