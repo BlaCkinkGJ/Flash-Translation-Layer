@@ -9,6 +9,7 @@
 #include "include/log.h"
 #include "include/ramdisk.h"
 #include "include/bluedbm.h"
+#include "include/zone.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,7 @@
 static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [RAMDISK_MODULE] = */ ramdisk_device_init,
 	/* [BULEDBM_MODULE] = */ bluedbm_device_init,
+	/* [ZONE_MODULE] = */ zone_device_init,
 };
 
 struct device_request *device_alloc_request(uint64_t flags)

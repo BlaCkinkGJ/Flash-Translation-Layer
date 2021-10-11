@@ -8,36 +8,75 @@
 #ifndef DEVICE_H
 #define DEVICE_H
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <pthread.h>
 #include <glib.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+#include "include/log.h" /**< to use the TOSTRING */
 
 #define PADDR_EMPTY ((uint32_t)UINT32_MAX)
 
 struct device_request;
 struct device_operations;
 
+#define DEVICE_PAGE_SIZE (8192)
+
 /**
  * @brief request allocation flags
  */
-enum { DEVICE_DEFAULT_REQUEST = 0,
+enum {
+	DEVICE_DEFAULT_REQUEST = 0,
 };
 
 /**
  * @brief flash board I/O direction
  */
-enum { DEVICE_WRITE = 0 /**< write flag */,
-       DEVICE_READ /**< read flag */,
-       DEVICE_ERASE /**< erase flag */,
+enum {
+	DEVICE_WRITE = 0 /**< write flag */,
+	DEVICE_READ /**< read flag */,
+	DEVICE_ERASE /**< erase flag */,
 };
 
 /**
  * @brief support module list
  */
-enum { RAMDISK_MODULE = 0 /**< select the ramdisk module */,
-       BLUEDBM_MODULE /**< select the bluedbm module */,
+enum {
+	RAMDISK_MODULE = 0 /**< select the ramdisk module */,
+	BLUEDBM_MODULE /**< select the bluedbm module */,
+	ZONE_MODULE /**< select the zone module */,
 };
+
+/**
+ * @brief device address information
+ *
+ * @note
+ * If you want to use the ZONE_MODULE, you must change the
+ * DEVICE_NR_PAGES_BITS and DEVICE_NR_BLOCKS_BITS based on the zone's
+ * size.
+ */
+#ifndef DEVICE_NR_BUS_BITS
+#define DEVICE_NR_BUS_BITS (3)
+#endif
+
+#ifndef DEVICE_NR_CHIPS_BITS
+#define DEVICE_NR_CHIPS_BITS (3)
+#endif
+
+#ifndef DEVICE_NR_PAGES_BITS
+#define DEVICE_NR_PAGES_BITS (7)
+#endif
+
+#ifndef DEVICE_NR_BLOCKS_BITS
+#define DEVICE_NR_BLOCKS_BITS (19)
+#endif
+
+#if 0
+#pragma message("DEVICE_NR_BUS_BITS = " TOSTRING(DEVICE_NR_BUS_BITS))
+#pragma message("DEVICE_NR_CHIPS_BITS = " TOSTRING(DEVICE_NR_CHIPS_BITS))
+#pragma message("DEVICE_NR_PAGES_BITS = " TOSTRING(DEVICE_NR_PAGES_BITS))
+#pragma message("DEVICE_NR_BLOCKS_BITS = " TOSTRING(DEVICE_NR_BLOCKS_BITS))
+#endif
 
 /**
  * @brief I/O end request function
@@ -45,7 +84,8 @@ enum { RAMDISK_MODULE = 0 /**< select the ramdisk module */,
  * @param request device request structure's pointer
  *
  * @note
- * You must specify the call routine of this function in your custom device module
+ * You must specify the call routine of this function in your custom device
+ * module
  */
 typedef void (*device_end_req_fn)(struct device_request *);
 
@@ -58,10 +98,10 @@ typedef void (*device_end_req_fn)(struct device_request *);
 struct device_address {
 	union {
 		struct {
-			uint32_t bus : 3;
-			uint32_t chip : 3;
-			uint32_t page : 7;
-			uint32_t block : 19;
+			uint32_t bus : DEVICE_NR_BUS_BITS;
+			uint32_t chip : DEVICE_NR_CHIPS_BITS;
+			uint32_t page : DEVICE_NR_PAGES_BITS;
+			uint32_t block : DEVICE_NR_BLOCKS_BITS;
 		} format;
 		uint32_t lpn;
 	};
@@ -136,7 +176,7 @@ struct device {
  * @brief operations for device
  */
 struct device_operations {
-	int (*open)(struct device *);
+	int (*open)(struct device *, const char *name);
 	ssize_t (*write)(struct device *, struct device_request *);
 	ssize_t (*read)(struct device *, struct device_request *);
 	int (*erase)(struct device *, struct device_request *);

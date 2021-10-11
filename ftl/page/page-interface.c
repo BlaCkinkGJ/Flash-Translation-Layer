@@ -16,10 +16,11 @@
  * @brief open the page flash translation layer based device
  *
  * @param flash pointer of the flash device information
+ * @param name file's name
  *
  * @return zero to success, error number to fail
  */
-static int page_ftl_open_interface(struct flash_device *flash)
+static int page_ftl_open_interface(struct flash_device *flash, const char *name)
 {
 	struct page_ftl *pgftl = NULL;
 	if (flash == NULL) {
@@ -31,7 +32,7 @@ static int page_ftl_open_interface(struct flash_device *flash)
 		pr_err("page FTL information doesn't exist\n");
 		return -EINVAL;
 	}
-	return page_ftl_open(pgftl);
+	return page_ftl_open(pgftl, name);
 }
 
 /**

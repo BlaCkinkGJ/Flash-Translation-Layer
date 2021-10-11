@@ -118,10 +118,11 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
  * @brief allocate the page ftl structure's members
  *
  * @param pgftl pointer of the page ftl structure
+ * @param name file's name for open
  *
  * @return zero to success, negative number to fail
  */
-int page_ftl_open(struct page_ftl *pgftl)
+int page_ftl_open(struct page_ftl *pgftl, const char *name)
 {
 	int err;
 	size_t map_size;
@@ -143,7 +144,7 @@ int page_ftl_open(struct page_ftl *pgftl)
 	}
 
 	dev = pgftl->dev;
-	err = dev->d_op->open(dev);
+	err = dev->d_op->open(dev, name);
 	if (err) {
 		pr_err("device open failed\n");
 		err = -EINVAL;

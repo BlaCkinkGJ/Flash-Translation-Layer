@@ -22,10 +22,11 @@
  * @brief open the ramdisk (allocate the device resources)
  *
  * @param dev pointer of the device structure
+ * @param name this does not use in this module
  *
  * @return 0 for success, negative value to fail
  */
-int ramdisk_open(struct device *dev)
+int ramdisk_open(struct device *dev, const char *name)
 {
 	int ret = 0;
 	char *buffer;
@@ -40,12 +41,14 @@ int ramdisk_open(struct device *dev)
 
 	size_t nr_segments;
 
-	info->nr_bus = 8;
-	info->nr_chips = 8;
+	(void)name;
 
-	package->nr_blocks = 64;
-	block->nr_pages = 128;
-	page->size = 8192;
+	info->nr_bus = (1 << DEVICE_NR_BUS_BITS);
+	info->nr_chips = (1 << DEVICE_NR_CHIPS_BITS);
+
+	package->nr_blocks = 64; /**< This for make 4GiB disk */
+	block->nr_pages = (1 << DEVICE_NR_PAGES_BITS);
+	page->size = DEVICE_PAGE_SIZE;
 
 	ramdisk = (struct ramdisk *)dev->d_private;
 	ramdisk->size = device_get_total_size(dev);
@@ -135,12 +138,12 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
 	       request->data_len);
 	ret = request->data_len;
-	if (request->end_rq) {
+	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
 exception:
-	if (request->end_rq) {
+	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
@@ -185,7 +188,7 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	}
 
 	if (request->paddr.lpn == PADDR_EMPTY) {
-		pr_debug("physical address is not specified...\n");
+		pr_err("physical address is not specified...\n");
 		ret = -EINVAL;
 		goto exception;
 	}
@@ -195,12 +198,12 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	ret = request->data_len;
 	pr_debug("request->end_rq %p %p\n", request->end_rq,
 		 &((struct device_request *)request->rq_private)->mutex);
-	if (request->end_rq) {
+	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
 exception:
-	if (request->end_rq) {
+	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
@@ -243,12 +246,12 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 		reset_bit(ramdisk->is_used, lpn);
 	}
 
-	if (request->end_rq) {
+	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
 exception:
-	if (request->end_rq) {
+	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;

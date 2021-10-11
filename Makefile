@@ -8,7 +8,7 @@
 CC = gcc
 CXX = g++
 TARGET = a.out
-TEST_TARGET = lru-test.out bits-test.out ramdisk-test.out
+TEST_TARGET = lru-test.out bits-test.out ramdisk-test.out zone-test.out
 
 MACROS := -DDEBUG
 
@@ -17,6 +17,18 @@ DEVICE_INCLUDES =
 
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 DEVICE_LIBS = -lzbd
+
+# Ramdisk and BlueDBM Setting
+# DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
+#                -D DEVICE_NR_CHIPS_BITS=3 \
+#                -D DEVICE_NR_PAGES_BITS=7 \
+#                -D DEVICE_NR_BLOCKS_BITS=19 \
+
+# Zoned Device's Setting
+DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
+               -D DEVICE_NR_CHIPS_BITS=3 \
+               -D DEVICE_NR_PAGES_BITS=5 \
+               -D DEVICE_NR_BLOCKS_BITS=21 \
 
 CFLAGS := -Wall \
           -Wextra \
@@ -30,6 +42,7 @@ CFLAGS := -Wall \
           -Wno-unknown-pragmas \
           -Wundef \
           -fsanitize=address \
+          $(DEVICE_INFO) \
           -g -pg
 CXXFLAGS := $(CFLAGS)
 
@@ -39,7 +52,7 @@ LIBS := -lm -lpthread -lasan $(GLIB_LIBS) $(DEVICE_LIBS)
 INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 DEVICE_SRCS := device/ramdisk/*.c \
                device/bluedbm/*.c \
-	       device/zbd/*.c \
+               device/zone/*.c \
                device/*.c
 
 UTIL_SRCS := util/*.c
@@ -69,6 +82,9 @@ bits-test.out: $(UNITY_ROOT)/src/unity.c ./test/bits-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
 ramdisk-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/ramdisk-test.c
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+
+zone-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/zone-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 
 check:

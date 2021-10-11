@@ -1,18 +1,18 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-
-#include "include/ramdisk.h"
 #include "include/device.h"
+#include "include/zone.h"
 #include "unity.h"
+
+#define ZBD_FILE_NAME "/dev/nvme0n2"
+
+// #define WRITE_PAGE_SIZE(x) (device_get_total_pages(x))
+#define WRITE_PAGE_SIZE(x) (device_get_pages_per_segment(x) * 5)
 
 struct device *dev;
 
 void setUp(void)
 {
 	int ret;
-	ret = device_module_init(RAMDISK_MODULE, &dev, 0);
+	ret = device_module_init(ZONE_MODULE, &dev, 0);
 	TEST_ASSERT_EQUAL_INT(0, ret);
 }
 
@@ -22,11 +22,13 @@ void tearDown(void)
 	device_module_exit(dev);
 }
 
-void test_open_and_close(void)
+void test_open(void)
 {
-	TEST_ASSERT_NOT_NULL(dev->d_op);
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
+	int ret;
+	ret = dev->d_op->open(dev, ZBD_FILE_NAME);
+	TEST_ASSERT_EQUAL_INT(0, ret);
+	ret = dev->d_op->close(dev);
+	TEST_ASSERT_EQUAL_INT(0, ret);
 }
 
 void test_full_write(void)
@@ -37,9 +39,9 @@ void test_full_write(void)
 	size_t page_size;
 	size_t total_pages;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME));
 	page_size = device_get_page_size(dev);
-	total_pages = device_get_total_pages(dev);
+	total_pages = WRITE_PAGE_SIZE(dev);
 
 	buffer = (char *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
@@ -83,9 +85,9 @@ void test_overwrite(void)
 	size_t page_size;
 	size_t total_pages;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME));
 	page_size = device_get_page_size(dev);
-	total_pages = device_get_total_pages(dev);
+	total_pages = WRITE_PAGE_SIZE(dev);
 	buffer = (char *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
 	memset(buffer, 0, page_size);
@@ -128,9 +130,9 @@ void test_erase(void)
 	size_t nr_pages_per_segment;
 	size_t segnum;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME));
 	page_size = device_get_page_size(dev);
-	total_pages = device_get_total_pages(dev);
+	total_pages = WRITE_PAGE_SIZE(dev);
 	buffer = (char *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
 	memset(buffer, 0, page_size);
@@ -148,7 +150,7 @@ void test_erase(void)
 				      dev->d_op->write(dev, &request));
 	}
 
-	nr_segments = device_get_nr_segments(dev);
+	nr_segments = WRITE_PAGE_SIZE(dev) / device_get_pages_per_segment(dev);
 	for (segnum = 0; segnum < nr_segments - 1; segnum++) {
 		addr.lpn = 0;
 		addr.format.block = segnum;
@@ -184,6 +186,7 @@ void test_erase(void)
 	}
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
+	free(buffer);
 }
 
 static void end_rq(struct device_request *request)
@@ -204,10 +207,10 @@ void test_end_rq_works(void)
 	size_t segnum;
 	size_t nr_segments;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME));
 	page_size = device_get_page_size(dev);
-	total_pages = device_get_total_pages(dev);
-	nr_segments = device_get_nr_segments(dev);
+	total_pages = WRITE_PAGE_SIZE(dev);
+	nr_segments = WRITE_PAGE_SIZE(dev) / device_get_pages_per_segment(dev);
 
 	buffer = (char *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
@@ -276,7 +279,7 @@ void test_end_rq_works(void)
 int main(void)
 {
 	UNITY_BEGIN();
-	RUN_TEST(test_open_and_close);
+	RUN_TEST(test_open);
 	RUN_TEST(test_full_write);
 	RUN_TEST(test_overwrite);
 	RUN_TEST(test_erase);

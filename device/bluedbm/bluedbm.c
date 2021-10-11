@@ -4,7 +4,7 @@
 #include "include/bluedbm.h"
 #include "include/log.h"
 
-int bluedbm_open(struct device *dev)
+int bluedbm_open(struct device *dev, const char *name)
 {
 	struct bluedbm *bdbm;
 
@@ -12,6 +12,8 @@ int bluedbm_open(struct device *dev)
 	struct device_package *package = &info->package;
 	struct device_block *block = &package->block;
 	struct device_page *page = &block->page;
+
+	(void)name;
 
 	info->nr_bus = 8;
 	info->nr_chips = 8;

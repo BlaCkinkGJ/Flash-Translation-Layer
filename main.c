@@ -17,8 +17,9 @@
 #include "include/log.h"
 #include "include/device.h"
 
-#define WRITE_SIZE (8192 * 8192 * 10)
+#define WRITE_SIZE (8192 * 8192)
 #define NR_ERASE (10)
+#define COUNT_SIZE (8192)
 
 void *read_thread(void *data)
 {
@@ -33,14 +34,14 @@ void *read_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		srand(time(NULL));
 		memset(buffer, 0, 8192);
-		ret = flash->f_op->read(flash, buffer, sizeof(int), sector);
+		ret = flash->f_op->read(flash, buffer, COUNT_SIZE, sector);
 		if (ret < 0) {
 			continue;
 		}
 		pr_info("read value: %d(sector: %lu)\n", *(int *)buffer,
 			sector);
-		sector += sizeof(int);
-		usleep(((rand() % 400) + 100) * 1000);
+		sector += COUNT_SIZE;
+		usleep(((rand() % 10) + 10) * 1000);
 	}
 	return NULL;
 }
@@ -59,13 +60,26 @@ void *write_thread(void *data)
 		srand(time(NULL));
 		memset(buffer, 0, sizeof(buffer));
 		*(int *)buffer = (int)sector;
-		ret = flash->f_op->write(flash, buffer, sizeof(int), sector);
+		ret = flash->f_op->write(flash, buffer, COUNT_SIZE, sector);
 		if (ret < 0) {
 			pr_err("write failed (sector: %zu)\n", sector);
 		}
-		sector += sizeof(int);
+		sector += COUNT_SIZE;
 		usleep((rand() % 10) * 1000);
 	}
+	sector = 0;
+	while (sector < WRITE_SIZE) {
+		srand(time(NULL));
+		memset(buffer, 0, sizeof(buffer));
+		*(int *)buffer = (int)sector;
+		ret = flash->f_op->write(flash, buffer, COUNT_SIZE, sector);
+		if (ret < 0) {
+			pr_err("write failed (sector: %zu)\n", sector);
+		}
+		sector += COUNT_SIZE;
+		usleep((rand() % 10) * 1000);
+	}
+
 	return NULL;
 }
 
@@ -76,7 +90,7 @@ void *erase_thread(void *data)
 	flash = (struct flash_device *)data;
 	for (i = 0; i < NR_ERASE; i++) {
 		flash->f_op->ioctl(flash, PAGE_FTL_IOCTL_TRIM);
-		usleep(100 * 1000); // 100ms
+		usleep(5000 * 1000); // 5s
 	}
 
 	return NULL;
@@ -88,8 +102,8 @@ int main(void)
 	int thread_id;
 	size_t status;
 	struct flash_device *flash = NULL;
-	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
-	flash->f_op->open(flash);
+	assert(0 == module_init(PAGE_FTL_MODULE, &flash, ZONE_MODULE));
+	flash->f_op->open(flash, "/dev/nvme0n2");
 	thread_id =
 		pthread_create(&threads[0], NULL, write_thread, (void *)flash);
 	if (thread_id < 0) {

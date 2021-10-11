@@ -53,7 +53,7 @@ struct page_ftl {
 };
 
 /* page-interface.c */
-int page_ftl_open(struct page_ftl *);
+int page_ftl_open(struct page_ftl *, const char *name);
 int page_ftl_close(struct page_ftl *);
 
 ssize_t page_ftl_submit_request(struct page_ftl *, struct device_request *);
