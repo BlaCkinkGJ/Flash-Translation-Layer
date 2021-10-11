@@ -184,6 +184,7 @@ void test_erase(void)
 	}
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
+	free(buffer);
 }
 
 static void end_rq(struct device_request *request)
