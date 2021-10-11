@@ -20,6 +20,14 @@
 #include "include/device.h"
 #include "include/log.h"
 
+/**
+ * @brief open the zoned block deivce file
+ *
+ * @param dev pointer of the device structure
+ * @param name zoned block device's device filename
+ *
+ * @return 0 for success, negative number for fail
+ */
 int zone_open(struct device *dev, const char *name)
 {
 	struct zone_meta *meta;
@@ -107,6 +115,17 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief execute the read and write function
+ *
+ * @param fd the number which contains the file descriptor
+ * @param flag I/O direction
+ * @param buffer pointer of the buffer
+ * @param count the number of byte to read or write
+ * @param offset position which wants to read or write
+ *
+ * @return the number of bytes after read or write, negative number means fail
+ */
 static ssize_t zone_do_rw(int fd, int flag, void *buffer, size_t count,
 			  off_t offset)
 {
@@ -139,6 +158,14 @@ static ssize_t zone_do_rw(int fd, int flag, void *buffer, size_t count,
 	return count - remaining;
 }
 
+/**
+ * @brief write to the zoned block device
+ *
+ * @param dev pointer of the device structre
+ * @param request pointer of the user request
+ *
+ * @return the number of bytes to write, negative number for fail
+ */
 ssize_t zone_write(struct device *dev, struct device_request *request)
 {
 	struct zone_meta *meta;
@@ -211,6 +238,14 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief read to the zoned block device
+ *
+ * @param dev pointer of the device structre
+ * @param request pointer of the user request
+ *
+ * @return the number of bytes to read, negative number for fail
+ */
 ssize_t zone_read(struct device *dev, struct device_request *request)
 {
 	struct zone_meta *meta;
@@ -267,6 +302,14 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief erase the segment to the zoned block device
+ *
+ * @param dev pointer of the device structre
+ * @param request pointer of the user request
+ *
+ * @return 0 for success, negative number for fail
+ */
 int zone_erase(struct device *dev, struct device_request *request)
 {
 	struct zone_meta *meta;
@@ -302,6 +345,13 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief close the zoned block device
+ *
+ * @param dev pointer of the device structure
+ *
+ * @return 0 for success, negative number for fail
+ */
 int zone_close(struct device *dev)
 {
 	struct zone_meta *meta;
@@ -328,6 +378,9 @@ int zone_close(struct device *dev)
 	return 0;
 }
 
+/**
+ * @brief zoned block device operations
+ */
 struct device_operations __zone_dops = {
 	.open = zone_open,
 	.write = zone_write,
@@ -336,6 +389,14 @@ struct device_operations __zone_dops = {
 	.close = zone_close,
 };
 
+/**
+ * @brief initialize the device module
+ *
+ * @param dev pointer of the device structure
+ * @param flags flags for ramdisk and device
+ *
+ * @return 0 for sucess, negative value for fail
+ */
 int zone_device_init(struct device *dev, uint64_t flags)
 {
 	int ret = 0;
@@ -363,6 +424,13 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief deallocate the device module
+ *
+ * @param dev pointer of the device structure
+ *
+ * @return 0 for success, negative value for fail
+ */
 int zone_device_exit(struct device *dev)
 {
 	struct zone_meta *meta;

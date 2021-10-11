@@ -19,6 +19,12 @@
 
 #include <glib.h>
 
+/**
+ * @brief invalidate a segment that including to the given LPN
+ *
+ * @param pgftl pointer of the page FTL structure
+ * @param lpn logical page address to invalidate
+ */
 static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 {
 	struct page_ftl_segment *segment;
@@ -46,6 +52,11 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 	}
 }
 
+/**
+ * @brief write's end request function
+ *
+ * @param request the request which is submitted before
+ */
 static void page_ftl_write_end_rq(struct device_request *request)
 {
 	struct page_ftl *pgftl;
@@ -85,6 +96,19 @@ static void page_ftl_write_end_rq(struct device_request *request)
 	pthread_mutex_unlock(&request->mutex);
 }
 
+/**
+ * @brief read sequence for overwrite
+ *
+ * @param pgftl pointer of the page FTL
+ * @param lpn logical page address which wants to overwrite
+ * @param buffer a pointer to a buffer containing the result of the read
+ *
+ * @return reading data size. a negative number means fail to read
+ *
+ * @note
+ * NAND-based storage doesn't allow to do overwrite.
+ * Therefore, you must use the out-of-place update. So this logic is necessary.
+ */
 static ssize_t page_ftl_read_for_overwrite(struct page_ftl *pgftl, size_t lpn,
 					   void *buffer)
 {
@@ -114,6 +138,14 @@ static ssize_t page_ftl_read_for_overwrite(struct page_ftl *pgftl, size_t lpn,
 	return ret;
 }
 
+/**
+ * @brief the core logic for writing the request to the device.
+ *
+ * @param pgftl pointer of the page FTL structure
+ * @param request user's request pointer
+ *
+ * @return writing data size. a negative number means fail to write.
+ */
 ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 {
 	struct device *dev;

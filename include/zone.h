@@ -12,10 +12,16 @@
 
 #include "device.h"
 
+/**
+ * @brief containing a zone file's metadata
+ */
 struct zone_file_descriptor {
 	int fd;
 };
 
+/**
+ * @brief containing a zoned block device's metadata
+ */
 struct zone_meta {
 	size_t total_size;
 	uint64_t zone_size;

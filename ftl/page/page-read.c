@@ -12,6 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * @brief read's end request function
+ *
+ * @param request the request which is submitted before
+ */
 static void page_ftl_read_end_rq(struct device_request *read_rq)
 {
 	struct device_request *request;
@@ -35,6 +40,14 @@ static void page_ftl_read_end_rq(struct device_request *read_rq)
 	pthread_mutex_unlock(&request->mutex);
 }
 
+/**
+ * @brief the core logic for reading the request to the device.
+ *
+ * @param pgftl pointer of the page FTL structure
+ * @param request user's request pointer
+ *
+ * @return reading data size. a negative number means fail to read.
+ */
 ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 {
 	struct device *dev;

@@ -87,6 +87,15 @@ retry:
 	return paddr;
 }
 
+/**
+ * @brief update the mapping information
+ *
+ * @param pgftl pointer of the page FTL structure
+ * @param sector logical address for mapping table
+ * @param ppn physical address for mapping table
+ *
+ * @return 0 to success, negative number to fail
+ */
 int page_ftl_update_map(struct page_ftl *pgftl, uint64_t sector, uint32_t ppn)
 {
 	uint32_t *trans_map;

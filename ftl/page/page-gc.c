@@ -5,7 +5,6 @@
  * @version 1.0
  * @date 2021-10-06
  */
-
 #include <glib.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -16,6 +15,14 @@
 #include "include/log.h"
 #include "include/bits.h"
 
+/**
+ * @brief page ftl gc list compare function
+ *
+ * @param a compare target 1
+ * @param b compare target 2
+ *
+ * @return to make precede a segment that contains the less valid pages
+ */
 gint page_ftl_gc_list_cmp(gconstpointer a, gconstpointer b)
 {
 	struct page_ftl_segment *segment[2];
@@ -27,11 +34,23 @@ gint page_ftl_gc_list_cmp(gconstpointer a, gconstpointer b)
 	return nr_valid_pages[0] - nr_valid_pages[1];
 }
 
+/**
+ * @brief erase's end request function
+ *
+ * @param request the request which is submitted before
+ */
 static void page_ftl_erase_end_rq(struct device_request *request)
 {
 	device_free_request(request);
 }
 
+/**
+ * @brief the function which chooses the appropriate garbage collection target.
+ *
+ * @param pgftl pointer of the page FTL structure
+ *
+ * @return garbage collection target segment's pointer
+ */
 static struct page_ftl_segment *page_ftl_pick_gc_target(struct page_ftl *pgftl)
 {
 	struct page_ftl_segment *segment;
@@ -48,6 +67,14 @@ static struct page_ftl_segment *page_ftl_pick_gc_target(struct page_ftl *pgftl)
 	return segment;
 }
 
+/**
+ * @brief erase the garbage collection target segment
+ *
+ * @param pgftl pointer of the page FTL structure
+ * @param paddr the address containing the segment number which wants to erase
+ *
+ * @return 0 for success, negative number for fail
+ */
 static int page_ftl_segment_erase(struct page_ftl *pgftl,
 				  struct device_address paddr)
 {
@@ -74,6 +101,15 @@ static int page_ftl_segment_erase(struct page_ftl *pgftl,
 	return 0;
 }
 
+/**
+ * @brief read the valid pages from the garbage collection target segment
+ *
+ * @param pgftl pointer of the page FTL structure
+ * @param lpn read position which contains the logical page number
+ * @param __buffer buffer pointer's address which dynamically allocated by this function
+ *
+ * @return reading data size. a negative number means fail to read
+ */
 static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 					char **__buffer)
 {
@@ -126,6 +162,15 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief write valid page to the other segment.
+ *
+ * @param pgftl pointer of the page FTL structure
+ * @param lpn write position which contains the logical page number
+ * @param buffer buffer pointer containing the valid page
+ *
+ * @return writing data size. a negative number means fail to write
+ */
 static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 					 char *buffer)
 {
@@ -158,6 +203,14 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 	return ret;
 }
 
+/**
+ * @brief core logic of the valid page copy
+ *
+ * @param pgftl pointer of the page FTL structure
+ * @param segment segment which wants to copy the valid pages
+ *
+ * @return 0 for success, negative number for fail
+ */
 static int page_ftl_valid_page_copy(struct page_ftl *pgftl,
 				    struct page_ftl_segment *segment)
 {
@@ -188,6 +241,13 @@ static int page_ftl_valid_page_copy(struct page_ftl *pgftl,
 	return ret;
 }
 
+/**
+ * @brief core logic of the garbage collection
+ *
+ * @param pgftl pointer of the page FTL structure
+ *
+ * @return 0 for success, negative number for fail
+ */
 int page_ftl_do_gc(struct page_ftl *pgftl)
 {
 	struct device_address paddr;
