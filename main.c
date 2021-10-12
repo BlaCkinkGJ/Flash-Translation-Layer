@@ -19,11 +19,11 @@
 
 #define WRITE_SIZE (8192 * 8192)
 #define NR_ERASE (10)
-#define COUNT_SIZE (8192)
+#define BLOCK_SIZE ((size_t)1024 * 1024) // 1 MB
 
 void *read_thread(void *data)
 {
-	char buffer[8192];
+	char buffer[BLOCK_SIZE];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -33,14 +33,18 @@ void *read_thread(void *data)
 
 	while (sector < WRITE_SIZE) {
 		srand(time(NULL));
-		memset(buffer, 0, 8192);
-		ret = flash->f_op->read(flash, buffer, COUNT_SIZE, sector);
+		memset(buffer, 0, sizeof(buffer));
+		ret = flash->f_op->read(flash, buffer, BLOCK_SIZE, sector);
 		if (ret < 0) {
 			continue;
 		}
+		if (ret != BLOCK_SIZE) {
+			pr_warn("read size doesn't match (expected: %lu, actual: %lu)\n",
+				ret, BLOCK_SIZE);
+		}
 		pr_info("read value: %d(sector: %lu)\n", *(int *)buffer,
 			sector);
-		sector += COUNT_SIZE;
+		sector += BLOCK_SIZE;
 		usleep(((rand() % 10) + 10) * 1000);
 	}
 	return NULL;
@@ -48,7 +52,7 @@ void *read_thread(void *data)
 
 void *write_thread(void *data)
 {
-	char buffer[8192];
+	char buffer[BLOCK_SIZE];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -60,11 +64,11 @@ void *write_thread(void *data)
 		srand(time(NULL));
 		memset(buffer, 0, sizeof(buffer));
 		*(int *)buffer = (int)sector;
-		ret = flash->f_op->write(flash, buffer, COUNT_SIZE, sector);
+		ret = flash->f_op->write(flash, buffer, BLOCK_SIZE, sector);
 		if (ret < 0) {
 			pr_err("write failed (sector: %zu)\n", sector);
 		}
-		sector += COUNT_SIZE;
+		sector += BLOCK_SIZE;
 		usleep((rand() % 10) * 1000);
 	}
 	sector = 0;
@@ -72,11 +76,11 @@ void *write_thread(void *data)
 		srand(time(NULL));
 		memset(buffer, 0, sizeof(buffer));
 		*(int *)buffer = (int)sector;
-		ret = flash->f_op->write(flash, buffer, COUNT_SIZE, sector);
+		ret = flash->f_op->write(flash, buffer, BLOCK_SIZE, sector);
 		if (ret < 0) {
 			pr_err("write failed (sector: %zu)\n", sector);
 		}
-		sector += COUNT_SIZE;
+		sector += BLOCK_SIZE;
 		usleep((rand() % 10) * 1000);
 	}
 

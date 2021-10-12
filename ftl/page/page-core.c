@@ -74,12 +74,10 @@ int page_ftl_segment_data_init(struct page_ftl *pgftl,
 static int page_ftl_init_segment(struct page_ftl *pgftl)
 {
 	size_t nr_segments;
-	size_t nr_pages_per_segment;
 
 	struct page_ftl_segment *segments;
 
 	nr_segments = device_get_nr_segments(pgftl->dev);
-	nr_pages_per_segment = device_get_pages_per_segment(pgftl->dev);
 
 	segments = (struct page_ftl_segment *)malloc(
 		sizeof(struct page_ftl_segment) * nr_segments);
@@ -106,8 +104,9 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 			return ret;
 		}
 		pr_debug("initialize the segment %zu (bits: %zu, size: %lu)\n",
-			 i, nr_pages_per_segment,
-			 (uint64_t)(nr_pages_per_segment) / 8);
+			 i, device_get_pages_per_segment(pgftl->dev),
+			 (uint64_t)(device_get_pages_per_segment(pgftl->dev)) /
+				 8);
 	}
 
 	pgftl->segments = segments;

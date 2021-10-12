@@ -73,15 +73,17 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 
 	ptr = (char *)buffer;
 	page_size = device_get_page_size(pgftl->dev);
+	size = 0;
 	while (count != 0) {
 		size_t pos;
-		size_t write_size;
+		ssize_t write_size;
+		ssize_t submit_size;
 
 		pos = page_ftl_get_page_offset(pgftl, offset);
 		if (pos + count < page_size) {
-			write_size = count;
+			submit_size = count;
 		} else {
-			write_size = page_size - pos;
+			submit_size = page_size - pos;
 		}
 
 		/** allocate the request */
@@ -93,7 +95,7 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		}
 
 		request->flag = DEVICE_WRITE;
-		request->data_len = write_size;
+		request->data_len = submit_size;
 		request->sector = offset;
 		request->data = ptr;
 
@@ -102,15 +104,16 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 			 (uintptr_t)request->data - (uintptr_t)buffer, count);
 
 		/** submit the request */
-		size = page_ftl_submit_request(pgftl, request);
-		if (size < 0) {
+		write_size = page_ftl_submit_request(pgftl, request);
+		if (write_size < 0) {
 			pr_err("page FTL submit request failed\n");
 			goto exception;
 		}
 
-		offset += size;
-		count -= size;
-		ptr += size;
+		offset += write_size;
+		count -= write_size;
+		ptr += write_size;
+		size += write_size;
 	}
 	return size;
 
@@ -174,15 +177,17 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 		goto exception;
 	}
 
+	size = 0;
 	while (count != 0) {
 		size_t pos;
-		size_t read_size;
+		ssize_t read_size;
+		ssize_t submit_size;
 
 		pos = page_ftl_get_page_offset(pgftl, offset);
 		if (pos + count < page_size) {
-			read_size = count;
+			submit_size = count;
 		} else {
-			read_size = page_size - pos;
+			submit_size = page_size - pos;
 		}
 
 		/** allocate the request */
@@ -194,21 +199,22 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 		}
 
 		request->flag = DEVICE_READ;
-		request->data_len = read_size;
+		request->data_len = submit_size;
 		request->sector = offset;
 		request->data = temp;
 
 		/** submit the request */
-		size = page_ftl_submit_request(pgftl, request);
-		if (size < 0) {
+		read_size = page_ftl_submit_request(pgftl, request);
+		if (read_size < (ssize_t)0) {
 			pr_err("page FTL submit request failed\n");
 			size = -EINVAL;
 			goto exception;
 		}
-		memcpy(ptr, temp, size);
-		offset += size;
-		count -= size;
-		ptr += size;
+		memcpy(ptr, temp, read_size);
+		offset += read_size;
+		count -= read_size;
+		ptr += read_size;
+		size += read_size;
 	}
 	free(temp);
 	return size;

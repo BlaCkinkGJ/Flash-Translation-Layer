@@ -9,7 +9,7 @@ CC = gcc
 CXX = g++
 TARGET = a.out
 
-MACROS := -DDEBUG
+MACROS = -DDEBUG
 
 GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
 DEVICE_INCLUDES = 

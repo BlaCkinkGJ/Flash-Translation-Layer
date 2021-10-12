@@ -71,9 +71,10 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	paddr.lpn = pgftl->trans_map[lpn];
 
 	if (paddr.lpn == PADDR_EMPTY) {
-		pr_err("cannot find the mapping information (lpn: %zu)\n", lpn);
-		ret = -EINVAL;
-		goto exception;
+		pr_warn("cannot find the mapping information (lpn: %zu)\n",
+			lpn);
+		memset(request->data, 0, request->data_len);
+		return request->data_len;
 	}
 
 	request->rq_private = pgftl;
