@@ -94,23 +94,23 @@ INTERFACE_SRCS := interface/*.c
 SRCS := $(DEVICE_SRCS) \
         $(UTIL_SRCS) \
         $(FTL_SRCS) \
-        $(INTERFACE_SRCS) \
-        main.c
+        $(INTERFACE_SRCS)
 
 OBJS := *.o
 
-all: $(TARGET) $(LIBRARY_TARGET)
+all: $(TARGET)
 
 test: $(TEST_TARGET)
 
-$(TARGET): $(LIBRARY_TARGET)
-	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ $^ $(LIBS) -L. -lftl
+$(TARGET): main.c $(LIBRARY_TARGET)
+	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(GLIB_LIBS) $(GLIB_INCLUDES)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 $(OBJS): $(SRCS)
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -c $^ $(LIBS)
+	$(CC) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
 
 lru-test.out: $(UNITY_ROOT)/src/unity.c ./util/lru.c ./test/lru-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
