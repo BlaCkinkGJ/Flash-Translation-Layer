@@ -5,9 +5,12 @@
 # `-g` and `-pg` for tracing the program
 # So, you must delete all when you release the program
 
+.SUFFIXES : .c .o
 CC = gcc
+AR = ar
 CXX = g++
 TARGET = a.out
+LIBRARY_TARGET = libftl.a
 
 MACROS = -DDEBUG
 
@@ -47,6 +50,7 @@ TEST_TARGET = lru-test.out \
 DEVICE_LIBS =
 endif
 
+ARFLAGS := rcs
 CFLAGS := -Wall \
           -Wextra \
           -Wpointer-arith \
@@ -93,13 +97,20 @@ SRCS := $(DEVICE_SRCS) \
         $(INTERFACE_SRCS) \
         main.c
 
-all: $(TARGET)
+OBJS := *.o
+
+all: $(TARGET) $(LIBRARY_TARGET)
 
 test: $(TEST_TARGET)
 
-$(TARGET): $(SRCS)
-	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -c $^ $(LIBS)
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+$(TARGET): $(LIBRARY_TARGET)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ $^ $(LIBS) -L. -lftl
+
+$(LIBRARY_TARGET): $(OBJS)
+	$(AR) $(ARFLAGS) $@ $^
+
+$(OBJS): $(SRCS)
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -c $^ $(LIBS)
 
 lru-test.out: $(UNITY_ROOT)/src/unity.c ./util/lru.c ./test/lru-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
@@ -131,6 +142,6 @@ flow:
 
 clean:
 	find . -name '*.o'  | xargs -i rm -f {}
-	rm -f $(TARGET) $(TEST_TARGET)
+	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET)
 	rm -rf doxygen/
 
