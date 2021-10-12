@@ -12,8 +12,6 @@ CXX = g++
 TARGET = a.out
 LIBRARY_TARGET = libftl.a
 
-MACROS = -DDEBUG
-
 GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
 DEVICE_INCLUDES = 
 
@@ -21,6 +19,16 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 # Device Module Setting
 USE_ZONE_DEVICE = 0
+# Debug Setting
+USE_DEBUG = 1
+
+ifeq ($(USE_DEBUG), 1)
+DEBUG_FLAGS = -g -pg
+MACROS = -DDEBUG
+else
+DEBUG_FLAGS =
+MACROS =
+endif
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 # Zoned Device's Setting
@@ -62,9 +70,9 @@ CFLAGS := -Wall \
           -Wmissing-field-initializers \
           -Wno-unknown-pragmas \
           -Wundef \
-          -fsanitize=address \
           $(DEVICE_INFO) \
-          -g -pg
+          $(DEBUG_FLAGS) \
+          -fsanitize=address
 CXXFLAGS := $(CFLAGS)
 
 UNITY_ROOT := ./unity

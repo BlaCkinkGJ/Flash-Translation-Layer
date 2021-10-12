@@ -50,7 +50,7 @@ make clean && make -j$(nproc) test
 After the build finish, you can get the various test files from the results.
 Run those files to test the project's module works correctly.
 
-### Relase
+### Execution
 
 If you want to generate a release program through the `main.c`,
 then you must execute the below commands.

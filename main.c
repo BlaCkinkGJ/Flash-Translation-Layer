@@ -17,7 +17,7 @@
 #include "include/log.h"
 #include "include/device.h"
 
-#define WRITE_SIZE (8192 * 8192)
+#define WRITE_SIZE (8192 * 8192 * 10)
 #define NR_ERASE (10)
 #define BLOCK_SIZE ((size_t)1024 * 1024) // 1 MB
 
@@ -38,10 +38,7 @@ void *read_thread(void *data)
 		if (ret < 0) {
 			continue;
 		}
-		if (ret != BLOCK_SIZE) {
-			pr_warn("read size doesn't match (expected: %lu, actual: %lu)\n",
-				ret, BLOCK_SIZE);
-		}
+		assert(ret == BLOCK_SIZE);
 		pr_info("read value: %d(sector: %lu)\n", *(int *)buffer,
 			sector);
 		sector += BLOCK_SIZE;
@@ -68,6 +65,7 @@ void *write_thread(void *data)
 		if (ret < 0) {
 			pr_err("write failed (sector: %zu)\n", sector);
 		}
+		assert(ret == BLOCK_SIZE);
 		sector += BLOCK_SIZE;
 		usleep((rand() % 10) * 1000);
 	}
@@ -89,6 +87,7 @@ void *write_thread(void *data)
 
 void *erase_thread(void *data)
 {
+#if 0
 	struct flash_device *flash;
 	int i;
 	flash = (struct flash_device *)data;
@@ -96,6 +95,8 @@ void *erase_thread(void *data)
 		flash->f_op->ioctl(flash, PAGE_FTL_IOCTL_TRIM);
 		usleep(5000 * 1000); // 5s
 	}
+#endif
+	(void)data;
 
 	return NULL;
 }

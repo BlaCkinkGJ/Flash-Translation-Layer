@@ -251,11 +251,21 @@ static int page_ftl_close_interface(struct flash_device *flash)
 	return page_ftl_close(pgftl);
 }
 
+/**
+ * @brief additional commands support interface
+ *
+ * @param flash pointer of the flash device information
+ * @param request ioctl's request identifier
+ * @param ... additional parameters
+ *
+ * @return 0 for success, negative number for failed
+ */
 static int page_ftl_ioctl_interface(struct flash_device *flash,
 				    unsigned int request, ...)
 {
 	struct device_request *device_rq;
 	struct page_ftl *pgftl = NULL;
+	int ret = 0;
 
 	if (flash == NULL) {
 		pr_err("flash pointer doesn't exist\n");
@@ -276,14 +286,14 @@ static int page_ftl_ioctl_interface(struct flash_device *flash,
 	switch (request) {
 	case PAGE_FTL_IOCTL_TRIM:
 		device_rq->flag = DEVICE_ERASE;
-		page_ftl_submit_request(pgftl, device_rq);
+		ret = (int)page_ftl_submit_request(pgftl, device_rq);
 		break;
 	default:
 		pr_err("invalid command requested(commands: %u)\n", request);
 		return -EINVAL;
 	}
 	device_free_request(device_rq);
-	return 0;
+	return ret;
 }
 
 /**

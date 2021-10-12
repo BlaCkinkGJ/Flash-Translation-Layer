@@ -20,6 +20,7 @@
 #include "device.h"
 
 #define PAGE_FTL_CACHE_SIZE (2)
+#define PAGE_FTL_GC_RATIO ((double)30 / 100)
 
 enum { PAGE_FTL_IOCTL_TRIM = 0,
 };
@@ -47,6 +48,7 @@ struct page_ftl {
 	struct device *dev;
 	pthread_mutex_t mutex;
 	pthread_rwlock_t rwlock;
+	pthread_t gc_thread;
 
 	GList *gc_list; /**< garbage collection target list */
 	uint64_t *gc_seg_bits; /**< to find segnum is in gc list or not */

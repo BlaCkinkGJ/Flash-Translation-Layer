@@ -5,15 +5,120 @@
  * @version 1.0
  * @date 2021-09-22
  */
+#include "include/device.h"
 #include <errno.h>
 
 #include <assert.h>
+#include <pthread.h>
 #include <string.h>
 #include <glib.h>
 
 #include "include/page.h"
 #include "include/log.h"
 #include "include/bits.h"
+
+static int is_gc_thread_exit;
+
+/**
+ * @brief get number of invalid pages in the ftl
+ *
+ * @param pgftl pointer of the page ftl structure
+ *
+ * @return number of the invalid pages
+ */
+static size_t page_ftl_get_invalid_pages(struct page_ftl *pgftl)
+{
+	size_t invalid_pages;
+	size_t pages_per_segment;
+	size_t nr_valid_pages;
+	struct page_ftl_segment *segment;
+	GList *node;
+
+	if (pgftl->gc_list == NULL) {
+		return 0;
+	}
+	invalid_pages = 0;
+	pages_per_segment = device_get_pages_per_segment(pgftl->dev);
+	node = pgftl->gc_list;
+	while (node) {
+		segment = (struct page_ftl_segment *)node->data;
+		nr_valid_pages = g_atomic_int_get(&segment->nr_valid_pages);
+		invalid_pages += pages_per_segment - nr_valid_pages;
+		node = node->next;
+	}
+	return invalid_pages;
+}
+
+/**
+ * @brief do garbage collection from the gc list
+ *
+ * @param pgftl pointer of the page ftl
+ * @param request pointer of the request
+ *
+ * @return number of erased segments
+ */
+static ssize_t page_ftl_gc_from_list(struct page_ftl *pgftl,
+				     struct device_request *request)
+{
+	ssize_t ret = 0;
+	size_t nr_segments, nr_gc_segments, idx;
+	nr_segments = device_get_nr_segments(pgftl->dev);
+	nr_gc_segments = nr_segments * PAGE_FTL_GC_RATIO;
+	for (idx = 0; idx < nr_gc_segments; idx++) {
+		ret = page_ftl_submit_request(pgftl, request);
+		if (ret) {
+			pr_err("garbage collection from list failed\n");
+			return ret;
+		}
+		if (pgftl->gc_list == NULL) {
+			break;
+		}
+	}
+	ret = idx;
+	return ret;
+}
+
+/**
+ * @brief do garbage collection thread
+ *
+ * @param data containing the pointer of the page ftl structure
+ *
+ * @return NULL
+ */
+static void *page_ftl_gc_thread(void *data)
+{
+	struct page_ftl *pgftl;
+	size_t invalid_pages, total_pages;
+	ssize_t ret;
+	struct device_request request;
+
+	pgftl = (struct page_ftl *)data;
+	assert(NULL != pgftl);
+	assert(NULL != pgftl->dev);
+
+	memset(&request, 0, sizeof(struct device_request));
+	request.flag = DEVICE_ERASE;
+
+	total_pages = device_get_total_pages(pgftl->dev);
+	ret = 0;
+	while (1) {
+		sleep(1);
+		if (g_atomic_int_get(&is_gc_thread_exit) == 1) {
+			break;
+		}
+		invalid_pages = page_ftl_get_invalid_pages(pgftl);
+		if (invalid_pages * 10 < total_pages) {
+			continue;
+		}
+		ret = page_ftl_gc_from_list(pgftl, &request);
+		if (ret < 0) {
+			pr_err("critical garbage collection error detected (errno: %zd)\n",
+			       ret);
+			break;
+		}
+	}
+	return NULL;
+}
 
 /**
  * @brief allocate the segment's bitmap
@@ -124,6 +229,7 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 int page_ftl_open(struct page_ftl *pgftl, const char *name)
 {
 	int err;
+	int gc_thread_status;
 	size_t map_size;
 	size_t nr_segments;
 
@@ -177,6 +283,14 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name)
 	}
 	memset(pgftl->gc_seg_bits, 0, BITS_TO_UINT64_ALIGN(nr_segments));
 
+	g_atomic_int_set(&is_gc_thread_exit, 0);
+	gc_thread_status = pthread_create(&pgftl->gc_thread, NULL,
+					  page_ftl_gc_thread, (void *)pgftl);
+	if (gc_thread_status < 0) {
+		pr_err("garbage collection thread creation failed\n");
+		goto exception;
+	}
+
 	return 0;
 
 exception:
@@ -196,7 +310,7 @@ exception:
 ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 				struct device_request *request)
 {
-	int ret = 0;
+	ssize_t ret = 0;
 	if (pgftl == NULL || request == NULL) {
 		pr_err("null detected (pgftl:%p, request:%p)\n", pgftl,
 		       request);
@@ -215,7 +329,7 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 		break;
 	case DEVICE_ERASE:
 		pthread_rwlock_wrlock(&pgftl->rwlock);
-		ret = page_ftl_do_gc(pgftl);
+		ret = (ssize_t)page_ftl_do_gc(pgftl);
 		pthread_rwlock_unlock(&pgftl->rwlock);
 		break;
 	default:
@@ -265,10 +379,13 @@ static void page_ftl_free_segments(struct page_ftl *pgftl)
 int page_ftl_close(struct page_ftl *pgftl)
 {
 	int ret = 0;
+	long status = 0;
 	if (pgftl == NULL) {
 		pr_err("null page ftl structure submitted\n");
 		return ret;
 	}
+	g_atomic_int_set(&is_gc_thread_exit, 1);
+	pthread_join(pgftl->gc_thread, (void **)&status);
 
 	pthread_mutex_destroy(&pgftl->mutex);
 	pthread_rwlock_destroy(&pgftl->rwlock);
