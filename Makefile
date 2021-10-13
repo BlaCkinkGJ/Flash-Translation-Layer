@@ -18,7 +18,7 @@ DEVICE_INCLUDES =
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 # Device Module Setting
-USE_ZONE_DEVICE = 0
+USE_ZONE_DEVICE = 1
 # Debug Setting
 USE_DEBUG = 1
 
@@ -111,8 +111,8 @@ all: $(TARGET)
 test: $(TEST_TARGET)
 
 $(TARGET): main.c $(LIBRARY_TARGET)
-	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(GLIB_LIBS) $(GLIB_INCLUDES)
+	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(DEVICE_LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(DEVICE_LIBS) $(GLIB_LIBS) $(GLIB_INCLUDES)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
