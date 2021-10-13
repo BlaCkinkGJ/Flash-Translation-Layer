@@ -20,14 +20,19 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 # Device Module Setting
 USE_ZONE_DEVICE = 1
 # Debug Setting
-USE_DEBUG = 1
+USE_DEBUG = 0
 
 ifeq ($(USE_DEBUG), 1)
 DEBUG_FLAGS = -g -pg
 MACROS = -DDEBUG
+MEMORY_CHECK_LIBS = -lasan
+MEMORY_CHECK_CFLAGS = 
+MEMORY_CHECK_LIBS = -fsanitize=address
 else
 DEBUG_FLAGS =
 MACROS =
+MEMORY_CHECK_LIBS =
+MEMORY_CHECK_CFLAGS = 
 endif
 
 ifeq ($(USE_ZONE_DEVICE), 1)
@@ -72,11 +77,12 @@ CFLAGS := -Wall \
           -Wundef \
           $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
-          -fsanitize=address
+	  $(MEMORY_CHECK_CFLAGS)
+
 CXXFLAGS := $(CFLAGS)
 
 UNITY_ROOT := ./unity
-LIBS := -lm -lpthread -lasan $(GLIB_LIBS) $(DEVICE_LIBS)
+LIBS := -lm -lpthread $(MEMORY_CHECK_LIBS) $(GLIB_LIBS) $(DEVICE_LIBS)
 
 INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 
