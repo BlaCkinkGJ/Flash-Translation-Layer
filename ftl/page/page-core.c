@@ -107,7 +107,7 @@ static void *page_ftl_gc_thread(void *data)
 			break;
 		}
 		invalid_pages = page_ftl_get_invalid_pages(pgftl);
-		if (invalid_pages * 10 < total_pages) {
+		if (invalid_pages < total_pages * PAGE_FTL_GC_THRESHOLD) {
 			continue;
 		}
 		ret = page_ftl_gc_from_list(pgftl, &request);

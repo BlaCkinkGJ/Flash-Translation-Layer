@@ -20,9 +20,15 @@
 #include "device.h"
 
 #define PAGE_FTL_CACHE_SIZE (2)
-#define PAGE_FTL_GC_RATIO ((double)30 / 100)
+#define PAGE_FTL_GC_RATIO                                                      \
+	((double)30 /                                                          \
+	 100) /**< maximum the number of segments garbage collected */
+#define PAGE_FTL_GC_THRESHOLD                                                  \
+	((double)90 /                                                          \
+	 100) /**< gc triggered when number of the remaining segments under threshold */
 
-enum { PAGE_FTL_IOCTL_TRIM = 0,
+enum {
+	PAGE_FTL_IOCTL_TRIM = 0,
 };
 
 /**
