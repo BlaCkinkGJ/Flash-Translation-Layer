@@ -2,7 +2,7 @@
  * @file lru.h
  * @brief data structures and interfaces for the lru cache
  * @author Gijun Oh
- * @version 1.0
+ * @version 0.1
  * @date 2021-09-30
  * @note
  * This is not thread-safe.

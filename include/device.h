@@ -2,7 +2,7 @@
  * @file device.h
  * @brief contain the device information header
  * @author Gijun Oh
- * @version 1.0
+ * @version 0.1
  * @date 2021-10-01
  */
 #ifndef DEVICE_H

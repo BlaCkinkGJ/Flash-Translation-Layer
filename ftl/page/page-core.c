@@ -2,7 +2,7 @@
  * @file page-core.c
  * @brief core logic for page ftl
  * @author Gijun Oh
- * @version 1.0
+ * @version 0.1
  * @date 2021-09-22
  */
 #include "include/device.h"

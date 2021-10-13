@@ -2,7 +2,7 @@
  * @file flash.h
  * @brief generic flash control interfaces' header
  * @author Gijun Oh
- * @version 1.0
+ * @version 0.1
  * @date 2021-09-22
  */
 #ifndef FLASH_H

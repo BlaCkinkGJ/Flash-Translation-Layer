@@ -2,7 +2,7 @@
  * @file device.c
  * @brief implementation of the device
  * @author Gijun Oh
- * @version 1.0
+ * @version 0.1
  * @date 2021-10-01
  */
 #include "include/device.h"
