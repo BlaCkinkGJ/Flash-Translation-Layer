@@ -43,8 +43,8 @@ struct flash_device {
  * - offset: offset of the write position (bytes, NOT sector(512 bytes))
  */
 struct flash_operations {
-	int (*open)(struct flash_device *,
-		    const char *name); /**< open the flash device */
+	int (*open)(struct flash_device *, const char *name,
+		    int flags); /**< open the flash device */
 	ssize_t (*write)(struct flash_device *, void *buffer, size_t count,
 			 off_t offset); /**< write to the flash */
 	ssize_t (*read)(struct flash_device *, void *buffer, size_t count,

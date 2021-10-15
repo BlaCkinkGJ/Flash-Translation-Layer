@@ -27,8 +27,7 @@
 	((double)90 /                                                          \
 	 100) /**< gc triggered when number of the remaining segments under threshold */
 
-enum {
-	PAGE_FTL_IOCTL_TRIM = 0,
+enum { PAGE_FTL_IOCTL_TRIM = 0,
 };
 
 /**
@@ -61,7 +60,7 @@ struct page_ftl {
 };
 
 /* page-interface.c */
-int page_ftl_open(struct page_ftl *, const char *name);
+int page_ftl_open(struct page_ftl *, const char *name, int flags);
 int page_ftl_close(struct page_ftl *);
 
 ssize_t page_ftl_submit_request(struct page_ftl *, struct device_request *);

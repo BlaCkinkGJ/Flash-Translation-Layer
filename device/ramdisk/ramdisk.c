@@ -23,10 +23,11 @@
  *
  * @param dev pointer of the device structure
  * @param name this does not use in this module
+ * @param flags open flags for ramdisk
  *
  * @return 0 for success, negative value to fail
  */
-int ramdisk_open(struct device *dev, const char *name)
+int ramdisk_open(struct device *dev, const char *name, int flags)
 {
 	int ret = 0;
 	char *buffer;

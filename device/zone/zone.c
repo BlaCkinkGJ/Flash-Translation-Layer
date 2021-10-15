@@ -25,10 +25,11 @@
  *
  * @param dev pointer of the device structure
  * @param name zoned block device's device filename
+ * @param flags open flags for ramdisk
  *
  * @return 0 for success, negative number for fail
  */
-int zone_open(struct device *dev, const char *name)
+int zone_open(struct device *dev, const char *name, int flags)
 {
 	struct zone_meta *meta;
 	struct zbd_info zone_info;

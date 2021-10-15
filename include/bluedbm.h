@@ -12,7 +12,7 @@ struct bluedbm {
 	size_t size;
 };
 
-int bluedbm_open(struct device *, const char *name);
+int bluedbm_open(struct device *, const char *name, int flags);
 ssize_t bluedbm_write(struct device *, struct device_request *);
 ssize_t bluedbm_read(struct device *, struct device_request *);
 int bluedbm_erase(struct device *, struct device_request *);

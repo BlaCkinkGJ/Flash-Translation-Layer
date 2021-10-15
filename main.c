@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #include "include/module.h"
 #include "include/flash.h"
@@ -112,7 +113,7 @@ int main(void)
 #else
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
 #endif
-	flash->f_op->open(flash, "/dev/nvme0n2");
+	flash->f_op->open(flash, "/dev/nvme0n2", O_CREAT | O_RDWR);
 	thread_id =
 		pthread_create(&threads[0], NULL, write_thread, (void *)flash);
 	if (thread_id < 0) {

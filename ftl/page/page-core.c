@@ -223,10 +223,11 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
  *
  * @param pgftl pointer of the page ftl structure
  * @param name file's name for open
+ * @param flags flags for open
  *
  * @return zero to success, negative number to fail
  */
-int page_ftl_open(struct page_ftl *pgftl, const char *name)
+int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 {
 	int err;
 	int gc_thread_status;
@@ -249,7 +250,7 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name)
 	}
 
 	dev = pgftl->dev;
-	err = dev->d_op->open(dev, name);
+	err = dev->d_op->open(dev, name, flags);
 	if (err) {
 		pr_err("device open failed\n");
 		err = -EINVAL;

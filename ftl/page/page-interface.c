@@ -20,7 +20,8 @@
  *
  * @return zero to success, error number to fail
  */
-static int page_ftl_open_interface(struct flash_device *flash, const char *name)
+static int page_ftl_open_interface(struct flash_device *flash, const char *name,
+				   int flags)
 {
 	struct page_ftl *pgftl = NULL;
 	if (flash == NULL) {
@@ -32,7 +33,7 @@ static int page_ftl_open_interface(struct flash_device *flash, const char *name)
 		pr_err("page FTL information doesn't exist\n");
 		return -EINVAL;
 	}
-	return page_ftl_open(pgftl, name);
+	return page_ftl_open(pgftl, name, flags);
 }
 
 /**

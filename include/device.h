@@ -25,26 +25,23 @@ struct device_operations;
 /**
  * @brief request allocation flags
  */
-enum {
-	DEVICE_DEFAULT_REQUEST = 0,
+enum { DEVICE_DEFAULT_REQUEST = 0,
 };
 
 /**
  * @brief flash board I/O direction
  */
-enum {
-	DEVICE_WRITE = 0 /**< write flag */,
-	DEVICE_READ /**< read flag */,
-	DEVICE_ERASE /**< erase flag */,
+enum { DEVICE_WRITE = 0 /**< write flag */,
+       DEVICE_READ /**< read flag */,
+       DEVICE_ERASE /**< erase flag */,
 };
 
 /**
  * @brief support module list
  */
-enum {
-	RAMDISK_MODULE = 0 /**< select the ramdisk module */,
-	BLUEDBM_MODULE /**< select the bluedbm module */,
-	ZONE_MODULE /**< select the zone module */,
+enum { RAMDISK_MODULE = 0 /**< select the ramdisk module */,
+       BLUEDBM_MODULE /**< select the bluedbm module */,
+       ZONE_MODULE /**< select the zone module */,
 };
 
 /**
@@ -176,7 +173,7 @@ struct device {
  * @brief operations for device
  */
 struct device_operations {
-	int (*open)(struct device *, const char *name);
+	int (*open)(struct device *, const char *name, int flags);
 	ssize_t (*write)(struct device *, struct device_request *);
 	ssize_t (*read)(struct device *, struct device_request *);
 	int (*erase)(struct device *, struct device_request *);

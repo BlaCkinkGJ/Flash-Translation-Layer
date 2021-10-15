@@ -18,7 +18,7 @@ DEVICE_INCLUDES =
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 # Device Module Setting
-USE_ZONE_DEVICE = 1
+USE_ZONE_DEVICE = 0
 # Debug Setting
 USE_DEBUG = 0
 

@@ -36,7 +36,7 @@ struct zone_meta {
 	struct zbd_zone *zones;
 };
 
-int zone_open(struct device *, const char *name);
+int zone_open(struct device *, const char *name, int flags);
 ssize_t zone_write(struct device *, struct device_request *);
 ssize_t zone_read(struct device *, struct device_request *);
 int zone_erase(struct device *, struct device_request *);
