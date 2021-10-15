@@ -9,6 +9,7 @@
 #include <errno.h>
 
 #include <assert.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <string.h>
 #include <glib.h>
@@ -226,6 +227,8 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
  * @param flags flags for open
  *
  * @return zero to success, negative number to fail
+ *
+ * @todo you must make a recovery process
  */
 int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 {
@@ -235,6 +238,10 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 	size_t nr_segments;
 
 	struct device *dev;
+
+	if (!(flags & O_CREAT)) {
+		pr_warn("current version needs to O_CREAT flag\n");
+	}
 
 	assert(NULL != pgftl->dev);
 

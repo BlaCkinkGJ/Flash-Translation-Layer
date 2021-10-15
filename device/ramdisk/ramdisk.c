@@ -5,6 +5,7 @@
  * @version 0.1
  * @date 2021-10-03
  */
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -53,6 +54,7 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 
 	ramdisk = (struct ramdisk *)dev->d_private;
 	ramdisk->size = device_get_total_size(dev);
+	ramdisk->o_flags = flags;
 
 	pr_info("ramdisk generated (size: %zu bytes)\n", ramdisk->size);
 	buffer = (char *)malloc(ramdisk->size);
@@ -108,6 +110,13 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	size_t page_size = device_get_page_size(dev);
 	ssize_t ret = 0;
 	int is_used;
+
+	if (!((ramdisk->o_flags & O_ACCMODE) == O_WRONLY ||
+	      (ramdisk->o_flags & O_ACCMODE) == O_RDWR)) {
+		pr_err("cannot find the valid write flags\n");
+		ret = -EINVAL;
+		goto exception;
+	}
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
@@ -166,6 +175,13 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	ssize_t ret;
 
 	ret = 0;
+
+	if (!((ramdisk->o_flags & O_ACCMODE) == O_RDONLY ||
+	      (ramdisk->o_flags & O_ACCMODE) == O_RDWR)) {
+		pr_err("cannot find the valid read flags\n");
+		ret = -EINVAL;
+		goto exception;
+	}
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");

@@ -27,6 +27,7 @@ struct zone_meta {
 	uint64_t zone_size;
 	uint64_t nr_zones;
 	uint64_t block_size;
+	int o_flags;
 
 	char *buffer;
 

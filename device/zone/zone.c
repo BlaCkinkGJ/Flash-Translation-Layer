@@ -58,6 +58,7 @@ int zone_open(struct device *dev, const char *name, int flags)
 		meta->buffer = NULL;
 		goto exception;
 	}
+	meta->o_flags = flags;
 
 	meta->read.fd = zbd_open(name, O_RDONLY, &zone_info);
 	if (meta->read.fd < 0) {
@@ -72,10 +73,12 @@ int zone_open(struct device *dev, const char *name, int flags)
 		goto exception;
 	}
 	meta->total_size = zone_info.nr_zones * zone_info.zone_size;
-	ret = zbd_reset_zones(meta->write.fd, 0, meta->total_size);
-	if (ret) {
-		pr_err("zone reset failed\n");
-		goto exception;
+	if (meta->o_flags & O_CREAT) {
+		ret = zbd_reset_zones(meta->write.fd, 0, meta->total_size);
+		if (ret) {
+			pr_err("zone reset failed\n");
+			goto exception;
+		}
 	}
 	meta->zone_size = zone_info.zone_size;
 	meta->nr_zones = zone_info.nr_zones;
@@ -176,9 +179,17 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 	uint64_t zone_num;
 
 	meta = (struct zone_meta *)dev->d_private;
+	if (!((meta->o_flags & O_ACCMODE) == O_WRONLY ||
+	      (meta->o_flags & O_ACCMODE) == O_RDWR)) {
+		pr_err("cannot find the valid write flags\n");
+		ret = -EINVAL;
+		goto exception;
+	}
+
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
 		ret = -ENODATA;
+		goto exception;
 	}
 	if (request->flag != DEVICE_WRITE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
@@ -255,6 +266,12 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 	uint64_t zone_num;
 
 	meta = (struct zone_meta *)dev->d_private;
+	if (!((meta->o_flags & O_ACCMODE) == O_RDONLY ||
+	      (meta->o_flags & O_ACCMODE) == O_RDWR)) {
+		pr_err("cannot find the valid read flags\n");
+		ret = -EINVAL;
+		goto exception;
+	}
 
 	if (request->data == NULL) {
 		pr_err("NULL data pointer detected\n");

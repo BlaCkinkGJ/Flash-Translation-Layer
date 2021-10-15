@@ -72,6 +72,7 @@ the multiplication of 5.
 #include <assert.h>
 #include <unistd.h>
 #include <string.h>
+#include <fcntl.h>
 
 #include "include/module.h"
 #include "include/flash.h"
@@ -85,7 +86,7 @@ int main(void)
         char buffer[8192];
         assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
         pr_info("module initialize\n");
-        flash->f_op->open(flash, NULL);
+        flash->f_op->open(flash, NULL, O_CREAT | O_RDWR);
         for (int i = 0; i < 8192 * 10; i++) {
                 int num;
                 size_t sector;

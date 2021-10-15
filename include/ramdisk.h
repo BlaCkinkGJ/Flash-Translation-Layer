@@ -22,6 +22,7 @@ struct ramdisk {
 	size_t size;
 	char *buffer;
 	uint64_t *is_used;
+	int o_flags;
 };
 
 int ramdisk_open(struct device *, const char *name, int flags);
