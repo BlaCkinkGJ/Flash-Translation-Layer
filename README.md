@@ -32,9 +32,15 @@ git clone --recursive ${REPOSITORY_URL}
 
 Now you move to this repository's project directory root by using `mv`.
 
-> If you want to use the Zoned Block Device module, you must set the value
+> If you want to use a module like Zoned Block Device module, you must set the value
 > of the `USE_ZONE_DEVICE` variable to 1 in the `Makefile`.
->
+
+Additionally, you must install a valid library for each module.
+Each module's requirements are as follows.
+
+- zone: [libzbd](https://github.com/westerndigitalcorporation/libzbd)
+- bluedbm: [libmemio](https://github.com/pnuoslab/Flash-Board-Tester)
+
 > Moreover, before you run the Zoned Block Device-based program,
 > You must check that you give the super-user privileges to run
 > the Zoned Block Device-based programs.

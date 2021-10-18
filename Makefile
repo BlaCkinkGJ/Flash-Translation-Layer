@@ -5,7 +5,7 @@
 # `-g` and `-pg` for tracing the program
 # So, you must delete all when you release the program
 
-.SUFFIXES : .c .o
+.SUFFIXES : .c .cpp .o
 CC = gcc
 AR = ar
 CXX = g++
@@ -19,6 +19,7 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 # Device Module Setting
 USE_ZONE_DEVICE = 0
+USE_BLUEDBM_DEVICE = 0
 # Debug Setting
 USE_DEBUG = 0
 
@@ -35,32 +36,41 @@ MEMORY_CHECK_LIBS =
 MEMORY_CHECK_CFLAGS = 
 endif
 
+TEST_TARGET := lru-test.out \
+              bits-test.out \
+              ramdisk-test.out
+
+DEVICE_LIBS =
+
 ifeq ($(USE_ZONE_DEVICE), 1)
 # Zoned Device's Setting
 DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
                -D DEVICE_NR_CHIPS_BITS=3 \
                -D DEVICE_NR_PAGES_BITS=5 \
-               -D DEVICE_NR_BLOCKS_BITS=21 \
-               -D DEVICE_USE_ZONED
+               -D DEVICE_NR_BLOCKS_BITS=21
 
-TEST_TARGET = lru-test.out \
-              bits-test.out \
-              ramdisk-test.out \
-              zone-test.out
-
-DEVICE_LIBS = -lzbd
+TEST_TARGET += zone-test.out
+DEVICE_LIBS += -lzbd
+else ifeq ($(USE_BLUEDBM_DEVICE), 1)
+# BlueDBM Device's Setting
+DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
+               -D DEVICE_NR_CHIPS_BITS=3 \
+               -D DEVICE_NR_PAGES_BITS=7 \
+               -D DEVICE_NR_BLOCKS_BITS=19 \
 else
-# Ramdisk and BlueDBM Setting
+# Ramdisk Setting
 DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
                -D DEVICE_NR_CHIPS_BITS=3 \
                -D DEVICE_NR_PAGES_BITS=7 \
                -D DEVICE_NR_BLOCKS_BITS=19
+endif
 
-TEST_TARGET = lru-test.out \
-              bits-test.out \
-              ramdisk-test.out
+ifeq ($(USE_ZONE_DEVIE), 1)
+DEVICE_INFO += -D DEVICE_USE_ZONED
+endif
 
-DEVICE_LIBS =
+ifeq ($(USE_BLUEDBM_DEVICE), 1)
+DEVICE_INFO += -D DEVICE_USE_BLUEDBM
 endif
 
 ARFLAGS := rcs
@@ -77,7 +87,7 @@ CFLAGS := -Wall \
           -Wundef \
           $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
-	  $(MEMORY_CHECK_CFLAGS)
+          $(MEMORY_CHECK_CFLAGS)
 
 CXXFLAGS := $(CFLAGS)
 
@@ -87,11 +97,15 @@ LIBS := -lm -lpthread $(MEMORY_CHECK_LIBS) $(GLIB_LIBS) $(DEVICE_LIBS)
 INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 
 RAMDISK_SRCS = device/ramdisk/*.c
-BLUEDBM_SRCS = device/bluedbm/*.c
-ifeq ($(USE_ZONE_DEVICE), 1)
-ZONED_SRCS = device/zone/*.c
-else
 ZONED_SRCS =
+BLUEDBM_SRCS =
+
+ifeq ($(USE_ZONE_DEVICE), 1)
+ZONED_SRCS += device/zone/*.c
+endif
+
+ifeq ($(USE_BLUEDBM_DEVICE), 1)
+BLUEDBM_SRCS += device/bluedbm/*.c
 endif
 
 DEVICE_SRCS := $(RAMDISK_SRCS) \

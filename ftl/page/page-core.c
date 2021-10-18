@@ -31,7 +31,6 @@ static size_t page_ftl_get_invalid_pages(struct page_ftl *pgftl)
 {
 	size_t invalid_pages;
 	size_t pages_per_segment;
-	size_t nr_valid_pages;
 	struct page_ftl_segment *segment;
 	GList *node;
 
@@ -42,6 +41,7 @@ static size_t page_ftl_get_invalid_pages(struct page_ftl *pgftl)
 	pages_per_segment = device_get_pages_per_segment(pgftl->dev);
 	node = pgftl->gc_list;
 	while (node) {
+		size_t nr_valid_pages;
 		segment = (struct page_ftl_segment *)node->data;
 		nr_valid_pages = g_atomic_int_get(&segment->nr_valid_pages);
 		invalid_pages += pages_per_segment - nr_valid_pages;
@@ -89,7 +89,7 @@ static ssize_t page_ftl_gc_from_list(struct page_ftl *pgftl,
 static void *page_ftl_gc_thread(void *data)
 {
 	struct page_ftl *pgftl;
-	size_t invalid_pages, total_pages;
+	size_t total_pages;
 	ssize_t ret;
 	struct device_request request;
 
@@ -103,6 +103,7 @@ static void *page_ftl_gc_thread(void *data)
 	total_pages = device_get_total_pages(pgftl->dev);
 	ret = 0;
 	while (1) {
+		size_t invalid_pages;
 		sleep(1);
 		if (g_atomic_int_get(&is_gc_thread_exit) == 1) {
 			break;

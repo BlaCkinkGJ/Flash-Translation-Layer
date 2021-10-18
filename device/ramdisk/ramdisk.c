@@ -44,6 +44,7 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 	size_t nr_segments;
 
 	(void)name;
+	(void)flags;
 
 	info->nr_bus = (1 << DEVICE_NR_BUS_BITS);
 	info->nr_chips = (1 << DEVICE_NR_CHIPS_BITS);
@@ -148,12 +149,12 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
 	       request->data_len);
 	ret = request->data_len;
-	if (request && request->end_rq) {
+	if (request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
 exception:
-	if (request && request->end_rq) {
+	if (request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
@@ -215,12 +216,12 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	ret = request->data_len;
 	pr_debug("request->end_rq %p %p\n", request->end_rq,
 		 &((struct device_request *)request->rq_private)->mutex);
-	if (request && request->end_rq) {
+	if (request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
 exception:
-	if (request && request->end_rq) {
+	if (request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
@@ -263,12 +264,12 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 		reset_bit(ramdisk->is_used, lpn);
 	}
 
-	if (request && request->end_rq) {
+	if (request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
 exception:
-	if (request && request->end_rq) {
+	if (request->end_rq) {
 		request->end_rq(request);
 	}
 	return ret;
