@@ -108,8 +108,10 @@ int main(void)
 	int thread_id;
 	size_t status;
 	struct flash_device *flash = NULL;
-#ifdef DEVICE_USE_ZONED
+#if defined(DEVICE_USE_ZONED)
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, ZONE_MODULE));
+#elif defined(DEVICE_USE_BLUEDBM)
+	assert(0 == module_init(PAGE_FTL_MODULE, &flash, BLUEDBM_MODULE));
 #else
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
 #endif

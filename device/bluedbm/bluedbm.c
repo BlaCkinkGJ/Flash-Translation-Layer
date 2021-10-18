@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <assert.h>
+#include <string.h>
 
 #include "include/bluedbm.h"
 #include "include/device.h"
@@ -44,11 +45,15 @@ static int bluedbm_clear(struct device *dev)
 	uint32_t segnum;
 
 	bdbm = (struct bluedbm *)dev->d_private;
+  if (bdbm->mio == NULL) {
+    pr_err("mio must be specified.\n");
+    return -EINVAL;
+  }
 	pages_per_segment = device_get_pages_per_segment(dev);
 	erase_size = pages_per_segment * page->size;
-	addr.lpn = 0;
 	for (segnum = 0; segnum < package->nr_blocks; segnum++) {
-		addr.lpn = segnum * pages_per_segment;
+		addr.lpn = 0;
+    addr.format.block = segnum;
 		memio_trim(bdbm->mio, addr.lpn, erase_size,
 			   bluedbm_erase_end_request);
 	}
@@ -117,6 +122,7 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 	bdbm = (struct bluedbm *)dev->d_private;
 	bdbm->size = device_get_total_size(dev);
 	bdbm->o_flags = flags;
+  bdbm->mio = mio;
 
 	dev->badseg_bitmap =
 		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
@@ -194,7 +200,7 @@ ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 	async_bdbm_req *write_rq = NULL;
 	memio_t *mio;
 
-	struct bluedbm *bluedbm;
+	struct bluedbm *bdbm;
 
 	size_t page_size;
 	ssize_t ret = 0;
@@ -202,8 +208,8 @@ ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 	uint32_t lpn;
 
 	page_size = device_get_page_size(dev);
-	bluedbm = (struct bluedbm *)dev->d_private;
-	mio = bluedbm->mio;
+	bdbm = (struct bluedbm *)dev->d_private;
+	mio = bdbm->mio;
 
 	if (mio == NULL) {
 		pr_err("memio global structure doesn't exist\n");
@@ -279,7 +285,7 @@ ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 	async_bdbm_req *read_rq = NULL;
 	memio_t *mio;
 
-	struct bluedbm *bluedbm;
+	struct bluedbm *bdbm;
 
 	size_t page_size;
 	ssize_t ret = 0;
@@ -287,8 +293,8 @@ ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 	uint32_t lpn;
 
 	page_size = device_get_page_size(dev);
-	bluedbm = (struct bluedbm *)dev->d_private;
-	mio = bluedbm->mio;
+	bdbm= (struct bluedbm *)dev->d_private;
+	mio = bdbm->mio;
 
 	if (mio == NULL) {
 		pr_err("memio global structure doesn't exist\n");
@@ -359,7 +365,7 @@ exception:
 
 int bluedbm_erase(struct device *dev, struct device_request *request)
 {
-	struct bluedbm *bluedbm;
+	struct bluedbm *bdbm;
 	memio_t *mio;
 	struct device_address addr = request->paddr;
 	size_t page_size;
@@ -369,8 +375,8 @@ int bluedbm_erase(struct device *dev, struct device_request *request)
 	size_t erase_size;
 	int ret = 0;
 
-	bluedbm = (struct bluedbm *)dev->d_private;
-	mio = bluedbm->mio;
+	bdbm= (struct bluedbm *)dev->d_private;
+	mio = bdbm->mio;
 
 	if (mio == NULL) {
 		pr_err("memio global structure doesn't exist\n");
