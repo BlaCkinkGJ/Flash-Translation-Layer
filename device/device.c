@@ -8,7 +8,9 @@
 #include "include/device.h"
 #include "include/log.h"
 #include "include/ramdisk.h"
+#ifdef DEVICE_USE_BLUEDBM
 #include "include/bluedbm.h"
+#endif
 #ifdef DEVICE_USE_ZONED
 #include "include/zone.h"
 #endif

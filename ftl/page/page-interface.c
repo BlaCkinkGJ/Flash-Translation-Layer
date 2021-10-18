@@ -7,6 +7,7 @@
  */
 #include <errno.h>
 #include <string.h>
+#include <fcntl.h>
 
 #include "include/log.h"
 #include "include/page.h"
@@ -66,6 +67,13 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 	pgftl = (struct page_ftl *)flash->f_private;
 	if (pgftl == NULL) {
 		pr_err("page FTL information doesn't exist\n");
+		size = -EINVAL;
+		goto exception;
+	}
+
+	if (!((pgftl->o_flags & O_ACCMODE) == O_WRONLY ||
+	      (pgftl->o_flags & O_ACCMODE) == O_RDWR)) {
+		pr_err("cannot find the valid write flags\n");
 		size = -EINVAL;
 		goto exception;
 	}
@@ -162,6 +170,13 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 	pgftl = (struct page_ftl *)flash->f_private;
 	if (pgftl == NULL) {
 		pr_err("page FTL information doesn't exist\n");
+		size = -EINVAL;
+		goto exception;
+	}
+
+	if (!((pgftl->o_flags & O_ACCMODE) == O_RDONLY ||
+	      (pgftl->o_flags & O_ACCMODE) == O_RDWR)) {
+		pr_err("cannot find the valid read flags\n");
 		size = -EINVAL;
 		goto exception;
 	}

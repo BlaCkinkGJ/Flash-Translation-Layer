@@ -179,12 +179,6 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 	uint64_t zone_num;
 
 	meta = (struct zone_meta *)dev->d_private;
-	if (!((meta->o_flags & O_ACCMODE) == O_WRONLY ||
-	      (meta->o_flags & O_ACCMODE) == O_RDWR)) {
-		pr_err("cannot find the valid write flags\n");
-		ret = -EINVAL;
-		goto exception;
-	}
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
@@ -194,6 +188,11 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 	if (request->flag != DEVICE_WRITE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_WRITE, request->flag);
+		ret = -EINVAL;
+		goto exception;
+	}
+	if (request->paddr.lpn == PADDR_EMPTY) {
+		pr_err("physical address is not specified...\n");
 		ret = -EINVAL;
 		goto exception;
 	}
@@ -266,12 +265,6 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 	uint64_t zone_num;
 
 	meta = (struct zone_meta *)dev->d_private;
-	if (!((meta->o_flags & O_ACCMODE) == O_RDONLY ||
-	      (meta->o_flags & O_ACCMODE) == O_RDWR)) {
-		pr_err("cannot find the valid read flags\n");
-		ret = -EINVAL;
-		goto exception;
-	}
 
 	if (request->data == NULL) {
 		pr_err("NULL data pointer detected\n");

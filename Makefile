@@ -1,5 +1,11 @@
 # You can generate the compile_commands.json file by using
-# `bear make all test`
+# `make clean -j$(nproc)`
+# `bear make all -j$(nproc)`
+# `compdb -p ./ list > ../compile_commands.json`
+# `cp ../compile_commands.json ./
+#
+# You can get `bear` from [link](https://github.com/rizsotto/Bear)
+# You can get `compdb` from [link](https://github.com/Sarcasm/compdb)
 
 # `-fsanitize=address` and `-lasan` for memory leakage checking
 # `-g` and `-pg` for tracing the program
@@ -44,33 +50,36 @@ DEVICE_LIBS =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 # Zoned Device's Setting
-DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
-               -D DEVICE_NR_CHIPS_BITS=3 \
-               -D DEVICE_NR_PAGES_BITS=5 \
-               -D DEVICE_NR_BLOCKS_BITS=21
+DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
+               -DDEVICE_NR_CHIPS_BITS=3 \
+               -DDEVICE_NR_PAGES_BITS=5 \
+               -DDEVICE_NR_BLOCKS_BITS=21
 
 TEST_TARGET += zone-test.out
 DEVICE_LIBS += -lzbd
 else ifeq ($(USE_BLUEDBM_DEVICE), 1)
 # BlueDBM Device's Setting
-DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
-               -D DEVICE_NR_CHIPS_BITS=3 \
-               -D DEVICE_NR_PAGES_BITS=7 \
-               -D DEVICE_NR_BLOCKS_BITS=19 \
+DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
+               -DDEVICE_NR_CHIPS_BITS=3 \
+               -DDEVICE_NR_PAGES_BITS=7 \
+               -DDEVICE_NR_BLOCKS_BITS=19 \
+               -DUSER_MODE
+DEVICE_LIBS += -lmemio
+DEVICE_INCLUDES += -I/usr/local/include/memio
 else
 # Ramdisk Setting
-DEVICE_INFO := -D DEVICE_NR_BUS_BITS=3 \
-               -D DEVICE_NR_CHIPS_BITS=3 \
-               -D DEVICE_NR_PAGES_BITS=7 \
-               -D DEVICE_NR_BLOCKS_BITS=19
+DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
+               -DDEVICE_NR_CHIPS_BITS=3 \
+               -DDEVICE_NR_PAGES_BITS=7 \
+               -DDEVICE_NR_BLOCKS_BITS=19
 endif
 
 ifeq ($(USE_ZONE_DEVIE), 1)
-DEVICE_INFO += -D DEVICE_USE_ZONED
+DEVICE_INFO += -DDEVICE_USE_ZONED
 endif
 
 ifeq ($(USE_BLUEDBM_DEVICE), 1)
-DEVICE_INFO += -D DEVICE_USE_BLUEDBM
+DEVICE_INFO += -DDEVICE_USE_BLUEDBM
 endif
 
 ARFLAGS := rcs
@@ -89,7 +98,8 @@ CFLAGS := -Wall \
           $(DEBUG_FLAGS) \
           $(MEMORY_CHECK_CFLAGS)
 
-CXXFLAGS := $(CFLAGS)
+CXXFLAGS := $(CFLAGS) \
+            -std=c++11
 
 UNITY_ROOT := ./unity
 LIBS := -lm -lpthread $(MEMORY_CHECK_LIBS) $(GLIB_LIBS) $(DEVICE_LIBS)
@@ -126,9 +136,19 @@ SRCS := $(DEVICE_SRCS) \
 
 OBJS := *.o
 
+ifeq ($(PREFIX),)
+PREFIX := /usr/local
+endif
+
 all: $(TARGET)
 
 test: $(TEST_TARGET)
+
+install:
+	install -d $(DESTDIR)$(PREFIX)/lib/
+	install -m 644 $(LIBRARY_TARGET) $(DESTDIR)$(PREFIX)/lib
+	install -d $(DESTDIR)$(PREFIX)/include/ftl
+	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
 $(TARGET): main.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(DEVICE_LIBS)
@@ -138,7 +158,7 @@ $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 $(OBJS): $(SRCS)
-	$(CC) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
+	$(CXX) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
 
 lru-test.out: $(UNITY_ROOT)/src/unity.c ./util/lru.c ./test/lru-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)

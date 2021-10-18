@@ -54,6 +54,7 @@ struct page_ftl {
 	pthread_mutex_t mutex;
 	pthread_rwlock_t rwlock;
 	pthread_t gc_thread;
+	int o_flags;
 
 	GList *gc_list; /**< garbage collection target list */
 	uint64_t *gc_seg_bits; /**< to find segnum is in gc list or not */

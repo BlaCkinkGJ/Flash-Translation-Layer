@@ -112,13 +112,6 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	ssize_t ret = 0;
 	int is_used;
 
-	if (!((ramdisk->o_flags & O_ACCMODE) == O_WRONLY ||
-	      (ramdisk->o_flags & O_ACCMODE) == O_RDWR)) {
-		pr_err("cannot find the valid write flags\n");
-		ret = -EINVAL;
-		goto exception;
-	}
-
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
 		ret = -ENODATA;
@@ -128,6 +121,12 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	if (request->flag != DEVICE_WRITE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_WRITE, request->flag);
+		ret = -EINVAL;
+		goto exception;
+	}
+
+	if (request->paddr.lpn == PADDR_EMPTY) {
+		pr_err("physical address is not specified...\n");
 		ret = -EINVAL;
 		goto exception;
 	}
@@ -176,13 +175,6 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	ssize_t ret;
 
 	ret = 0;
-
-	if (!((ramdisk->o_flags & O_ACCMODE) == O_RDONLY ||
-	      (ramdisk->o_flags & O_ACCMODE) == O_RDWR)) {
-		pr_err("cannot find the valid read flags\n");
-		ret = -EINVAL;
-		goto exception;
-	}
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");

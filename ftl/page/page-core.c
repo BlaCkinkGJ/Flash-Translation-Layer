@@ -292,6 +292,8 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 	}
 	memset(pgftl->gc_seg_bits, 0, BITS_TO_UINT64_ALIGN(nr_segments));
 
+	pgftl->o_flags = flags;
+
 	g_atomic_int_set(&is_gc_thread_exit, 0);
 	gc_thread_status = pthread_create(&pgftl->gc_thread, NULL,
 					  page_ftl_gc_thread, (void *)pgftl);
