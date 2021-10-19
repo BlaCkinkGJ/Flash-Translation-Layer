@@ -34,7 +34,7 @@ DEBUG_FLAGS = -g -pg
 MACROS = -DDEBUG
 MEMORY_CHECK_LIBS = -lasan
 MEMORY_CHECK_CFLAGS = 
-MEMORY_CHECK_LIBS = -fsanitize=address
+MEMORY_CHECK_LIBS += -fsanitize=address
 else
 DEBUG_FLAGS =
 MACROS =
@@ -102,7 +102,7 @@ CXXFLAGS := $(CFLAGS) \
             -std=c++11
 
 UNITY_ROOT := ./unity
-LIBS := -lm -lpthread $(MEMORY_CHECK_LIBS) $(GLIB_LIBS) $(DEVICE_LIBS)
+LIBS := -lm -lpthread $(GLIB_LIBS) $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
 
 INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 
@@ -151,8 +151,8 @@ install:
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
 $(TARGET): main.c $(LIBRARY_TARGET)
-	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(DEVICE_LIBS)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(DEVICE_LIBS) $(GLIB_LIBS) $(GLIB_INCLUDES)
+	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^

@@ -27,6 +27,7 @@ static void bluedbm_erase_end_request(uint64_t segnum, uint8_t is_bad)
 	if (is_bad == 0) {
 		return;
 	}
+	pr_info("bad segnum: %lu\n", segnum);
 	set_bit(g_badseg_bitmap, segnum);
 }
 
@@ -45,15 +46,15 @@ static int bluedbm_clear(struct device *dev)
 	uint32_t segnum;
 
 	bdbm = (struct bluedbm *)dev->d_private;
-  if (bdbm->mio == NULL) {
-    pr_err("mio must be specified.\n");
-    return -EINVAL;
-  }
+	if (bdbm->mio == NULL) {
+		pr_err("mio must be specified.\n");
+		return -EINVAL;
+	}
 	pages_per_segment = device_get_pages_per_segment(dev);
 	erase_size = pages_per_segment * page->size;
 	for (segnum = 0; segnum < package->nr_blocks; segnum++) {
 		addr.lpn = 0;
-    addr.format.block = segnum;
+		addr.format.block = segnum;
 		memio_trim(bdbm->mio, addr.lpn, erase_size,
 			   bluedbm_erase_end_request);
 	}
@@ -122,7 +123,7 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 	bdbm = (struct bluedbm *)dev->d_private;
 	bdbm->size = device_get_total_size(dev);
 	bdbm->o_flags = flags;
-  bdbm->mio = mio;
+	bdbm->mio = mio;
 
 	dev->badseg_bitmap =
 		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
@@ -144,9 +145,9 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 
 	if (bdbm->o_flags & O_CREAT) {
 		bluedbm_clear(dev);
+		sleep(1);
+		bluedbm_wait_erase_finish(dev, 0, nr_segments);
 	}
-
-	bluedbm_wait_erase_finish(dev, 0, nr_segments);
 
 	return 0;
 exception:
@@ -293,7 +294,7 @@ ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 	uint32_t lpn;
 
 	page_size = device_get_page_size(dev);
-	bdbm= (struct bluedbm *)dev->d_private;
+	bdbm = (struct bluedbm *)dev->d_private;
 	mio = bdbm->mio;
 
 	if (mio == NULL) {
@@ -375,7 +376,7 @@ int bluedbm_erase(struct device *dev, struct device_request *request)
 	size_t erase_size;
 	int ret = 0;
 
-	bdbm= (struct bluedbm *)dev->d_private;
+	bdbm = (struct bluedbm *)dev->d_private;
 	mio = bdbm->mio;
 
 	if (mio == NULL) {
