@@ -12,23 +12,21 @@
 #include "include/log.h"
 #include "include/bits.h"
 
-static uint64_t *g_badseg_bitmap = NULL;
-static gint *g_erase_counter = NULL;
+gint *g_badseg_counter = NULL;
+gint *g_erase_counter = NULL;
 
 static void bluedbm_erase_end_request(uint64_t segnum, uint8_t is_bad)
 {
-	if (g_badseg_bitmap == NULL || g_erase_counter == NULL) {
+	if (g_badseg_counter == NULL || g_erase_counter == NULL) {
 		pr_err("NULL pointer detected\n");
-		pr_err("\tg_badseg_bitmap: %p\n", g_badseg_bitmap);
+		pr_err("\tg_badseg_counter: %p\n", g_badseg_counter);
 		pr_err("\tg_erase_finish_bitmap: %p\n", g_erase_counter);
 		return;
 	}
 	g_atomic_int_inc(&g_erase_counter[segnum]);
-	if (is_bad == 0) {
-		return;
+	if (is_bad) {
+		g_atomic_int_inc(&g_badseg_counter[segnum]);
 	}
-	pr_info("bad segnum: %lu\n", segnum);
-	set_bit(g_badseg_bitmap, segnum);
 }
 
 static int bluedbm_clear(struct device *dev)
@@ -65,13 +63,16 @@ static void bluedbm_wait_erase_finish(struct device *dev, size_t segnum,
 				      size_t nr_segments)
 {
 	size_t blocks_per_segment;
+	size_t end_segment = segnum + nr_segments;
 	blocks_per_segment = device_get_blocks_per_segment(dev);
-	while (segnum < segnum + nr_segments) {
+	while (segnum < end_segment) {
 		gint nr_erased_block;
-		int status;
+		gint status;
 
-		status = get_bit(g_badseg_bitmap, segnum);
+		pr_info("wait: %lu\n", segnum);
+		status = g_atomic_int_get(&g_badseg_counter[segnum]);
 		if (status) {
+			set_bit(dev->badseg_bitmap, segnum);
 			segnum++;
 			continue;
 		}
@@ -104,15 +105,6 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 	(void)name;
 	(void)flags;
 
-	mio = memio_open();
-	if (mio == NULL) {
-		pr_err("memio open failed\n");
-		ret = -EFAULT;
-		goto exception;
-	}
-
-	nr_segments = device_get_nr_segments(dev);
-
 	info->nr_bus = (1 << DEVICE_NR_BUS_BITS);
 	info->nr_chips = (1 << DEVICE_NR_CHIPS_BITS);
 	block->nr_pages = (1 << DEVICE_NR_PAGES_BITS);
@@ -120,7 +112,15 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 
 	package->nr_blocks = BLUEDBM_NR_BLOCKS;
 
+	nr_segments = device_get_nr_segments(dev);
+
 	bdbm = (struct bluedbm *)dev->d_private;
+	mio = memio_open();
+	if (mio == NULL) {
+		pr_err("memio open failed\n");
+		ret = -EFAULT;
+		goto exception;
+	}
 	bdbm->size = device_get_total_size(dev);
 	bdbm->o_flags = flags;
 	bdbm->mio = mio;
@@ -133,7 +133,6 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 		goto exception;
 	}
 	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
-	g_badseg_bitmap = dev->badseg_bitmap;
 
 	g_erase_counter = (gint *)malloc(nr_segments * sizeof(gint));
 	if (g_erase_counter == NULL) {
@@ -142,6 +141,14 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 		goto exception;
 	}
 	memset(g_erase_counter, 0, nr_segments * sizeof(gint));
+
+	g_badseg_counter = (gint *)malloc(nr_segments * sizeof(gint));
+	if (g_badseg_counter == NULL) {
+		pr_err("memory allocation failed\n");
+		ret = -ENOMEM;
+		goto exception;
+	}
+	memset(g_badseg_counter, 0, nr_segments * sizeof(gint));
 
 	if (bdbm->o_flags & O_CREAT) {
 		bluedbm_clear(dev);
@@ -433,12 +440,17 @@ int bluedbm_close(struct device *dev)
 
 	if (dev->badseg_bitmap) {
 		free(dev->badseg_bitmap);
-		g_badseg_bitmap = NULL;
+		dev->badseg_bitmap = NULL;
 	}
 
 	if (g_erase_counter) {
 		free(g_erase_counter);
 		g_erase_counter = NULL;
+	}
+
+	if (g_badseg_counter) {
+		free(g_badseg_counter);
+		g_badseg_counter = NULL;
 	}
 
 	return 0;

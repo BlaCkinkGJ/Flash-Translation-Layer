@@ -24,26 +24,30 @@
 
 void *read_thread(void *data)
 {
-	char buffer[BLOCK_SIZE];
-	struct flash_device *flash;
-	size_t sector;
-	ssize_t ret;
+	int loop;
+	for (loop = 0; loop < 2; loop++) {
+		char buffer[BLOCK_SIZE];
+		struct flash_device *flash;
+		size_t sector;
+		ssize_t ret;
 
-	sector = 0;
-	flash = (struct flash_device *)data;
+		sector = 0;
+		flash = (struct flash_device *)data;
 
-	while (sector < WRITE_SIZE) {
-		srand(time(NULL));
-		memset(buffer, 0, sizeof(buffer));
-		ret = flash->f_op->read(flash, buffer, BLOCK_SIZE, sector);
-		if (ret < 0) {
-			continue;
+		while (sector < WRITE_SIZE) {
+			srand(time(NULL));
+			memset(buffer, 0, sizeof(buffer));
+			ret = flash->f_op->read(flash, buffer, BLOCK_SIZE,
+						sector);
+			if (ret < 0) {
+				continue;
+			}
+			assert(ret == BLOCK_SIZE);
+			pr_info("\t%-12s: %-16d(sector: %lu)\n", "read",
+				*(int *)buffer, sector);
+			sector += BLOCK_SIZE;
+			usleep(((rand() % 10) + 10) * 1000);
 		}
-		assert(ret == BLOCK_SIZE);
-		pr_info("read value: %d(sector: %lu)\n", *(int *)buffer,
-			sector);
-		sector += BLOCK_SIZE;
-		usleep(((rand() % 10) + 10) * 1000);
 	}
 	return NULL;
 }
@@ -66,6 +70,8 @@ void *write_thread(void *data)
 		if (ret < 0) {
 			pr_err("write failed (sector: %zu)\n", sector);
 		}
+		pr_info("\t%-12s: %-16d(sector: %lu)\n", "write",
+			*(int *)buffer, sector);
 		assert(ret == BLOCK_SIZE);
 		sector += BLOCK_SIZE;
 		usleep((rand() % 10) * 1000);
@@ -77,8 +83,10 @@ void *write_thread(void *data)
 		*(int *)buffer = (int)sector;
 		ret = flash->f_op->write(flash, buffer, BLOCK_SIZE, sector);
 		if (ret < 0) {
-			pr_err("write failed (sector: %zu)\n", sector);
+			pr_err("overwrite failed (sector: %zu)\n", sector);
 		}
+		pr_info("\t%-12s: %-16d(sector: %lu)\n", "overwrite",
+			*(int *)buffer, sector);
 		sector += BLOCK_SIZE;
 		usleep((rand() % 10) * 1000);
 	}
@@ -88,15 +96,14 @@ void *write_thread(void *data)
 
 void *erase_thread(void *data)
 {
-#if 0
 	struct flash_device *flash;
 	int i;
 	flash = (struct flash_device *)data;
 	for (i = 0; i < NR_ERASE; i++) {
+		sleep(10);
 		flash->f_op->ioctl(flash, PAGE_FTL_IOCTL_TRIM);
-		usleep(5000 * 1000); // 5s
+		pr_info("\tforced garbage collection!\n");
 	}
-#endif
 	(void)data;
 
 	return NULL;

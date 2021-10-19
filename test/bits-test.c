@@ -1,12 +1,12 @@
 #include "include/bits.h"
 #include "unity.h"
 
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <time.h>
-#include <limits.h>
 
 void setUp(void)
 {
@@ -31,7 +31,7 @@ static void bits_print(uint64_t *bits, uint64_t size)
 
 void test_bits(void)
 {
-	const uint64_t nr_bits = 256;
+	const uint64_t nr_bits = 4096;
 	uint64_t *bits;
 	uint64_t zero, one;
 	bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits));
@@ -67,7 +67,7 @@ void test_get_bits(void)
 		uint64_t *bits;
 		setbit = (char *)malloc(nr_bits);
 		memset(setbit, 0, nr_bits);
-		bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits) + 1);
+		bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits));
 		memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
 		srand(time(NULL) + (counter * rand()) % INT_MAX);
 		for (i = 0; i < nr_bits; i++) {
