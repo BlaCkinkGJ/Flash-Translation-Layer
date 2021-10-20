@@ -1,3 +1,10 @@
+/**
+ * @file bluedbm.c
+ * @brief implementation of the bluedbm abstraction layer which is inherited by the device
+ * @author Gijun Oh
+ * @version 0.1
+ * @date 2021-10-20
+ */
 #include <stdlib.h>
 #include <errno.h>
 #include <libmemio.h>
@@ -12,15 +19,25 @@
 #include "include/log.h"
 #include "include/bits.h"
 
-gint *g_badseg_counter = NULL;
-gint *g_erase_counter = NULL;
+gint *g_badseg_counter = NULL; /**< counter for bad segemnt detection */
+gint *g_erase_counter = NULL; /**< counter for # of erase in the segment*/
 
+/**
+ * @brief end request for the erase
+ *
+ * @param segnum erased segment number
+ * @param is_bad erased segment is bad segment or not
+ *
+ * @note
+ * Do not use the non atomic operation or complex operation in this routine.
+ * It may occur serious problem.
+ */
 static void bluedbm_erase_end_request(uint64_t segnum, uint8_t is_bad)
 {
 	if (g_badseg_counter == NULL || g_erase_counter == NULL) {
 		pr_err("NULL pointer detected\n");
 		pr_err("\tg_badseg_counter: %p\n", g_badseg_counter);
-		pr_err("\tg_erase_finish_bitmap: %p\n", g_erase_counter);
+		pr_err("\tg_erase_counter: %p\n", g_erase_counter);
 		return;
 	}
 	g_atomic_int_inc(&g_erase_counter[segnum]);
@@ -29,6 +46,13 @@ static void bluedbm_erase_end_request(uint64_t segnum, uint8_t is_bad)
 	}
 }
 
+/**
+ * @brief clear all segments in the flash board
+ *
+ * @param dev pointer of the device structure
+ *
+ * @return 0 for success, negative value for fail
+ */
 static int bluedbm_clear(struct device *dev)
 {
 	struct bluedbm *bdbm;
@@ -59,6 +83,17 @@ static int bluedbm_clear(struct device *dev)
 	return 0;
 }
 
+/**
+ * @brief wait the erase is finished
+ *
+ * @param dev pointer of the device structure
+ * @param segnum initial position to erase target segment
+ * @param nr_segments number of segments to erase
+ *
+ * @note
+ * If you fail to execute the erase the target segment,
+ * this function may block the thread forever.
+ */
 static void bluedbm_wait_erase_finish(struct device *dev, size_t segnum,
 				      size_t nr_segments)
 {
@@ -69,7 +104,6 @@ static void bluedbm_wait_erase_finish(struct device *dev, size_t segnum,
 		gint nr_erased_block;
 		gint status;
 
-		pr_info("wait: %lu\n", segnum);
 		status = g_atomic_int_get(&g_badseg_counter[segnum]);
 		if (status) {
 			set_bit(dev->badseg_bitmap, segnum);
@@ -88,6 +122,15 @@ static void bluedbm_wait_erase_finish(struct device *dev, size_t segnum,
 	}
 }
 
+/**
+ * @brief open the bluedbm based device
+ *
+ * @param dev pointer of the device structure
+ * @param name this does not use in this module
+ * @param flags open flags for this module
+ *
+ * @return 0 for success, negative value to fail
+ */
 int bluedbm_open(struct device *dev, const char *name, int flags)
 {
 	struct bluedbm *bdbm;
@@ -103,7 +146,6 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 	memio_t *mio;
 
 	(void)name;
-	(void)flags;
 
 	info->nr_bus = (1 << DEVICE_NR_BUS_BITS);
 	info->nr_chips = (1 << DEVICE_NR_CHIPS_BITS);
@@ -162,6 +204,11 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief end request for the read/write
+ *
+ * @param rw_req read/write request pointer
+ */
 static void bluedbm_end_rw_request(async_bdbm_req *rw_req)
 {
 	bluedbm_dma_t *dma;
@@ -202,6 +249,14 @@ static void bluedbm_end_rw_request(async_bdbm_req *rw_req)
 	}
 }
 
+/**
+ * @brief write to the flash board
+ *
+ * @param dev pointer of the device structure
+ * @param request pointer of the device request structure
+ *
+ * @return written size (bytes)
+ */
 ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 {
 	bluedbm_dma_t *dma = NULL;
@@ -287,6 +342,14 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief read from the flash board
+ *
+ * @param dev pointer of the device structure
+ * @param request pointer of the device request structure
+ *
+ * @return read size (bytes)
+ */
 ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 {
 	bluedbm_dma_t *dma = NULL;
@@ -371,6 +434,14 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief erase a segment
+ *
+ * @param dev pointer of the device structure
+ * @param request pointer of the device request structure
+ *
+ * @return 0 for success, negative value for fail
+ */
 int bluedbm_erase(struct device *dev, struct device_request *request)
 {
 	struct bluedbm *bdbm;
@@ -425,6 +496,13 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief close the bluedbm
+ *
+ * @param dev pointer of the device structure
+ *
+ * @return 0 for success, negative value for fail
+ */
 int bluedbm_close(struct device *dev)
 {
 	struct bluedbm *bdbm;
@@ -456,6 +534,9 @@ int bluedbm_close(struct device *dev)
 	return 0;
 }
 
+/**
+ * @brief bluedbm module operations
+ */
 const struct device_operations __bluedbm_dops = {
 	.open = bluedbm_open,
 	.write = bluedbm_write,
@@ -464,6 +545,14 @@ const struct device_operations __bluedbm_dops = {
 	.close = bluedbm_close,
 };
 
+/**
+ * @brief initialize the device and bluedbm module
+ *
+ * @param dev pointer of the device structure
+ * @param flags flags for bluedbm and device
+ *
+ * @return 0 for success, negative value for fail
+ */
 int bluedbm_device_init(struct device *dev, uint64_t flags)
 {
 	int ret = 0;
@@ -486,6 +575,13 @@ exception:
 	return ret;
 }
 
+/**
+ * @brief deallocate the device module
+ *
+ * @param dev pointer of the device structure
+ *
+ * @return 0 for success, negative value for fail
+ */
 int bluedbm_device_exit(struct device *dev)
 {
 	struct bluedbm *bdbm;

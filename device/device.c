@@ -37,6 +37,13 @@ static int (*submodule_init[])(struct device *, uint64_t) = {
 #endif
 };
 
+/**
+ * @brief dynamic allocate the device request
+ *
+ * @param flags flags for allocate the device request
+ *
+ * @return device_request pointer when it is allocated or NULL when it is not allocated
+ */
 struct device_request *device_alloc_request(uint64_t flags)
 {
 	struct device_request *request;
@@ -69,6 +76,11 @@ struct device_request *device_alloc_request(uint64_t flags)
 	return request;
 }
 
+/**
+ * @brief free pre-allocated device_request resource
+ *
+ * @param request pointer of the device request
+ */
 void device_free_request(struct device_request *request)
 {
 	pthread_cond_destroy(&request->cond);

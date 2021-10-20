@@ -1,3 +1,10 @@
+/**
+ * @file bluedbm.h
+ * @brief bluedbm module's header file
+ * @author Gijun Oh
+ * @version 0.1
+ * @date 2021-10-20
+ */
 #ifndef BLUEDBM_H
 #define BLUEDBM_H
 
@@ -6,8 +13,12 @@
 
 #include "device.h"
 
-#define BLUEDBM_NR_BLOCKS (4096)
+#define BLUEDBM_NR_BLOCKS                                                      \
+	(4096) /**< number of blocks(segments) in the flash board */
 
+/**
+ * @brief structure for manage the dma
+ */
 typedef struct {
 	uint32_t tag;
 	char *data;
@@ -15,7 +26,7 @@ typedef struct {
 } bluedbm_dma_t;
 
 /**
- * @brief structure for manage the bluedbm
+ * @brief structure for manage the bluedbm device
  */
 struct bluedbm {
 	size_t size;

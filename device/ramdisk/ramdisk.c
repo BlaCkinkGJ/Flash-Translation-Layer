@@ -102,7 +102,7 @@ exception:
  * @param dev pointer of the device structure
  * @param request pointer of the device request structure
  *
- * @return written size (byte)
+ * @return written size (bytes)
  */
 ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 {
@@ -160,12 +160,12 @@ exception:
 }
 
 /**
- * @brief read to the ramdisk
+ * @brief read from the ramdisk
  *
  * @param dev pointer of the device structure
  * @param request pointer of the device request structure
  *
- * @return read size (byte)
+ * @return read size (bytes)
  */
 ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 {
@@ -270,9 +270,9 @@ exception:
 /**
  * @brief close the ramdisk
  *
- * @param dev pointer of the device
+ * @param dev pointer of the device structure
  *
- * @return 0 for success ,negative value for fail
+ * @return 0 for success, negative value for fail
  */
 int ramdisk_close(struct device *dev)
 {
@@ -309,7 +309,7 @@ const struct device_operations __ramdisk_dops = {
 };
 
 /**
- * @brief initialize the device module
+ * @brief initialize the device and ramdisk module
  *
  * @param dev pointer of the device structure
  * @param flags flags for ramdisk and device
