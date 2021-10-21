@@ -38,7 +38,7 @@ void *read_thread(void *data)
 		srand(time(NULL));
 		memset(buffer, 0, sizeof(buffer));
 		ret = flash->f_op->read(flash, buffer, BLOCK_SIZE, sector);
-		if (ret < 0) {
+		if (ret < 0 || (sector > 0 && *(int *)buffer == 0)) {
 			continue;
 		}
 		assert(ret == BLOCK_SIZE);

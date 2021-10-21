@@ -29,11 +29,15 @@
  */
 static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [RAMDISK_MODULE] = */ ramdisk_device_init,
-#ifdef DEVICE_USE_BLUEDBM
+#if defined(DEVICE_USE_BLUEDBM)
 	/* [BULEDBM_MODULE] = */ bluedbm_device_init,
+#else
+	NULL,
 #endif
-#ifdef DEVICE_USE_ZONED
+#if defined(DEVICE_USE_ZONED)
 	/* [ZONE_MODULE] = */ zone_device_init,
+#else
+	NULL,
 #endif
 };
 
