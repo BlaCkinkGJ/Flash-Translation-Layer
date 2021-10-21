@@ -210,6 +210,26 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 			       i);
 			return ret;
 		}
+		ret = pthread_mutexattr_init(&segments[i].mutexattr);
+		if (ret) {
+			pr_err("pthread mutex attribute initialize failed (segnum: %zu)\n",
+			       i);
+			return ret;
+		}
+		ret = pthread_mutexattr_settype(&segments[i].mutexattr,
+						PTHREAD_MUTEX_RECURSIVE);
+		if (ret) {
+			pr_err("pthread mutex doesn't support recursive mutex (segnum: %zu)\n",
+			       i);
+			return ret;
+		}
+		ret = pthread_mutex_init(&segments[i].mutex,
+					 &segments[i].mutexattr);
+		if (ret) {
+			pr_err("pthread mutex initialize failed (segnum: %zu)\n",
+			       i);
+			return ret;
+		}
 		pr_debug("initialize the segment %zu (bits: %zu, size: %lu)\n",
 			 i, device_get_pages_per_segment(pgftl->dev),
 			 (uint64_t)(device_get_pages_per_segment(pgftl->dev)) /
@@ -246,7 +266,18 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 
 	assert(NULL != pgftl->dev);
 
-	err = pthread_mutex_init(&pgftl->mutex, NULL);
+	err = pthread_mutexattr_init(&pgftl->mutexattr);
+	if (err) {
+		pr_err("pthread mutex attribute initialize failed\n");
+		return err;
+	}
+	err = pthread_mutexattr_settype(&pgftl->mutexattr,
+					PTHREAD_MUTEX_RECURSIVE);
+	if (err) {
+		pr_err("pthread mutex doesn't support recursive mutex\n");
+		return err;
+	}
+	err = pthread_mutex_init(&pgftl->mutex, &pgftl->mutexattr);
 	if (err) {
 		pr_err("mutex initialize failed\n");
 		goto exception;
@@ -329,19 +360,13 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 	}
 	switch (request->flag) {
 	case DEVICE_WRITE:
-		pthread_rwlock_wrlock(&pgftl->rwlock);
 		ret = page_ftl_write(pgftl, request);
-		pthread_rwlock_unlock(&pgftl->rwlock);
 		break;
 	case DEVICE_READ:
-		pthread_rwlock_rdlock(&pgftl->rwlock);
 		ret = page_ftl_read(pgftl, request);
-		pthread_rwlock_unlock(&pgftl->rwlock);
 		break;
 	case DEVICE_ERASE:
-		pthread_rwlock_wrlock(&pgftl->rwlock);
 		ret = (ssize_t)page_ftl_do_gc(pgftl);
-		pthread_rwlock_unlock(&pgftl->rwlock);
 		break;
 	default:
 		pr_err("invalid flag detected: %u\n", request->flag);
@@ -373,6 +398,9 @@ static void page_ftl_free_segments(struct page_ftl *pgftl)
 
 		segments[i].use_bits = NULL;
 
+		pthread_mutex_destroy(&segments[i].mutex);
+		pthread_mutexattr_destroy(&segments[i].mutexattr);
+
 		if (segments[i].lpn_list) {
 			g_list_free(segments[i].lpn_list);
 			segments[i].lpn_list = NULL;
@@ -400,6 +428,7 @@ int page_ftl_close(struct page_ftl *pgftl)
 
 	pthread_mutex_destroy(&pgftl->mutex);
 	pthread_rwlock_destroy(&pgftl->rwlock);
+	pthread_mutexattr_destroy(&pgftl->mutexattr);
 	if (pgftl->segments) {
 		page_ftl_free_segments(pgftl);
 		free(pgftl->segments);

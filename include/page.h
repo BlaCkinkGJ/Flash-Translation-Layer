@@ -41,6 +41,9 @@ struct page_ftl_segment {
 
 	uint64_t *use_bits; /**< contain the use page information */
 	GList *lpn_list; /**< lba_list which contains the valid data */
+
+	pthread_mutex_t mutex;
+	pthread_mutexattr_t mutexattr;
 };
 
 /**
@@ -51,8 +54,12 @@ struct page_ftl {
 	uint64_t alloc_segnum; /**< last allocated segment number */
 	struct page_ftl_segment *segments;
 	struct device *dev;
+
 	pthread_mutex_t mutex;
+	pthread_mutexattr_t mutexattr;
+
 	pthread_rwlock_t rwlock;
+
 	pthread_t gc_thread;
 	int o_flags;
 
@@ -74,6 +81,8 @@ int page_ftl_module_exit(struct flash_device *);
 /* page-map.c */
 struct device_address page_ftl_get_free_page(struct page_ftl *);
 int page_ftl_update_map(struct page_ftl *, size_t sector, uint32_t ppn);
+uint32_t page_ftl_get_ppn(struct page_ftl *, size_t lpn);
+void page_ftl_invalidate_map(struct page_ftl *, size_t lpn);
 
 /* page-core.c */
 int page_ftl_segment_data_init(struct page_ftl *, struct page_ftl_segment *);

@@ -68,13 +68,14 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	dev = pgftl->dev;
 	page_size = device_get_page_size(dev);
 	lpn = page_ftl_get_lpn(pgftl, request->sector);
-	paddr.lpn = pgftl->trans_map[lpn];
+	paddr.lpn = page_ftl_get_ppn(pgftl, lpn);
 
 	if (paddr.lpn == PADDR_EMPTY) {
 		pr_warn("cannot find the mapping information (lpn: %zu)\n",
 			lpn);
 		memset(request->data, 0, request->data_len);
-		return request->data_len;
+		ret = request->data_len;
+		goto exception;
 	}
 
 	request->rq_private = pgftl;
@@ -126,8 +127,8 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	pthread_mutex_unlock(&request->mutex);
 
 	device_free_request(request);
-
 	ret = data_len;
+
 	return ret;
 exception:
 	if (buffer) {
@@ -135,6 +136,9 @@ exception:
 	}
 	if (read_rq) {
 		device_free_request(read_rq);
+	}
+	if (ret >= 0 && request) {
+		device_free_request(request);
 	}
 	return ret;
 }

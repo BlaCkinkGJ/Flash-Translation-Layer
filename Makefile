@@ -150,6 +150,9 @@ install:
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
+debug.out: main.c $(SRCS)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ $^ -lpthread $(LIBS) $(INCLUDES)
+
 $(TARGET): main.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(LIBS)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
@@ -192,4 +195,5 @@ clean:
 	find . -name '*.o'  | xargs -i rm -f {}
 	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET)
 	rm -rf doxygen/
+	rm -f debug.out
 
