@@ -48,7 +48,6 @@ struct device_address page_ftl_get_free_page(struct page_ftl *pgftl)
 	idx = 0;
 
 retry:
-	pthread_mutex_lock(&pgftl->mutex);
 	if (idx == max_retry_size) {
 		pr_err("cannot find the free page in the device\n");
 		paddr.lpn = PADDR_EMPTY;
@@ -58,7 +57,6 @@ retry:
 	idx += 1;
 
 	if (dev->badseg_bitmap && get_bit(dev->badseg_bitmap, segnum)) {
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto retry;
 	}
 
@@ -72,7 +70,6 @@ retry:
 
 	nr_free_pages = g_atomic_int_get(&segment->nr_free_pages);
 	if (nr_free_pages == 0) {
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto retry;
 	}
 	pgftl->alloc_segnum = segnum;
@@ -81,12 +78,10 @@ retry:
 	if (offset == (uint32_t)BITS_NOT_FOUND) {
 		pr_warn("nr_free_pages and use_bits bitmap are not synchronized(nr_free_pages: %lu, offset: %u)\n",
 			nr_free_pages, offset);
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto retry;
 	}
 
 	if (pthread_mutex_trylock(&segment->mutex)) {
-		pthread_mutex_unlock(&pgftl->mutex);
 #if defined(DEVICE_USE_ZONED)
 		usleep(10);
 		idx -= 1;
@@ -106,7 +101,6 @@ retry:
 	g_atomic_int_set(&segment->nr_valid_pages, nr_valid_pages + 1);
 
 exit:
-	pthread_mutex_unlock(&pgftl->mutex);
 	return paddr;
 }
 
@@ -127,7 +121,6 @@ int page_ftl_update_map(struct page_ftl *pgftl, uint64_t sector, uint32_t ppn)
 	int ret;
 
 	ret = 0;
-	pthread_mutex_lock(&pgftl->mutex);
 	lpn = page_ftl_get_lpn(pgftl, sector);
 
 	map_size = page_ftl_get_map_size(pgftl) / sizeof(uint32_t);
@@ -142,7 +135,6 @@ int page_ftl_update_map(struct page_ftl *pgftl, uint64_t sector, uint32_t ppn)
 	trans_map[lpn] = ppn;
 
 exit:
-	pthread_mutex_unlock(&pgftl->mutex);
 	return ret;
 }
 
@@ -161,9 +153,7 @@ uint32_t page_ftl_get_ppn(struct page_ftl *pgftl, size_t lpn)
 		pr_warn("invalid lpn detected: %zu\n", lpn);
 		return PADDR_EMPTY;
 	}
-	pthread_mutex_lock(&pgftl->mutex);
 	ppn = pgftl->trans_map[lpn];
-	pthread_mutex_unlock(&pgftl->mutex);
 	return ppn;
 }
 
@@ -175,7 +165,5 @@ uint32_t page_ftl_get_ppn(struct page_ftl *pgftl, size_t lpn)
  */
 void page_ftl_invalidate_map(struct page_ftl *pgftl, size_t lpn)
 {
-	pthread_mutex_lock(&pgftl->mutex);
 	pgftl->trans_map[lpn] = PADDR_EMPTY;
-	pthread_mutex_unlock(&pgftl->mutex);
 }

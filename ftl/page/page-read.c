@@ -54,6 +54,8 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	struct device_request *read_rq;
 	struct device_address paddr;
 
+	struct page_ftl_segment *segment;
+
 	char *buffer;
 
 	size_t page_size;
@@ -62,6 +64,8 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	ssize_t ret = 0;
 	ssize_t data_len;
 
+	pthread_mutex_lock(&pgftl->mutex);
+
 	buffer = NULL;
 	read_rq = NULL;
 
@@ -69,15 +73,33 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	page_size = device_get_page_size(dev);
 	lpn = page_ftl_get_lpn(pgftl, request->sector);
 	paddr.lpn = page_ftl_get_ppn(pgftl, lpn);
+	segment = NULL;
 
 	if (paddr.lpn == PADDR_EMPTY) {
 		pr_warn("cannot find the mapping information (lpn: %zu)\n",
 			lpn);
 		memset(request->data, 0, request->data_len);
 		ret = request->data_len;
+		pthread_mutex_unlock(&pgftl->mutex);
 		goto exception;
 	}
-
+	segment = &pgftl->segments[paddr.format.block];
+	if (segment == NULL) {
+		pr_err("segment does not exist (segnum: %u)\n",
+		       paddr.format.block);
+		ret = -EFAULT;
+		pthread_mutex_unlock(&pgftl->mutex);
+		goto exception;
+	}
+	while (1) {
+		ret = pthread_mutex_trylock(&segment->mutex);
+		pthread_mutex_unlock(&pgftl->mutex);
+		if (ret == 0) {
+			break;
+		}
+		usleep(100);
+		pthread_mutex_lock(&pgftl->mutex);
+	}
 	request->rq_private = pgftl;
 
 	offset = page_ftl_get_page_offset(pgftl, request->sector);
@@ -128,6 +150,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 
 	device_free_request(request);
 	ret = data_len;
+	pthread_mutex_unlock(&segment->mutex);
 
 	return ret;
 exception:
@@ -136,6 +159,9 @@ exception:
 	}
 	if (read_rq) {
 		device_free_request(read_rq);
+	}
+	if (segment) {
+		pthread_mutex_unlock(&segment->mutex);
 	}
 	if (ret >= 0 && request) {
 		device_free_request(request);
