@@ -39,6 +39,7 @@ struct device_address page_ftl_get_free_page(struct page_ftl *pgftl)
 	uint64_t nr_valid_pages;
 	uint32_t offset;
 
+	pthread_mutex_lock(&pgftl->mutex);
 	dev = pgftl->dev;
 	nr_segments = device_get_nr_segments(dev);
 	max_retry_size = nr_segments;
@@ -48,7 +49,6 @@ struct device_address page_ftl_get_free_page(struct page_ftl *pgftl)
 	idx = 0;
 
 retry:
-	pthread_mutex_lock(&pgftl->mutex);
 	if (idx == max_retry_size) {
 		pr_err("cannot find the free page in the device\n");
 		paddr.lpn = PADDR_EMPTY;
@@ -58,7 +58,6 @@ retry:
 	idx += 1;
 
 	if (dev->badseg_bitmap && get_bit(dev->badseg_bitmap, segnum)) {
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto retry;
 	}
 
@@ -72,7 +71,6 @@ retry:
 
 	nr_free_pages = g_atomic_int_get(&segment->nr_free_pages);
 	if (nr_free_pages == 0) {
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto retry;
 	}
 	pgftl->alloc_segnum = segnum;
@@ -81,18 +79,11 @@ retry:
 	if (offset == (uint32_t)BITS_NOT_FOUND) {
 		pr_warn("nr_free_pages and use_bits bitmap are not synchronized(nr_free_pages: %lu, offset: %u)\n",
 			nr_free_pages, offset);
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto retry;
 	}
 
 	if (pthread_mutex_trylock(&segment->mutex)) {
-		pthread_mutex_unlock(&pgftl->mutex);
-#if defined(DEVICE_USE_ZONED)
-		usleep(10);
-		idx -= 1;
-#else
 		max_retry_size += segnum; /**< BE CAREFUL! */
-#endif
 		goto retry;
 	}
 	paddr.lpn = 0;

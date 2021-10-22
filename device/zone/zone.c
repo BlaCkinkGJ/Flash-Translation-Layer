@@ -233,7 +233,7 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		status = zbd_finish_zones(meta->write.fd, zone->start,
 					  zone->len);
 		if (status) {
-			pr_err("zone finish failed (start:%llu, len: %llu)\n",
+			pr_err("zone close failed (start:%llu, len: %llu)\n",
 			       zone->start, zone->len);
 			goto exception;
 		}
