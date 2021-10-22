@@ -147,8 +147,7 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 	if (ret != page_size) {
 		pr_err("invalid read size detected (expected: %zd, acutal: %zd)\n",
 		       page_size, ret);
-		ret = -EFAULT;
-		goto exception;
+		return -EFAULT;
 	}
 
 	*__buffer = buffer;
@@ -198,8 +197,6 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 	if (ret != page_size) {
 		pr_err("invalid write size detected (expected: %zd, acutal: %zd)\n",
 		       page_size, ret);
-		device_free_request(request);
-		free(buffer);
 		return -EFAULT;
 	}
 	free(buffer);
@@ -220,27 +217,24 @@ static int page_ftl_valid_page_copy(struct page_ftl *pgftl,
 	int ret = 0;
 	GList *list;
 
+	(void)pgftl;
 	list = segment->lpn_list;
 
 	while (list) {
 		size_t lpn;
 		char *buffer;
 
-		pthread_mutex_lock(&pgftl->mutex);
 		GList *next = list->next;
 		lpn = GPOINTER_TO_SIZE(list->data);
-		pthread_mutex_unlock(&pgftl->mutex);
 		ret = page_ftl_read_valid_page(pgftl, lpn, &buffer);
 		if (ret < 0) {
-			pr_warn("read valid page failed\n");
-			list = next;
-			continue;
+			pr_err("read valid page failed\n");
+			return ret;
 		}
 		ret = page_ftl_write_valid_page(pgftl, lpn, buffer);
 		if (ret < 0) {
-			pr_warn("write valid page failed\n");
-			list = next;
-			continue;
+			pr_err("write valid page failed\n");
+			return ret;
 		}
 		list = next;
 	}
@@ -264,17 +258,15 @@ int page_ftl_do_gc(struct page_ftl *pgftl)
 	segment = page_ftl_pick_gc_target(pgftl);
 	if (segment == NULL) {
 		pr_debug("gc target segment doesn't exist\n");
-		ret = 0;
-		goto exit;
+		return 0;
 	}
-	pthread_mutex_lock(&segment->mutex);
 	segnum = page_ftl_get_segment_number(pgftl, (uintptr_t)segment);
 	pr_debug("current segnum: %zu\n", segnum);
 
 	ret = page_ftl_valid_page_copy(pgftl, segment);
 	if (ret < 0) {
 		pr_err("valid page copy failed\n");
-		goto exit;
+		return ret;
 	}
 
 	paddr.lpn = 0;
@@ -282,18 +274,14 @@ int page_ftl_do_gc(struct page_ftl *pgftl)
 	ret = page_ftl_segment_erase(pgftl, paddr);
 	if (ret) {
 		pr_err("do erase failed\n");
-		goto exit;
+		return ret;
 	}
 
 	ret = page_ftl_segment_data_init(pgftl, segment);
 	if (ret) {
 		pr_err("initialize the segment data failed\n");
-		goto exit;
+		return ret;
 	}
 	reset_bit(pgftl->gc_seg_bits, segnum);
-exit:
-	if (segment) {
-		pthread_mutex_unlock(&segment->mutex);
-	}
-	return ret;
+	return 0;
 }

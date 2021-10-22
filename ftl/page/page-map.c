@@ -18,9 +18,6 @@
  * @param pgftl pointer of the page-ftl structure
  *
  * @return free space's device address
- * @note
- * code block containing `pthread_mutex_trylock` is really dangerous.
- * Therefore, you must carefully use or check that lines.
  */
 struct device_address page_ftl_get_free_page(struct page_ftl *pgftl)
 {
@@ -30,7 +27,6 @@ struct device_address page_ftl_get_free_page(struct page_ftl *pgftl)
 	struct page_ftl_segment *segment;
 
 	size_t nr_segments;
-	size_t max_retry_size;
 	size_t pages_per_segment;
 	size_t segnum;
 	size_t idx;
@@ -39,20 +35,18 @@ struct device_address page_ftl_get_free_page(struct page_ftl *pgftl)
 	uint64_t nr_valid_pages;
 	uint32_t offset;
 
-	pthread_mutex_lock(&pgftl->mutex);
 	dev = pgftl->dev;
 	nr_segments = device_get_nr_segments(dev);
-	max_retry_size = nr_segments;
 	pages_per_segment = device_get_pages_per_segment(dev);
 
 	paddr.lpn = PADDR_EMPTY;
 	idx = 0;
 
 retry:
-	if (idx == max_retry_size) {
+	if (idx == nr_segments) {
 		pr_err("cannot find the free page in the device\n");
 		paddr.lpn = PADDR_EMPTY;
-		goto exit;
+		return paddr;
 	}
 	segnum = (pgftl->alloc_segnum + idx) % nr_segments;
 	idx += 1;
@@ -66,9 +60,8 @@ retry:
 		pr_err("fatal error detected: cannot find the segnum %zu\n",
 		       segnum);
 		paddr.lpn = PADDR_EMPTY;
-		goto exit;
+		return paddr;
 	}
-
 	nr_free_pages = g_atomic_int_get(&segment->nr_free_pages);
 	if (nr_free_pages == 0) {
 		goto retry;
@@ -81,11 +74,6 @@ retry:
 			nr_free_pages, offset);
 		goto retry;
 	}
-
-	if (pthread_mutex_trylock(&segment->mutex)) {
-		max_retry_size += segnum; /**< BE CAREFUL! */
-		goto retry;
-	}
 	paddr.lpn = 0;
 	paddr.format.block = segnum;
 	paddr.lpn |= offset;
@@ -96,8 +84,6 @@ retry:
 	nr_valid_pages = g_atomic_int_get(&segment->nr_valid_pages);
 	g_atomic_int_set(&segment->nr_valid_pages, nr_valid_pages + 1);
 
-exit:
-	pthread_mutex_unlock(&pgftl->mutex);
 	return paddr;
 }
 
@@ -115,58 +101,18 @@ int page_ftl_update_map(struct page_ftl *pgftl, uint64_t sector, uint32_t ppn)
 	uint32_t *trans_map;
 	uint64_t lpn;
 	size_t map_size;
-	int ret;
 
-	ret = 0;
-	pthread_mutex_lock(&pgftl->mutex);
 	lpn = page_ftl_get_lpn(pgftl, sector);
 
 	map_size = page_ftl_get_map_size(pgftl) / sizeof(uint32_t);
 	if (lpn >= (uint64_t)map_size) {
 		pr_err("lpn value overflow detected (max: %zu, cur: %lu)\n",
 		       map_size, lpn);
-		ret = -EINVAL;
-		goto exit;
+		return -EINVAL;
 	}
 
 	trans_map = pgftl->trans_map;
 	trans_map[lpn] = ppn;
 
-exit:
-	pthread_mutex_unlock(&pgftl->mutex);
-	return ret;
-}
-
-/**
- * @brief get mapping information from the l2p table
- *
- * @param pgftl pointer of the page FTL structure
- * @param lpn logical page number
- *
- * @return physical page number
- */
-uint32_t page_ftl_get_ppn(struct page_ftl *pgftl, size_t lpn)
-{
-	uint32_t ppn;
-	if (lpn >= page_ftl_get_map_size(pgftl)) {
-		pr_warn("invalid lpn detected: %zu\n", lpn);
-		return PADDR_EMPTY;
-	}
-	pthread_mutex_lock(&pgftl->mutex);
-	ppn = pgftl->trans_map[lpn];
-	pthread_mutex_unlock(&pgftl->mutex);
-	return ppn;
-}
-
-/**
- * @brief invalidate current l2p mapping information
- *
- * @param pgftl pointer of the page FTL structure
- * @param lpn logical page number which wants to invalidate
- */
-void page_ftl_invalidate_map(struct page_ftl *pgftl, size_t lpn)
-{
-	pthread_mutex_lock(&pgftl->mutex);
-	pgftl->trans_map[lpn] = PADDR_EMPTY;
-	pthread_mutex_unlock(&pgftl->mutex);
+	return 0;
 }
