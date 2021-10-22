@@ -282,7 +282,6 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 		pr_err("mutex initialize failed\n");
 		goto exception;
 	}
-
 	err = pthread_rwlock_init(&pgftl->rwlock, NULL);
 	if (err) {
 		pr_err("rwlock initialize failed\n");

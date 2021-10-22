@@ -61,6 +61,34 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
  */
 static void page_ftl_write_end_rq(struct device_request *request)
 {
+	struct page_ftl *pgftl;
+	struct page_ftl_segment *segment;
+
+	size_t lpn;
+
+	pgftl = (struct page_ftl *)request->rq_private;
+
+	lpn = page_ftl_get_lpn(pgftl, request->sector);
+	if (page_ftl_get_ppn(pgftl, lpn) != PADDR_EMPTY) {
+		page_ftl_invalidate(pgftl, lpn);
+		pr_debug("invalidate address: %lu => %u\n", lpn,
+			 page_ftl_get_ppn(pgftl, lpn));
+	}
+	/**< segment information update */
+	segment = &pgftl->segments[request->paddr.format.block];
+	segment->lpn_list =
+		g_list_prepend(segment->lpn_list, GSIZE_TO_POINTER(lpn));
+
+	/**< global information update */
+	page_ftl_update_map(pgftl, request->sector, request->paddr.lpn);
+
+	pr_debug("new address: %lu => %u (seg: %u)\n", lpn,
+		 page_ftl_get_ppn(pgftl, lpn),
+		 page_ftl_get_ppn(pgftl, lpn) >> 13);
+	pr_debug("%u/%u(free/valid)\n",
+		 g_atomic_int_get(&segment->nr_free_pages),
+		 g_atomic_int_get(&segment->nr_valid_pages));
+
 	free(request->data);
 
 	pthread_mutex_lock(&request->mutex);
@@ -125,8 +153,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 {
 	struct device *dev;
 	struct page_ftl_segment *segment;
-	struct page_ftl_segment *read_segment;
-	struct device_address paddr, read_paddr;
+	struct device_address paddr;
 	char *buffer;
 	ssize_t ret;
 	size_t page_size;
@@ -136,14 +163,12 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 
 	size_t write_size;
 
-	pthread_mutex_lock(&pgftl->mutex);
 	dev = pgftl->dev;
 	page_size = device_get_page_size(dev);
 	write_size = request->data_len;
 	segment = NULL;
 
 	lpn = page_ftl_get_lpn(pgftl, request->sector);
-	read_paddr.lpn = page_ftl_get_ppn(pgftl, lpn);
 	offset = page_ftl_get_page_offset(pgftl, request->sector);
 
 	nr_entries = page_ftl_get_map_size(pgftl) / sizeof(uint32_t);
@@ -151,7 +176,6 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		pr_err("invalid lpn detected (lpn: %lu, max: %lu)\n", lpn,
 		       nr_entries);
 		ret = -EINVAL;
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto exception;
 	}
 
@@ -159,7 +183,6 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		pr_err("overflow the write data (offset: %lu, length: %zu)\n",
 		       offset, request->data_len);
 		ret = -EINVAL;
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto exception;
 	}
 
@@ -167,7 +190,6 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	if (paddr.lpn == PADDR_EMPTY) {
 		pr_err("cannot allocate the valid page from device\n");
 		ret = -EFAULT;
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto exception;
 	}
 
@@ -176,23 +198,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		pr_err("segment does not exist (segnum: %u)\n",
 		       paddr.format.block);
 		ret = -EFAULT;
-		pthread_mutex_unlock(&pgftl->mutex);
 		goto exception;
-	}
-
-	if (read_paddr.lpn != PADDR_EMPTY) {
-		read_segment = &pgftl->segments[read_paddr.format.block];
-		while (1) {
-			ret = pthread_mutex_trylock(&read_segment->mutex);
-			pthread_mutex_unlock(&pgftl->mutex);
-			if (ret == 0) {
-				break;
-			}
-			usleep(100);
-			pthread_mutex_lock(&pgftl->mutex);
-		}
-	} else {
-		pthread_mutex_unlock(&pgftl->mutex);
 	}
 
 	buffer = (char *)malloc(page_size);
@@ -202,15 +208,16 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		goto exception;
 	}
 	memset(buffer, 0, page_size);
-	if (read_paddr.lpn != PADDR_EMPTY) {
-		ret = page_ftl_read_for_overwrite(pgftl, read_paddr.lpn,
-						  buffer);
-		pthread_mutex_unlock(&read_segment->mutex);
+	pthread_mutex_lock(&pgftl->mutex);
+	if (page_ftl_get_ppn(pgftl, lpn) != PADDR_EMPTY) {
+		ssize_t ret;
+		ret = page_ftl_read_for_overwrite(pgftl, lpn, buffer);
 		if (ret < 0) {
-			pr_err("read failed (lpn:%u)\n", read_paddr.lpn);
+			pr_err("read failed (lpn:%lu)\n", lpn);
 			goto exception;
 		}
 	}
+	pthread_mutex_unlock(&pgftl->mutex);
 	memcpy(&buffer[offset], request->data, write_size);
 
 	request->flag = DEVICE_WRITE;
@@ -232,32 +239,8 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	}
 	pthread_mutex_unlock(&request->mutex);
 
-	pthread_mutex_lock(&pgftl->mutex);
-	lpn = page_ftl_get_lpn(pgftl, request->sector);
-	if (page_ftl_get_ppn(pgftl, lpn) != PADDR_EMPTY) {
-		page_ftl_invalidate(pgftl, lpn);
-		pr_debug("invalidate address: %lu => %u\n", lpn,
-			 page_ftl_get_ppn(pgftl, lpn));
-	}
-	/**< segment information update */
-	segment = &pgftl->segments[request->paddr.format.block];
-	segment->lpn_list =
-		g_list_prepend(segment->lpn_list, GSIZE_TO_POINTER(lpn));
-
-	/**< global information update */
-	page_ftl_update_map(pgftl, request->sector, request->paddr.lpn);
-
-	pr_debug("new address: %lu => %u (seg: %u)\n", lpn,
-		 page_ftl_get_ppn(pgftl, lpn),
-		 page_ftl_get_ppn(pgftl, lpn) >> 13);
-	pr_debug("%u/%u(free/valid)\n",
-		 g_atomic_int_get(&segment->nr_free_pages),
-		 g_atomic_int_get(&segment->nr_valid_pages));
-	pthread_mutex_unlock(&pgftl->mutex);
-
-	pthread_mutex_unlock(&segment->mutex);
 	device_free_request(request);
-
+	pthread_mutex_unlock(&segment->mutex);
 	return write_size;
 exception:
 	if (segment) {
