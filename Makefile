@@ -25,12 +25,14 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 # Device Module Setting
 USE_ZONE_DEVICE = 0
-USE_BLUEDBM_DEVICE = 0
+USE_BLUEDBM_DEVICE = 1
 # Debug Setting
 USE_DEBUG = 0
 
 ifeq ($(USE_DEBUG), 1)
-DEBUG_FLAGS = -g -pg
+DEBUG_FLAGS = -g -pg \
+              -DCONFIG_ENABLE_MSG \
+              -DCONFIG_ENABLE_DEBUG
 MACROS = -DDEBUG
 MEMORY_CHECK_LIBS = -lasan
 MEMORY_CHECK_CFLAGS = 
@@ -63,7 +65,14 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
                -DDEVICE_NR_CHIPS_BITS=3 \
                -DDEVICE_NR_PAGES_BITS=7 \
                -DDEVICE_NR_BLOCKS_BITS=19 \
-               -DUSER_MODE
+               -DUSER_MODE \
+               -DUSE_PMU \
+               -DUSE_KTIMER \
+               -DUSE_NEW_RMW \
+               -D_LARGEFILE64_SOURCE \
+               -D_GNU_SOURCE \
+               -DNOHOST
+
 DEVICE_LIBS += -lmemio
 DEVICE_INCLUDES += -I/usr/local/include/memio
 else
@@ -150,9 +159,6 @@ install:
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
-debug.out: main.c $(SRCS)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ $^ -lpthread $(LIBS) $(INCLUDES)
-
 $(TARGET): main.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(LIBS)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
@@ -195,5 +201,4 @@ clean:
 	find . -name '*.o'  | xargs -i rm -f {}
 	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET)
 	rm -rf doxygen/
-	rm -f debug.out
 
