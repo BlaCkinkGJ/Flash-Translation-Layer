@@ -24,7 +24,7 @@ DEVICE_INCLUDES =
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 # Device Module Setting
-USE_ZONE_DEVICE = 0
+USE_ZONE_DEVICE = 1
 USE_BLUEDBM_DEVICE = 0
 # Debug Setting
 USE_DEBUG = 0
@@ -84,7 +84,8 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 endif
 
 ifeq ($(USE_ZONE_DEVICE), 1)
-DEVICE_INFO += -DDEVICE_USE_ZONED
+DEVICE_INFO += -DDEVICE_USE_ZONED \
+	       -DPAGE_FTL_USE_GLOBAL_RWLOCK
 endif
 
 ifeq ($(USE_BLUEDBM_DEVICE), 1)
