@@ -213,15 +213,15 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	request->data_len = page_size;
 	request->end_rq = page_ftl_write_end_rq;
 
-	pthread_mutex_lock(&pgftl->mutex);
-	page_ftl_write_update_metadata(pgftl, request);
-	pthread_mutex_unlock(&pgftl->mutex);
-
 	ret = dev->d_op->write(dev, request);
 	if (ret != (ssize_t)page_size) {
 		pr_err("device write failed (ppn: %u)\n", paddr.lpn);
 		return ret;
 	}
+
+	pthread_mutex_lock(&pgftl->mutex);
+	page_ftl_write_update_metadata(pgftl, request);
+	pthread_mutex_unlock(&pgftl->mutex);
 
 	return write_size;
 }
