@@ -65,7 +65,6 @@ static void page_ftl_write_end_rq(struct device_request *request)
 	pgftl = (struct page_ftl *)request->rq_private;
 	paddr = request->paddr;
 
-	pthread_rwlock_unlock(&pgftl->bus_rwlock[paddr.format.bus]);
 	free(request->data);
 	device_free_request(request);
 }
@@ -220,11 +219,9 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	page_ftl_write_update_metadata(pgftl, request);
 	pthread_mutex_unlock(&pgftl->mutex);
 
-	pthread_rwlock_wrlock(&pgftl->bus_rwlock[paddr.format.bus]);
 	ret = dev->d_op->write(dev, request);
 	if (ret != (ssize_t)page_size) {
 		pr_err("device write failed (ppn: %u)\n", paddr.lpn);
-		pthread_rwlock_unlock(&pgftl->bus_rwlock[paddr.format.bus]);
 		return ret;
 	}
 

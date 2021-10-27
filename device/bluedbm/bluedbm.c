@@ -310,7 +310,9 @@ ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 
 	dma = (bluedbm_dma_t *)malloc(sizeof(bluedbm_dma_t));
 	if (dma == NULL) {
-		pr_err();
+		pr_err("dma cannot be allocated\n");
+		ret = -errno;
+		goto exception;
 	}
 	dma->tag = memio_alloc_dma(DMA_WRITE_BUF, &dma->data);
 	dma->d_private = (void *)request;

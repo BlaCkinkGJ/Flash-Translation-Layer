@@ -41,7 +41,6 @@ static void page_ftl_read_end_rq(struct device_request *read_rq)
 	}
 	g_atomic_int_set(&request->is_finish, 1);
 	pthread_mutex_unlock(&request->mutex);
-	pthread_rwlock_unlock(&pgftl->bus_rwlock[paddr.format.bus]);
 }
 
 /**
@@ -122,11 +121,9 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	read_rq->end_rq = page_ftl_read_end_rq;
 
 	data_len = request->data_len;
-	pthread_rwlock_rdlock(&pgftl->bus_rwlock[paddr.format.bus]);
 	ret = dev->d_op->read(dev, read_rq);
 	if (ret < 0) {
 		pr_err("device read failed (ppn: %u)\n", request->paddr.lpn);
-		pthread_rwlock_unlock(&pgftl->bus_rwlock[paddr.format.bus]);
 		read_rq = NULL;
 		buffer = NULL;
 		goto exception;
