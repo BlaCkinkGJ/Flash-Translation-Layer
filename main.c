@@ -54,6 +54,9 @@ void *read_thread(void *data)
 		if (ret < 0 || (sector > 0 && *(int *)buffer == 0)) {
 			continue;
 		}
+		if (*(int *)buffer == -1) {
+			continue;
+		}
 		assert(ret == BLOCK_SIZE);
 		printf("%-12s: %-16d(sector: %lu)\n", "read", *(int *)buffer,
 		       sector);
