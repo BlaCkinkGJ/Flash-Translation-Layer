@@ -2,7 +2,7 @@
  * @file ramdisk.c
  * @brief implementation of the ramdisk which is inherited by the device
  * @author Gijun Oh
- * @version 0.1
+ * @version 0.2
  * @date 2021-10-03
  */
 #include <fcntl.h>

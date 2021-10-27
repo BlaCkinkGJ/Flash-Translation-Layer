@@ -2,7 +2,7 @@
  * @file zone.c
  * @brief implementation of the lizbd which is inherited by the device
  * @author Gijun Oh
- * @version 0.1
+ * @version 0.2
  * @date 2021-10-09
  */
 #ifndef _GNU_SOURCE

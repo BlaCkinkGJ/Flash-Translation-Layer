@@ -2,7 +2,7 @@
  * @file bluedbm.h
  * @brief bluedbm module's header file
  * @author Gijun Oh
- * @version 0.1
+ * @version 0.2
  * @date 2021-10-20
  */
 #ifndef BLUEDBM_H
