@@ -39,7 +39,7 @@ int is_check[WRITE_SIZE / BLOCK_SIZE];
 
 void *read_thread(void *data)
 {
-	char buffer[BLOCK_SIZE];
+	int buffer[BLOCK_SIZE / sizeof(int)];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -50,15 +50,16 @@ void *read_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		srand((time(NULL) * sector) % UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
-		ret = flash->f_op->read(flash, buffer, BLOCK_SIZE, sector);
-		if (ret < 0 || (sector > 0 && *(int *)buffer == 0)) {
+		ret = flash->f_op->read(flash, (void *)buffer, BLOCK_SIZE,
+					sector);
+		if (ret < 0 || (sector > 0 && buffer[0] == 0)) {
 			continue;
 		}
-		if (*(int *)buffer == -1) {
+		if (buffer[0] == -1) {
 			continue;
 		}
 		assert(ret == BLOCK_SIZE);
-		printf("%-12s: %-16d(sector: %lu)\n", "read", *(int *)buffer,
+		printf("%-12s: %-16d(sector: %lu)\n", "read", buffer[0],
 		       sector);
 		is_check[*(int *)buffer / BLOCK_SIZE] = 1;
 		sector += BLOCK_SIZE;
@@ -71,7 +72,7 @@ void *read_thread(void *data)
 
 void *write_thread(void *data)
 {
-	char buffer[BLOCK_SIZE];
+	int buffer[BLOCK_SIZE / sizeof(int)];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -82,12 +83,13 @@ void *write_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		srand((time(NULL) * sector + 1) % UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
-		*(int *)buffer = (int)sector;
-		ret = flash->f_op->write(flash, buffer, BLOCK_SIZE, sector);
+		buffer[0] = (int)sector;
+		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
+					 sector);
 		if (ret < 0) {
 			pr_err("write failed (sector: %zu)\n", sector);
 		}
-		printf("%-12s: %-16d(sector: %lu)\n", "write", *(int *)buffer,
+		printf("%-12s: %-16d(sector: %lu)\n", "write", buffer[0],
 		       sector);
 		assert(ret == BLOCK_SIZE);
 		sector += BLOCK_SIZE;
@@ -102,7 +104,7 @@ gint is_overwrite = 0;
 
 void *overwrite_thread(void *data)
 {
-	char buffer[BLOCK_SIZE];
+	int buffer[BLOCK_SIZE / sizeof(int)];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -116,13 +118,14 @@ void *overwrite_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		srand((time(NULL) * sector + 2) % UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
-		*(int *)buffer = (int)sector;
-		ret = flash->f_op->write(flash, buffer, BLOCK_SIZE, sector);
+		buffer[0] = sector;
+		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
+					 sector);
 		if (ret < 0) {
 			pr_err("overwrite failed (sector: %zu)\n", sector);
 		}
-		printf("%-12s: %-16d(sector: %lu)\n", "overwrite",
-		       *(int *)buffer, sector);
+		printf("%-12s: %-16d(sector: %lu)\n", "overwrite", buffer[0],
+		       sector);
 		sector += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
 		usleep((rand() % 500) + 100);
