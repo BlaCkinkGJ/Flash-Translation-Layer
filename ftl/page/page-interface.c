@@ -113,8 +113,12 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 
 		/** submit the request */
 		write_size = page_ftl_submit_request(pgftl, request);
-		if (write_size < 0) {
-			pr_err("page FTL submit request failed\n");
+		if (write_size != submit_size) {
+			pr_err("page FTL submit request failed (write size: %zu)\n",
+			       write_size);
+			if (write_size > 0) {
+				request = NULL;
+			}
 			goto exception;
 		}
 

@@ -6,6 +6,7 @@
  * @date 2021-09-22
  */
 #include <assert.h>
+#include <climits>
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
@@ -19,10 +20,20 @@
 #include "include/log.h"
 #include "include/device.h"
 
+// #define USE_FORCE_ERASE
+#define USE_RANDOM_WAIT
+
+// #define SEQ_WORKLOAD
+#define RAND_WORKLOAD
+
 #define DEVICE_PATH "/dev/nvme0n2"
-#define WRITE_SIZE (8192 * 8192 * 10)
+#define WRITE_SIZE ((size_t)8192 * 8192)
 #define NR_ERASE (10)
-#define BLOCK_SIZE ((size_t)1024 * 1024) // 1 MB
+#if defined(RAND_WORKLOAD)
+#define BLOCK_SIZE ((size_t)4096) // 4 KB
+#elif defined(SEQ_WORKLOAD)
+#define BLOCK_SIZE ((size_t)1024 * 1024) // 4 KB
+#endif
 
 int is_check[WRITE_SIZE / BLOCK_SIZE];
 
@@ -37,7 +48,7 @@ void *read_thread(void *data)
 	flash = (struct flash_device *)data;
 
 	while (sector < WRITE_SIZE) {
-		srand(time(NULL));
+		srand((time(NULL) * sector) % UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
 		ret = flash->f_op->read(flash, buffer, BLOCK_SIZE, sector);
 		if (ret < 0 || (sector > 0 && *(int *)buffer == 0)) {
@@ -48,7 +59,9 @@ void *read_thread(void *data)
 		       sector);
 		is_check[*(int *)buffer / BLOCK_SIZE] = 1;
 		sector += BLOCK_SIZE;
-		usleep(((rand() % 10) + 10) * 1000);
+#ifdef USE_RANDOM_WAIT
+		usleep((rand() % 500) + 100);
+#endif
 	}
 	return NULL;
 }
@@ -64,7 +77,7 @@ void *write_thread(void *data)
 	flash = (struct flash_device *)data;
 
 	while (sector < WRITE_SIZE) {
-		srand(time(NULL));
+		srand((time(NULL) * sector + 1) % UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
 		*(int *)buffer = (int)sector;
 		ret = flash->f_op->write(flash, buffer, BLOCK_SIZE, sector);
@@ -75,7 +88,9 @@ void *write_thread(void *data)
 		       sector);
 		assert(ret == BLOCK_SIZE);
 		sector += BLOCK_SIZE;
-		usleep((rand() % 10) * 1000);
+#ifdef USE_RANDOM_WAIT
+		usleep((rand() % 500) + 100);
+#endif
 	}
 	return NULL;
 }
@@ -96,7 +111,7 @@ void *overwrite_thread(void *data)
 
 	sleep(2);
 	while (sector < WRITE_SIZE) {
-		srand(time(NULL));
+		srand((time(NULL) * sector + 2) % UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
 		*(int *)buffer = (int)sector;
 		ret = flash->f_op->write(flash, buffer, BLOCK_SIZE, sector);
@@ -106,14 +121,16 @@ void *overwrite_thread(void *data)
 		printf("%-12s: %-16d(sector: %lu)\n", "overwrite",
 		       *(int *)buffer, sector);
 		sector += BLOCK_SIZE;
-		usleep((rand() % 10) * 1000);
+#ifdef USE_RANDOM_WAIT
+		usleep((rand() % 500) + 100);
+#endif
 	}
 	return NULL;
 }
 
 void *erase_thread(void *data)
 {
-#if 1
+#ifdef USE_FORCE_ERASE
 	struct flash_device *flash;
 	int i;
 	flash = (struct flash_device *)data;

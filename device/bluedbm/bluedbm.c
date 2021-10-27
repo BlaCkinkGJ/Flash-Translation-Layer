@@ -330,9 +330,6 @@ ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 			  (void *)write_rq, dma->tag);
 	return ret;
 exception:
-	if (request && request->end_rq) {
-		request->end_rq(request);
-	}
 	if (write_rq) {
 		free(write_rq);
 	}
@@ -422,9 +419,6 @@ ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 			 (void *)read_rq, dma->tag);
 	return ret;
 exception:
-	if (request && request->end_rq) {
-		request->end_rq(request);
-	}
 	if (read_rq) {
 		free(read_rq);
 	}
@@ -490,9 +484,6 @@ int bluedbm_erase(struct device *dev, struct device_request *request)
 	bluedbm_wait_erase_finish(dev, segnum, 1);
 	return ret;
 exception:
-	if (request->end_rq) {
-		request->end_rq(request);
-	}
 	return ret;
 }
 

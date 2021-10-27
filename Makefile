@@ -105,7 +105,8 @@ CFLAGS := -Wall \
           -Wundef \
           $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
-          $(MEMORY_CHECK_CFLAGS)
+          $(MEMORY_CHECK_CFLAGS) \
+          -O3
 
 CXXFLAGS := $(CFLAGS) \
             -std=c++11

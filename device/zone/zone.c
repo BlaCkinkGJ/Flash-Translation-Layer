@@ -183,24 +183,24 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
 		ret = -ENODATA;
-		goto exception;
+		goto exit;
 	}
 	if (request->flag != DEVICE_WRITE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_WRITE, request->flag);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	if (request->paddr.lpn == PADDR_EMPTY) {
 		pr_err("physical address is not specified...\n");
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	if (request->data_len != page_size) {
 		pr_err("data write size is must be %zu (current: %zu)\n",
 		       request->data_len, page_size);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	memcpy(meta->buffer, request->data, request->data_len);
 	zone_num = zone_get_zone_number(dev, request->paddr);
@@ -208,7 +208,7 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		pr_err("invalid address value detected (lpn: %u)\n",
 		       request->paddr.lpn);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	zone = &meta->zones[zone_num];
 	if (zone->wp != (request->paddr.lpn * page_size)) {
@@ -216,7 +216,7 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		       (uint64_t)(zone->wp),
 		       (uint64_t)(request->paddr.lpn * page_size), zone_num);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	ret = zone_do_rw(meta->write.fd, request->flag, meta->buffer,
 			 request->data_len,
@@ -225,7 +225,7 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		pr_err("do io sequence failed(expected: %ld, actual: %ld)\n",
 		       ret, (ssize_t)page_size);
 		ret = -EFAULT;
-		goto exception;
+		goto exit;
 	}
 	zone->wp += ret;
 	if (zone->wp == zone->start + zone->len) {
@@ -235,17 +235,13 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		if (status) {
 			pr_err("zone close failed (start:%llu, len: %llu)\n",
 			       zone->start, zone->len);
-			goto exception;
+			goto exit;
 		}
 	}
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return ret;
-exception:
-	if (request && request->end_rq) {
-		request->end_rq(request);
-	}
+exit:
 	return ret;
 }
 
@@ -269,7 +265,7 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 	if (request->data == NULL) {
 		pr_err("NULL data pointer detected\n");
 		ret = -ENODATA;
-		goto exception;
+		goto exit;
 	}
 
 	if (request->flag != DEVICE_READ) {
@@ -282,20 +278,20 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 		pr_err("data read size is must be %zu (current: %zu)\n",
 		       request->data_len, page_size);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 
 	if (request->paddr.lpn == PADDR_EMPTY) {
 		pr_err("physical address is not specified...\n");
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	zone_num = zone_get_zone_number(dev, request->paddr);
 	if (zone_num >= meta->nr_zones) {
 		pr_err("invalid address value detected (lpn: %u)\n",
 		       request->paddr.lpn);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	memset(meta->buffer, 0, page_size);
 	ret = zone_do_rw(meta->read.fd, request->flag, meta->buffer,
@@ -305,11 +301,7 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
-	return ret;
-exception:
-	if (request && request->end_rq) {
-		request->end_rq(request);
-	}
+exit:
 	return ret;
 }
 
@@ -333,7 +325,7 @@ int zone_erase(struct device *dev, struct device_request *request)
 	if (zone_num >= meta->nr_zones) {
 		pr_err("invalid address detected\n");
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	offset = meta->zone_size * zone_num;
 	length = meta->zone_size;
@@ -341,18 +333,14 @@ int zone_erase(struct device *dev, struct device_request *request)
 	if (ret) {
 		pr_err("zone reset failed (%lu ~ %lu)\n", offset,
 		       offset + length);
-		goto exception;
+		goto exit;
 	}
 
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
 	meta->zones[zone_num].wp = meta->zones[zone_num].start;
-	return ret;
-exception:
-	if (request && request->end_rq) {
-		request->end_rq(request);
-	}
+exit:
 	return ret;
 }
 
