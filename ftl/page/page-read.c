@@ -20,12 +20,15 @@
 static void page_ftl_read_end_rq(struct device_request *read_rq)
 {
 	struct device_request *request;
+	struct device_address paddr;
 	struct page_ftl *pgftl;
 	size_t offset;
 
 	request = (struct device_request *)read_rq->rq_private;
 	pgftl = (struct page_ftl *)request->rq_private;
 	offset = page_ftl_get_page_offset(pgftl, request->sector);
+
+	paddr = read_rq->paddr;
 
 	memcpy(request->data, &((char *)read_rq->data)[offset],
 	       request->data_len);
@@ -38,6 +41,7 @@ static void page_ftl_read_end_rq(struct device_request *read_rq)
 	}
 	g_atomic_int_set(&request->is_finish, 1);
 	pthread_mutex_unlock(&request->mutex);
+	pthread_rwlock_unlock(&pgftl->rwlock[paddr.format.bus]);
 }
 
 /**
@@ -47,6 +51,8 @@ static void page_ftl_read_end_rq(struct device_request *read_rq)
  * @param request user's request pointer
  *
  * @return reading data size. a negative number means fail to read.
+ * @note
+ * if paddr.lpn doesn't exist, this function returns the buffer filled 0 value.
  */
 ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 {
@@ -68,13 +74,18 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	dev = pgftl->dev;
 	page_size = device_get_page_size(dev);
 	lpn = page_ftl_get_lpn(pgftl, request->sector);
-	paddr.lpn = pgftl->trans_map[lpn];
 
-	if (paddr.lpn == PADDR_EMPTY) {
+	pthread_mutex_lock(&pgftl->mutex);
+	paddr.lpn = pgftl->trans_map[lpn];
+	pthread_mutex_unlock(&pgftl->mutex);
+
+	if (paddr.lpn == PADDR_EMPTY) { /**< YOU MUST TAKE CARE OF THIS LINE */
 		pr_warn("cannot find the mapping information (lpn: %zu)\n",
 			lpn);
 		memset(request->data, 0, request->data_len);
-		return request->data_len;
+		ret = request->data_len;
+		device_free_request(request);
+		goto exception;
 	}
 
 	request->rq_private = pgftl;
@@ -111,9 +122,11 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	read_rq->end_rq = page_ftl_read_end_rq;
 
 	data_len = request->data_len;
+	pthread_rwlock_rdlock(&pgftl->rwlock[paddr.format.bus]);
 	ret = dev->d_op->read(dev, read_rq);
 	if (ret < 0) {
 		pr_err("device read failed (ppn: %u)\n", request->paddr.lpn);
+		pthread_rwlock_unlock(&pgftl->rwlock[paddr.format.bus]);
 		read_rq = NULL;
 		buffer = NULL;
 		goto exception;

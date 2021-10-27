@@ -235,6 +235,7 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 {
 	int err;
 	int gc_thread_status;
+	size_t i;
 	size_t map_size;
 	size_t nr_segments;
 
@@ -251,9 +252,10 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 		pr_err("mutex initialize failed\n");
 		goto exception;
 	}
-	err = pthread_rwlock_init(&pgftl->rwlock, NULL);
+
+	err = pthread_rwlock_init(&pgftl->gc_rwlock, NULL);
 	if (err) {
-		pr_err("rwlock initialize failed\n");
+		pr_err("gc_rwlock initialize failed\n");
 		goto exception;
 	}
 
@@ -263,6 +265,23 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 		pr_err("device open failed\n");
 		err = -EINVAL;
 		goto exception;
+	}
+
+	pgftl->rwlock = (pthread_rwlock_t *)malloc(sizeof(pthread_rwlock_t) *
+						   dev->info.nr_bus);
+	if (pgftl->rwlock == NULL) {
+		pr_err("rwlock allocation failed\n");
+		err = ENOMEM;
+		goto exception;
+	}
+
+	for (i = 0; i < dev->info.nr_bus; i++) {
+		err = pthread_rwlock_init(&pgftl->rwlock[i], NULL);
+		if (err) {
+			pr_err("rwlock initialize failed\n");
+			err = -errno;
+			goto exception;
+		}
 	}
 
 	map_size = page_ftl_get_map_size(pgftl);
@@ -317,6 +336,9 @@ exception:
  *
  * @return read and write return the size of the submit,
  * fail to return the nugative value
+ *
+ * @note
+ * garbage collection doesn't free the request.
  */
 ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 				struct device_request *request)
@@ -329,19 +351,19 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 	}
 	switch (request->flag) {
 	case DEVICE_WRITE:
-		pthread_rwlock_wrlock(&pgftl->rwlock);
+		pthread_rwlock_rdlock(&pgftl->gc_rwlock);
 		ret = page_ftl_write(pgftl, request);
-		pthread_rwlock_unlock(&pgftl->rwlock);
+		pthread_rwlock_unlock(&pgftl->gc_rwlock);
 		break;
 	case DEVICE_READ:
-		pthread_rwlock_rdlock(&pgftl->rwlock);
+		pthread_rwlock_rdlock(&pgftl->gc_rwlock);
 		ret = page_ftl_read(pgftl, request);
-		pthread_rwlock_unlock(&pgftl->rwlock);
+		pthread_rwlock_unlock(&pgftl->gc_rwlock);
 		break;
 	case DEVICE_ERASE:
-		pthread_rwlock_wrlock(&pgftl->rwlock);
+		pthread_rwlock_wrlock(&pgftl->gc_rwlock);
 		ret = (ssize_t)page_ftl_do_gc(pgftl);
-		pthread_rwlock_unlock(&pgftl->rwlock);
+		pthread_rwlock_unlock(&pgftl->gc_rwlock);
 		break;
 	default:
 		pr_err("invalid flag detected: %u\n", request->flag);
@@ -390,6 +412,7 @@ static void page_ftl_free_segments(struct page_ftl *pgftl)
 int page_ftl_close(struct page_ftl *pgftl)
 {
 	int ret = 0;
+	size_t i = 0;
 	long status = 0;
 	if (pgftl == NULL) {
 		pr_err("null page ftl structure submitted\n");
@@ -399,7 +422,7 @@ int page_ftl_close(struct page_ftl *pgftl)
 	pthread_join(pgftl->gc_thread, (void **)&status);
 
 	pthread_mutex_destroy(&pgftl->mutex);
-	pthread_rwlock_destroy(&pgftl->rwlock);
+	pthread_rwlock_destroy(&pgftl->gc_rwlock);
 	if (pgftl->segments) {
 		page_ftl_free_segments(pgftl);
 		free(pgftl->segments);
@@ -419,6 +442,15 @@ int page_ftl_close(struct page_ftl *pgftl)
 	if (pgftl->gc_seg_bits) {
 		free(pgftl->gc_seg_bits);
 		pgftl->gc_seg_bits = NULL;
+	}
+
+	if (pgftl->dev && pgftl->rwlock) {
+		size_t nr_bus = pgftl->dev->info.nr_bus;
+		for (i = 0; i < nr_bus; i++) {
+			pthread_rwlock_destroy(&pgftl->rwlock[i]);
+		}
+		free(pgftl->rwlock);
+		pgftl->rwlock = NULL;
 	}
 
 	if (pgftl->dev && pgftl->dev->d_op) {

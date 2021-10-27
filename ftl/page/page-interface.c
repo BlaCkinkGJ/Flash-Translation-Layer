@@ -73,7 +73,8 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 
 	if (!((pgftl->o_flags & O_ACCMODE) == O_WRONLY ||
 	      (pgftl->o_flags & O_ACCMODE) == O_RDWR)) {
-		pr_err("cannot find the valid write flags\n");
+		pr_err("cannot find the valid write flags (flags: 0x%x)\n",
+		       pgftl->o_flags);
 		size = -EINVAL;
 		goto exception;
 	}
@@ -176,7 +177,8 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 
 	if (!((pgftl->o_flags & O_ACCMODE) == O_RDONLY ||
 	      (pgftl->o_flags & O_ACCMODE) == O_RDWR)) {
-		pr_err("cannot find the valid read flags\n");
+		pr_err("cannot find the valid read flags (flags: 0x%x)\n",
+		       pgftl->o_flags);
 		size = -EINVAL;
 		goto exception;
 	}

@@ -38,6 +38,7 @@ enum { PAGE_FTL_IOCTL_TRIM = 0,
 struct page_ftl_segment {
 	gint nr_free_pages;
 	gint nr_valid_pages;
+	gint is_gc;
 
 	uint64_t *use_bits; /**< contain the use page information */
 	GList *lpn_list; /**< lba_list which contains the valid data */
@@ -52,7 +53,8 @@ struct page_ftl {
 	struct page_ftl_segment *segments;
 	struct device *dev;
 	pthread_mutex_t mutex;
-	pthread_rwlock_t rwlock;
+	pthread_rwlock_t gc_rwlock;
+	pthread_rwlock_t *rwlock;
 	pthread_t gc_thread;
 	int o_flags;
 

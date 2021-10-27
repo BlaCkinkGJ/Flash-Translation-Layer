@@ -11,6 +11,7 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <glib.h>
 
 #include "include/module.h"
 #include "include/flash.h"
@@ -18,8 +19,9 @@
 #include "include/log.h"
 #include "include/device.h"
 
+#define DEVICE_PATH "/dev/nvme0n2"
 #define WRITE_SIZE (8192 * 8192 * 10)
-#define NR_ERASE (100)
+#define NR_ERASE (10)
 #define BLOCK_SIZE ((size_t)1024 * 1024) // 1 MB
 
 int is_check[WRITE_SIZE / BLOCK_SIZE];
@@ -78,6 +80,8 @@ void *write_thread(void *data)
 	return NULL;
 }
 
+gint is_overwrite = 0;
+
 void *overwrite_thread(void *data)
 {
 	char buffer[BLOCK_SIZE];
@@ -87,6 +91,8 @@ void *overwrite_thread(void *data)
 
 	sector = 0;
 	flash = (struct flash_device *)data;
+
+	g_atomic_int_set(&is_overwrite, 1);
 
 	sleep(2);
 	while (sector < WRITE_SIZE) {
@@ -111,6 +117,9 @@ void *erase_thread(void *data)
 	struct flash_device *flash;
 	int i;
 	flash = (struct flash_device *)data;
+	while (!g_atomic_int_get(&is_overwrite)) {
+		usleep(100);
+	}
 	for (i = 0; i < NR_ERASE; i++) {
 		usleep(1000 * 1000);
 		flash->f_op->ioctl(flash, PAGE_FTL_IOCTL_TRIM);
@@ -139,7 +148,7 @@ int main(void)
 #else
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
 #endif
-	flash->f_op->open(flash, "/dev/nvme0n2", O_CREAT | O_RDWR);
+	assert(0 == flash->f_op->open(flash, DEVICE_PATH, O_CREAT | O_RDWR));
 	thread_id =
 		pthread_create(&threads[0], NULL, write_thread, (void *)flash);
 	if (thread_id < 0) {

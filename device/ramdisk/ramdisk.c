@@ -115,34 +115,34 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
 		ret = -ENODATA;
-		goto exception;
+		goto exit;
 	}
 
 	if (request->flag != DEVICE_WRITE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_WRITE, request->flag);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 
 	if (request->paddr.lpn == PADDR_EMPTY) {
 		pr_err("physical address is not specified...\n");
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 
 	if (request->data_len != page_size) {
 		pr_err("data write size is must be %zu (current: %zu)\n",
 		       request->data_len, page_size);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 
 	is_used = get_bit(ramdisk->is_used, addr.lpn);
 	if (is_used == 1) {
 		pr_err("you overwrite the already written page\n");
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 	set_bit(ramdisk->is_used, addr.lpn);
 	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
@@ -151,11 +151,7 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return ret;
-exception:
-	if (request->end_rq) {
-		request->end_rq(request);
-	}
+exit:
 	return ret;
 }
 
@@ -179,14 +175,14 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
 		ret = -ENODATA;
-		goto exception;
+		goto exit;
 	}
 
 	if (request->flag != DEVICE_READ) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_READ, request->flag);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 
 	page_size = device_get_page_size(dev);
@@ -194,13 +190,13 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 		pr_err("data read size is must be %zu (current: %zu)\n",
 		       request->data_len, page_size);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 
 	if (request->paddr.lpn == PADDR_EMPTY) {
 		pr_err("physical address is not specified...\n");
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 
 	memcpy(request->data, &ramdisk->buffer[addr.lpn * page_size],
@@ -211,11 +207,7 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return ret;
-exception:
-	if (request->end_rq) {
-		request->end_rq(request);
-	}
+exit:
 	return ret;
 }
 
@@ -243,7 +235,7 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_ERASE, request->flag);
 		ret = -EINVAL;
-		goto exception;
+		goto exit;
 	}
 
 	page_size = device_get_page_size(dev);
@@ -259,11 +251,7 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	return ret;
-exception:
-	if (request->end_rq) {
-		request->end_rq(request);
-	}
+exit:
 	return ret;
 }
 
