@@ -83,7 +83,7 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
                -DDEVICE_NR_BLOCKS_BITS=19
 endif
 
-ifeq ($(USE_ZONE_DEVIE), 1)
+ifeq ($(USE_ZONE_DEVICE), 1)
 DEVICE_INFO += -DDEVICE_USE_ZONED
 endif
 
