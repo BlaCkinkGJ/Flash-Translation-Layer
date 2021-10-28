@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <string.h>
+#include <stringlib.h>
 #include <unistd.h>
 
 #include "include/flash.h"
@@ -64,7 +65,7 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(buffer, 0, ramdisk->size);
+	__memset_aarch64(buffer, 0, ramdisk->size);
 	ramdisk->buffer = buffer;
 
 	bitmap_size = BITS_TO_UINT64_ALIGN(ramdisk->size / page->size);
@@ -75,7 +76,7 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 		goto exception;
 	}
 	pr_info("bitmap generated (size: %zu bytes)\n", bitmap_size);
-	memset(is_used, 0, bitmap_size);
+	__memset_aarch64(is_used, 0, bitmap_size);
 	ramdisk->is_used = is_used;
 
 	nr_segments = device_get_nr_segments(dev);
@@ -86,7 +87,8 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+	__memset_aarch64(dev->badseg_bitmap, 0,
+			 BITS_TO_UINT64_ALIGN(nr_segments));
 	for (uint64_t i = 0; i < 10; i++) {
 		set_bit(dev->badseg_bitmap, i);
 	}
@@ -145,8 +147,8 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 	set_bit(ramdisk->is_used, addr.lpn);
-	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
-	       request->data_len);
+	__memcpy_aarch64_simd(&ramdisk->buffer[addr.lpn * page_size],
+			      request->data, request->data_len);
 	ret = request->data_len;
 	if (request->end_rq) {
 		request->end_rq(request);
@@ -199,8 +201,9 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 
-	memcpy(request->data, &ramdisk->buffer[addr.lpn * page_size],
-	       request->data_len);
+	__memcpy_aarch64_simd(request->data,
+			      &ramdisk->buffer[addr.lpn * page_size],
+			      request->data_len);
 	ret = request->data_len;
 	pr_debug("request->end_rq %p %p\n", request->end_rq,
 		 &((struct device_request *)request->rq_private)->mutex);
@@ -244,7 +247,8 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 	addr.lpn = 0;
 	addr.format.block = segnum;
 	for (lpn = addr.lpn; lpn < addr.lpn + nr_pages_per_segment; lpn++) {
-		memset(&ramdisk->buffer[lpn * page_size], 0, page_size);
+		__memset_aarch64(&ramdisk->buffer[lpn * page_size], 0,
+				 page_size);
 		reset_bit(ramdisk->is_used, lpn);
 	}
 

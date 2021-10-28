@@ -9,6 +9,7 @@
 #include "include/log.h"
 
 #include <errno.h>
+#include <stringlib.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -30,8 +31,8 @@ static void page_ftl_read_end_rq(struct device_request *read_rq)
 
 	paddr = read_rq->paddr;
 
-	memcpy(request->data, &((char *)read_rq->data)[offset],
-	       request->data_len);
+	__memcpy_aarch64_simd(request->data, &((char *)read_rq->data)[offset],
+			      request->data_len);
 	free(read_rq->data);
 	device_free_request(read_rq);
 
@@ -81,7 +82,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	if (paddr.lpn == PADDR_EMPTY) { /**< YOU MUST TAKE CARE OF THIS LINE */
 		pr_warn("cannot find the mapping information (lpn: %zu)\n",
 			lpn);
-		memset(request->data, 0, request->data_len);
+		__memset_aarch64(request->data, 0, request->data_len);
 		ret = request->data_len;
 		device_free_request(request);
 		goto exception;
@@ -104,7 +105,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(buffer, 0, page_size);
+	__memset_aarch64(buffer, 0, page_size);
 
 	read_rq = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 	if (read_rq == NULL) {

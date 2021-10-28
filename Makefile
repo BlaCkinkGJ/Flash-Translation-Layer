@@ -25,7 +25,7 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 # Device Module Setting
 USE_ZONE_DEVICE = 0
-USE_BLUEDBM_DEVICE = 0
+USE_BLUEDBM_DEVICE = 1
 # Debug Setting
 USE_DEBUG = 0
 
@@ -113,7 +113,7 @@ CXXFLAGS := $(CFLAGS) \
             -std=c++11
 
 UNITY_ROOT := ./unity
-LIBS := -lm -lpthread $(GLIB_LIBS) $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
+LIBS := -lm -lpthread -lstringlib $(GLIB_LIBS) $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
 
 INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 

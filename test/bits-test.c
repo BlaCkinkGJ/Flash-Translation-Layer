@@ -2,6 +2,7 @@
 #include "unity.h"
 
 #include <limits.h>
+#include <stringlib.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +36,7 @@ void test_bits(void)
 	uint64_t *bits;
 	uint64_t zero, one;
 	bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits));
-	memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
+	__memset_aarch64(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
 	bits_print(bits, nr_bits);
 	one = find_first_one_bit(bits, nr_bits, 0);
 	zero = find_first_zero_bit(bits, nr_bits, 0);
@@ -66,9 +67,9 @@ void test_get_bits(void)
 		char *setbit;
 		uint64_t *bits;
 		setbit = (char *)malloc(nr_bits);
-		memset(setbit, 0, nr_bits);
+		__memset_aarch64(setbit, 0, nr_bits);
 		bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits));
-		memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
+		__memset_aarch64(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
 		srand(time(NULL) + (counter * rand()) % INT_MAX);
 		for (i = 0; i < nr_bits; i++) {
 			setbit[i] = (rand() % 2);

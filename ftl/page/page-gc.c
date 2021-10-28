@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stringlib.h>
 #include <errno.h>
 
 #include "include/page.h"
@@ -129,7 +130,7 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(buffer, 0, page_size);
+	__memset_aarch64(buffer, 0, page_size);
 
 	request = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 	if (request == NULL) {

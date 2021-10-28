@@ -20,6 +20,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <pthread.h>
+#include <stringlib.h>
 
 /**
  * @brief initialize the submodule
@@ -60,7 +61,7 @@ struct device_request *device_alloc_request(uint64_t flags)
 		pr_err("request allocation failed\n");
 		return NULL;
 	}
-	memset(request, 0, sizeof(struct device_request));
+	__memset_aarch64(request, 0, sizeof(struct device_request));
 	ret = pthread_mutex_init(&request->mutex, NULL);
 	if (ret) {
 		pr_err("pthread mutex initialize failed\n");
@@ -112,7 +113,7 @@ int device_module_init(const uint64_t modnum, struct device **__dev,
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(dev, 0, sizeof(struct device));
+	__memset_aarch64(dev, 0, sizeof(struct device));
 	pthread_mutex_init(&dev->mutex, NULL);
 	(void)flags;
 	ret = submodule_init[modnum](dev, flags);

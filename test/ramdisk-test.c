@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stringlib.h>
 #include <errno.h>
 
 #include "include/ramdisk.h"
@@ -43,11 +44,11 @@ void test_full_write(void)
 
 	buffer = (char *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
-	memset(buffer, 0, page_size);
+	__memset_aarch64(buffer, 0, page_size);
 
 	/**< note that all I/O functions run synchronously */
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		__memcpy_aarch64_simd(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -58,7 +59,7 @@ void test_full_write(void)
 				      dev->d_op->write(dev, &request));
 	}
 
-	memset(buffer, 0, page_size);
+	__memset_aarch64(buffer, 0, page_size);
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
 		request.paddr = addr;
 		request.data_len = page_size;
@@ -88,11 +89,11 @@ void test_overwrite(void)
 	total_pages = device_get_total_pages(dev);
 	buffer = (char *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
-	memset(buffer, 0, page_size);
+	__memset_aarch64(buffer, 0, page_size);
 
 	/**< note that all I/O functions run synchronously */
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		__memcpy_aarch64_simd(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -133,11 +134,11 @@ void test_erase(void)
 	total_pages = device_get_total_pages(dev);
 	buffer = (char *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
-	memset(buffer, 0, page_size);
+	__memset_aarch64(buffer, 0, page_size);
 
 	/**< note that all I/O functions run synchronously */
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		__memcpy_aarch64_simd(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -161,7 +162,7 @@ void test_erase(void)
 	nr_pages_per_segment = device_get_pages_per_segment(dev);
 	for (addr.lpn = 0; addr.lpn < total_pages - nr_pages_per_segment;
 	     addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		__memcpy_aarch64_simd(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -173,7 +174,7 @@ void test_erase(void)
 	}
 
 	for (; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		__memcpy_aarch64_simd(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -212,15 +213,15 @@ void test_end_rq_works(void)
 
 	buffer = (char *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
-	memset(buffer, 0, page_size);
+	__memset_aarch64(buffer, 0, page_size);
 
 	is_check = (uint8_t *)malloc(total_pages);
 	TEST_ASSERT_NOT_NULL(is_check);
-	memset(is_check, 0, total_pages);
+	__memset_aarch64(is_check, 0, total_pages);
 
 	/**< note that all I/O functions run synchronously */
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		__memcpy_aarch64_simd(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = end_rq;
@@ -236,7 +237,7 @@ void test_end_rq_works(void)
 		TEST_ASSERT_EQUAL_INT(1, is_check[addr.lpn]);
 	}
 
-	memset(is_check, 0, total_pages);
+	__memset_aarch64(is_check, 0, total_pages);
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
 		request.paddr = addr;
 		request.data_len = page_size;
@@ -253,7 +254,7 @@ void test_end_rq_works(void)
 		TEST_ASSERT_EQUAL_INT(1, is_check[addr.lpn]);
 	}
 
-	memset(is_check, 0, total_pages);
+	__memset_aarch64(is_check, 0, total_pages);
 	for (segnum = 0; segnum < nr_segments; segnum++) {
 		addr.lpn = 0;
 		addr.format.block = segnum;

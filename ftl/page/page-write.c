@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <stringlib.h>
 #include <errno.h>
 #include <string.h>
 
@@ -192,7 +193,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		pr_err("memory allocation failed\n");
 		return -ENOMEM;
 	}
-	memset(buffer, 0, page_size);
+	__memset_aarch64(buffer, 0, page_size);
 	pthread_mutex_lock(&pgftl->mutex);
 	is_exist = pgftl->trans_map[lpn] != PADDR_EMPTY;
 	pthread_mutex_unlock(&pgftl->mutex);
@@ -204,7 +205,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 			return ret;
 		}
 	}
-	memcpy(&buffer[offset], request->data, write_size);
+	__memcpy_aarch64_simd(&buffer[offset], request->data, write_size);
 
 	request->flag = DEVICE_WRITE;
 	request->data = buffer;

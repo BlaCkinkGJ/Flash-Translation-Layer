@@ -7,6 +7,7 @@
  */
 #include <errno.h>
 #include <string.h>
+#include <stringlib.h>
 #include <fcntl.h>
 
 #include "include/log.h"
@@ -228,7 +229,7 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 			size = -EINVAL;
 			goto exception;
 		}
-		memcpy(ptr, temp, read_size);
+		__memcpy_aarch64_simd(ptr, temp, read_size);
 		offset += read_size;
 		count -= read_size;
 		ptr += read_size;
@@ -349,7 +350,7 @@ int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 		pr_err("fail to allocate the page FTL information pointer\n");
 		goto exception;
 	}
-	memset(pgftl, 0, sizeof(*pgftl));
+	__memset_aarch64(pgftl, 0, sizeof(*pgftl));
 
 	err = device_module_init(modnum, &pgftl->dev, 0);
 	if (err) {

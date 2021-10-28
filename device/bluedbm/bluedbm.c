@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <string.h>
+#include <stringlib.h>
 
 #include "include/bluedbm.h"
 #include "include/device.h"
@@ -174,7 +175,8 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+	__memset_aarch64(dev->badseg_bitmap, 0,
+			 BITS_TO_UINT64_ALIGN(nr_segments));
 
 	g_erase_counter = (gint *)malloc(nr_segments * sizeof(gint));
 	if (g_erase_counter == NULL) {
@@ -182,7 +184,7 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(g_erase_counter, 0, nr_segments * sizeof(gint));
+	__memset_aarch64(g_erase_counter, 0, nr_segments * sizeof(gint));
 
 	g_badseg_counter = (gint *)malloc(nr_segments * sizeof(gint));
 	if (g_badseg_counter == NULL) {
@@ -190,7 +192,7 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(g_badseg_counter, 0, nr_segments * sizeof(gint));
+	__memset_aarch64(g_badseg_counter, 0, nr_segments * sizeof(gint));
 
 	if (bdbm->o_flags & O_CREAT) {
 		bluedbm_clear(dev);
@@ -233,7 +235,8 @@ static void bluedbm_end_rw_request(async_bdbm_req *rw_req)
 		memio_free_dma(DMA_WRITE_BUF, dma->tag);
 		break;
 	case REQTYPE_IO_READ:
-		memcpy(user_rq->data, dma->data, user_rq->data_len);
+		__memcpy_aarch64_simd(user_rq->data, dma->data,
+				      user_rq->data_len);
 		memio_free_dma(DMA_READ_BUF, dma->tag);
 		break;
 	default:
@@ -316,7 +319,7 @@ ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 	}
 	dma->tag = memio_alloc_dma(DMA_WRITE_BUF, &dma->data);
 	dma->d_private = (void *)request;
-	memcpy(dma->data, request->data, page_size);
+	__memcpy_aarch64_simd(dma->data, request->data, page_size);
 
 	write_rq = (async_bdbm_req *)malloc(sizeof(async_bdbm_req));
 	if (write_rq == NULL) {
@@ -558,7 +561,7 @@ int bluedbm_device_init(struct device *dev, uint64_t flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(bdbm, 0, sizeof(struct bluedbm));
+	__memset_aarch64(bdbm, 0, sizeof(struct bluedbm));
 	dev->d_op = &__bluedbm_dops;
 	dev->d_private = (void *)bdbm;
 	dev->d_submodule_exit = bluedbm_device_exit;

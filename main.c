@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <stringlib.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <glib.h>
@@ -30,9 +31,9 @@
 #define WRITE_SIZE ((size_t)8192 * 8192)
 #define NR_ERASE (10)
 #if defined(RAND_WORKLOAD)
-#define BLOCK_SIZE ((size_t)4096) // 4 KB
+#define BLOCK_SIZE ((size_t)512) // 4 KB
 #elif defined(SEQ_WORKLOAD)
-#define BLOCK_SIZE ((size_t)1024 * 1024) // 4 KB
+#define BLOCK_SIZE ((size_t)1024 * 1024) // 1 MB
 #endif
 
 int is_check[WRITE_SIZE / BLOCK_SIZE];
@@ -49,7 +50,7 @@ void *read_thread(void *data)
 
 	while (sector < WRITE_SIZE) {
 		srand((time(NULL) * sector) % UINT_MAX);
-		memset(buffer, 0, sizeof(buffer));
+		__memset_aarch64(buffer, 0, sizeof(buffer));
 		ret = flash->f_op->read(flash, (void *)buffer, BLOCK_SIZE,
 					sector);
 		if (ret < 0 || (sector > 0 && buffer[0] == 0)) {
@@ -82,7 +83,7 @@ void *write_thread(void *data)
 
 	while (sector < WRITE_SIZE) {
 		srand((time(NULL) * sector + 1) % UINT_MAX);
-		memset(buffer, 0, sizeof(buffer));
+		__memset_aarch64(buffer, 0, sizeof(buffer));
 		buffer[0] = (int)sector;
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
 					 sector);
@@ -117,7 +118,7 @@ void *overwrite_thread(void *data)
 	sleep(2);
 	while (sector < WRITE_SIZE) {
 		srand((time(NULL) * sector + 2) % UINT_MAX);
-		memset(buffer, 0, sizeof(buffer));
+		__memset_aarch64(buffer, 0, sizeof(buffer));
 		buffer[0] = sector;
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
 					 sector);
@@ -163,7 +164,7 @@ int main(void)
 	size_t i;
 	struct flash_device *flash = NULL;
 
-	memset(is_check, 0, sizeof(is_check));
+	__memset_aarch64(is_check, 0, sizeof(is_check));
 #if defined(DEVICE_USE_ZONED)
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, ZONE_MODULE));
 #elif defined(DEVICE_USE_BLUEDBM)

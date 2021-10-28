@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <glib.h>
+#include <stringlib.h>
 #include <unistd.h>
 
 #include "include/zone.h"
@@ -202,7 +203,7 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		ret = -EINVAL;
 		goto exit;
 	}
-	memcpy(meta->buffer, request->data, request->data_len);
+	__memcpy_aarch64_simd(meta->buffer, request->data, request->data_len);
 	zone_num = zone_get_zone_number(dev, request->paddr);
 	if (zone_num >= meta->nr_zones) {
 		pr_err("invalid address value detected (lpn: %u)\n",
@@ -293,11 +294,11 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 		ret = -EINVAL;
 		goto exit;
 	}
-	memset(meta->buffer, 0, page_size);
+	__memset_aarch64(meta->buffer, 0, page_size);
 	ret = zone_do_rw(meta->read.fd, request->flag, meta->buffer,
 			 request->data_len,
 			 (off_t)request->paddr.lpn * page_size);
-	memcpy(request->data, meta->buffer, page_size);
+	__memcpy_aarch64_simd(request->data, meta->buffer, page_size);
 	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
@@ -409,7 +410,7 @@ int zone_device_init(struct device *dev, uint64_t flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(meta, 0, sizeof(struct zone_meta));
+	__memset_aarch64(meta, 0, sizeof(struct zone_meta));
 	meta->read.fd = -1;
 	meta->write.fd = -1;
 
