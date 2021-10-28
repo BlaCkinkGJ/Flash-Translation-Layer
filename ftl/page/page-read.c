@@ -75,9 +75,9 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	page_size = device_get_page_size(dev);
 	lpn = page_ftl_get_lpn(pgftl, request->sector);
 
-	pthread_mutex_lock(&pgftl->mutex);
+	pthread_spin_lock(&pgftl->mutex);
 	paddr.lpn = pgftl->trans_map[lpn];
-	pthread_mutex_unlock(&pgftl->mutex);
+	pthread_spin_unlock(&pgftl->mutex);
 
 	if (paddr.lpn == PADDR_EMPTY) { /**< YOU MUST TAKE CARE OF THIS LINE */
 		pr_warn("cannot find the mapping information (lpn: %zu)\n",

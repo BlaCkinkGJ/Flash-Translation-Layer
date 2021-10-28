@@ -113,6 +113,9 @@ static void *page_ftl_gc_thread(void *data)
 			       ret);
 			break;
 		}
+#ifdef USE_GC_MESSAGE
+		pr_info("gc triggered (nr_erase: %lu)\n", ret);
+#endif
 	}
 	return NULL;
 }
@@ -242,7 +245,7 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 
 	assert(NULL != pgftl->dev);
 
-	err = pthread_mutex_init(&pgftl->mutex, NULL);
+	err = pthread_spin_init(&pgftl->mutex, 0);
 	if (err) {
 		pr_err("mutex initialize failed\n");
 		goto exception;
@@ -443,7 +446,7 @@ int page_ftl_close(struct page_ftl *pgftl)
 	g_atomic_int_set(&is_gc_thread_exit, 1);
 	pthread_join(pgftl->gc_thread, (void **)&status);
 
-	pthread_mutex_destroy(&pgftl->mutex);
+	pthread_spin_destroy(&pgftl->mutex);
 	pthread_rwlock_destroy(&pgftl->gc_rwlock);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 	pthread_rwlock_destroy(&pgftl->rwlock);

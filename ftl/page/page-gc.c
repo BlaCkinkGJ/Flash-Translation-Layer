@@ -256,9 +256,9 @@ int page_ftl_do_gc(struct page_ftl *pgftl)
 	int ret;
 	size_t segnum;
 
-	pthread_mutex_lock(&pgftl->mutex);
+	pthread_spin_lock(&pgftl->mutex);
 	segment = page_ftl_pick_gc_target(pgftl);
-	pthread_mutex_unlock(&pgftl->mutex);
+	pthread_spin_unlock(&pgftl->mutex);
 	if (segment == NULL) {
 		pr_debug("gc target segment doesn't exist\n");
 		return 0;
@@ -280,14 +280,14 @@ int page_ftl_do_gc(struct page_ftl *pgftl)
 		return ret;
 	}
 
-	pthread_mutex_lock(&pgftl->mutex);
+	pthread_spin_lock(&pgftl->mutex);
 	ret = page_ftl_segment_data_init(pgftl, segment);
 	if (ret) {
 		pr_err("initialize the segment data failed\n");
 		return ret;
 	}
 	reset_bit(pgftl->gc_seg_bits, segnum);
-	pthread_mutex_unlock(&pgftl->mutex);
+	pthread_spin_unlock(&pgftl->mutex);
 
 	return 0;
 }
