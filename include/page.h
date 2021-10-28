@@ -24,7 +24,7 @@
 	((double)10 /                                                          \
 	 100) /**< maximum the number of segments garbage collected */
 #define PAGE_FTL_GC_THRESHOLD                                                  \
-	((double)60 /                                                          \
+	((double)20 /                                                          \
 	 100) /**< gc triggered when number of the free pages under threshold */
 
 enum {
