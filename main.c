@@ -27,7 +27,7 @@
 #define RAND_WORKLOAD
 
 #define DEVICE_PATH "/dev/nvme0n2"
-#define WRITE_SIZE ((size_t)8192 * 8192)
+#define WRITE_SIZE ((size_t)8192 * 8192 * 16)
 #define NR_ERASE (10)
 #if defined(RAND_WORKLOAD)
 #define BLOCK_SIZE ((size_t)4096) // 4 KiB

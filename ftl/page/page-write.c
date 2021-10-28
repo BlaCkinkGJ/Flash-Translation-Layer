@@ -31,7 +31,7 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 	struct device_address paddr;
 
 	uint32_t segnum;
-	size_t nr_valid_pages;
+	size_t nr_valid_pages, nr_free_pages;
 
 	/**< segment information update */
 	paddr.lpn = pgftl->trans_map[lpn];
@@ -42,11 +42,12 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 		g_list_remove(segment->lpn_list, GSIZE_TO_POINTER(lpn));
 
 	nr_valid_pages = g_atomic_int_get(&segment->nr_valid_pages);
+	nr_free_pages = g_atomic_int_get(&segment->nr_free_pages);
 	g_atomic_int_set(&segment->nr_valid_pages, nr_valid_pages - 1);
 
 	/**< global information update */
 	pgftl->trans_map[lpn] = PADDR_EMPTY;
-	if (get_bit(pgftl->gc_seg_bits, segnum) != 1) {
+	if (nr_free_pages == 0 && get_bit(pgftl->gc_seg_bits, segnum) != 1) {
 		pgftl->gc_list = g_list_prepend(pgftl->gc_list, segment);
 		set_bit(pgftl->gc_seg_bits, segnum);
 	}
@@ -189,9 +190,9 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		return -EINVAL;
 	}
 
-	pthread_mutex_lock(&pgftl->mutex);
+	pthread_spin_lock(&pgftl->mutex);
 	paddr = page_ftl_get_free_page(pgftl); /**< global data retrieve */
-	pthread_mutex_unlock(&pgftl->mutex);
+	pthread_spin_unlock(&pgftl->mutex);
 	if (paddr.lpn == PADDR_EMPTY) {
 		pr_err("cannot allocate the valid page from device\n");
 		return -EFAULT;
@@ -203,9 +204,9 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		return -ENOMEM;
 	}
 	memset(buffer, 0, page_size);
-	pthread_mutex_lock(&pgftl->mutex);
+	pthread_spin_lock(&pgftl->mutex);
 	is_exist = pgftl->trans_map[lpn] != PADDR_EMPTY;
-	pthread_mutex_unlock(&pgftl->mutex);
+	pthread_spin_unlock(&pgftl->mutex);
 	if (is_exist) {
 		ssize_t ret;
 		ret = page_ftl_read_for_overwrite(pgftl, lpn, buffer);
@@ -229,9 +230,9 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 		return ret;
 	}
 
-	pthread_mutex_lock(&pgftl->mutex);
+	pthread_spin_lock(&pgftl->mutex);
 	page_ftl_write_update_metadata(pgftl, paddr, sector);
-	pthread_mutex_unlock(&pgftl->mutex);
+	pthread_spin_unlock(&pgftl->mutex);
 
 	return write_size;
 }
