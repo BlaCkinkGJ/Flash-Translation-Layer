@@ -31,9 +31,9 @@
 #define WRITE_SIZE ((size_t)8192 * 8192)
 #define NR_ERASE (10)
 #if defined(RAND_WORKLOAD)
-#define BLOCK_SIZE ((size_t)512) // 4 KB
+#define BLOCK_SIZE ((size_t)4096) // 4 KiB
 #elif defined(SEQ_WORKLOAD)
-#define BLOCK_SIZE ((size_t)1024 * 1024) // 1 MB
+#define BLOCK_SIZE ((size_t)1024 * 1024) // 1 MiB
 #endif
 
 int is_check[WRITE_SIZE / BLOCK_SIZE];
