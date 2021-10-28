@@ -51,13 +51,6 @@ int zone_open(struct device *dev, const char *name, int flags)
 
 	meta = (struct zone_meta *)dev->d_private;
 
-	ret = posix_memalign((void **)&meta->buffer, sysconf(_SC_PAGESIZE),
-			     page->size);
-	if (ret) {
-		pr_err("buffer allocation failed\n");
-		meta->buffer = NULL;
-		goto exception;
-	}
 	meta->o_flags = flags;
 
 	meta->read.fd = zbd_open(name, O_RDONLY, &zone_info);
@@ -177,8 +170,10 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 	size_t page_size = device_get_page_size(dev);
 	ssize_t ret = 0;
 	uint64_t zone_num;
+	char *buffer;
 
 	meta = (struct zone_meta *)dev->d_private;
+	buffer = NULL;
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
@@ -202,7 +197,14 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		ret = -EINVAL;
 		goto exit;
 	}
-	memcpy(meta->buffer, request->data, request->data_len);
+	ret = posix_memalign((void **)&buffer, sysconf(_SC_PAGESIZE),
+			     device_get_page_size(dev));
+	if (ret) {
+		pr_err("buffer allocation failed\n");
+		buffer = NULL;
+		goto exit;
+	}
+	memcpy(buffer, request->data, request->data_len);
 	zone_num = zone_get_zone_number(dev, request->paddr);
 	if (zone_num >= meta->nr_zones) {
 		pr_err("invalid address value detected (lpn: %u)\n",
@@ -218,7 +220,7 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		ret = -EINVAL;
 		goto exit;
 	}
-	ret = zone_do_rw(meta->write.fd, request->flag, meta->buffer,
+	ret = zone_do_rw(meta->write.fd, request->flag, buffer,
 			 request->data_len,
 			 (off_t)request->paddr.lpn * page_size);
 	if (ret != (ssize_t)page_size) {
@@ -242,6 +244,9 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		request->end_rq(request);
 	}
 exit:
+	if (buffer) {
+		free(buffer);
+	}
 	return ret;
 }
 
@@ -259,8 +264,10 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 	size_t page_size;
 	ssize_t ret = 0;
 	uint64_t zone_num;
+	char *buffer;
 
 	meta = (struct zone_meta *)dev->d_private;
+	buffer = NULL;
 
 	if (request->data == NULL) {
 		pr_err("NULL data pointer detected\n");
@@ -293,15 +300,25 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 		ret = -EINVAL;
 		goto exit;
 	}
-	memset(meta->buffer, 0, page_size);
-	ret = zone_do_rw(meta->read.fd, request->flag, meta->buffer,
+	ret = posix_memalign((void **)&buffer, sysconf(_SC_PAGESIZE),
+			     device_get_page_size(dev));
+	if (ret) {
+		pr_err("buffer allocation failed\n");
+		buffer = NULL;
+		goto exit;
+	}
+	memset(buffer, 0, page_size);
+	ret = zone_do_rw(meta->read.fd, request->flag, buffer,
 			 request->data_len,
 			 (off_t)request->paddr.lpn * page_size);
-	memcpy(request->data, meta->buffer, page_size);
+	memcpy(request->data, buffer, page_size);
 	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
 exit:
+	if (buffer) {
+		free(buffer);
+	}
 	return ret;
 }
 
@@ -357,10 +374,6 @@ int zone_close(struct device *dev)
 	meta = (struct zone_meta *)dev->d_private;
 	if (meta == NULL) {
 		return 0;
-	}
-	if (meta->buffer != NULL) {
-		free(meta->buffer);
-		meta->buffer = NULL;
 	}
 	if (meta->read.fd >= 0) {
 		zbd_close(meta->read.fd);

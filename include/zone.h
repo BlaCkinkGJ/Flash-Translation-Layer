@@ -29,8 +29,6 @@ struct zone_meta {
 	uint64_t block_size;
 	int o_flags;
 
-	char *buffer;
-
 	struct zone_file_descriptor read;
 	struct zone_file_descriptor write;
 	struct zbd_info info;
@@ -49,9 +47,8 @@ int zone_device_exit(struct device *);
 static inline uint64_t zone_get_zone_number(struct device *dev,
 					    struct device_address paddr)
 {
-	struct zone_meta *meta = (struct zone_meta *)dev->d_private;
-	size_t page_size = device_get_page_size(dev);
-	return paddr.lpn / (meta->zone_size / page_size);
+	(void)dev;
+	return paddr.format.block;
 }
 
 #endif
