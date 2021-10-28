@@ -109,25 +109,33 @@ static ssize_t page_ftl_read_for_overwrite(struct page_ftl *pgftl, size_t lpn,
 	return ret;
 }
 
-void page_ftl_write_update_metadata(struct page_ftl *pgftl,
-				    struct device_request *request)
+/**
+ * @brief update the translation mapping table
+ *
+ * @param pgftl pointer of the page FTL
+ * @param paddr written device address
+ * @param sector logical sector number
+ */
+static void page_ftl_write_update_metadata(struct page_ftl *pgftl,
+					   struct device_address paddr,
+					   size_t sector)
 {
 	struct page_ftl_segment *segment;
 
 	size_t lpn;
-	lpn = page_ftl_get_lpn(pgftl, request->sector);
+	lpn = page_ftl_get_lpn(pgftl, sector);
 	if (pgftl->trans_map[lpn] != PADDR_EMPTY) {
 		page_ftl_invalidate(pgftl, lpn);
 		pr_debug("invalidate address: %lu => %u\n", lpn,
 			 pgftl->trans_map[lpn]);
 	}
 	/**< segment information update */
-	segment = &pgftl->segments[request->paddr.format.block];
+	segment = &pgftl->segments[paddr.format.block];
 	segment->lpn_list =
 		g_list_prepend(segment->lpn_list, GSIZE_TO_POINTER(lpn));
 
 	/**< global information update */
-	page_ftl_update_map(pgftl, request->sector, request->paddr.lpn);
+	page_ftl_update_map(pgftl, sector, paddr.lpn);
 
 	pr_debug("new address: %lu => %u (seg: %u)\n", lpn,
 		 pgftl->trans_map[lpn], pgftl->trans_map[lpn] >> 13);
@@ -156,6 +164,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	size_t nr_entries;
 
 	size_t write_size;
+	size_t sector;
 
 	int is_exist;
 
@@ -163,8 +172,9 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	page_size = device_get_page_size(dev);
 	write_size = request->data_len;
 
-	lpn = page_ftl_get_lpn(pgftl, request->sector);
-	offset = page_ftl_get_page_offset(pgftl, request->sector);
+	sector = request->sector;
+	lpn = page_ftl_get_lpn(pgftl, sector);
+	offset = page_ftl_get_page_offset(pgftl, sector);
 
 	nr_entries = page_ftl_get_map_size(pgftl) / sizeof(uint32_t);
 	if (lpn > nr_entries) {
@@ -220,7 +230,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	}
 
 	pthread_mutex_lock(&pgftl->mutex);
-	page_ftl_write_update_metadata(pgftl, request);
+	page_ftl_write_update_metadata(pgftl, paddr, sector);
 	pthread_mutex_unlock(&pgftl->mutex);
 
 	return write_size;
