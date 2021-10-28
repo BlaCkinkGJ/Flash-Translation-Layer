@@ -72,7 +72,7 @@ void *read_thread(void *data)
 
 void *write_thread(void *data)
 {
-	size_t buffer[BLOCK_SIZE / sizeof(size_t)];
+	ssize_t buffer[BLOCK_SIZE / sizeof(ssize_t)];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -83,7 +83,7 @@ void *write_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		srand((time(NULL) * sector + 1) % UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
-		buffer[0] = (int)sector;
+		buffer[0] = (ssize_t)sector;
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
 					 sector);
 		if (ret < 0) {
@@ -104,7 +104,7 @@ gint is_overwrite = 0;
 
 void *overwrite_thread(void *data)
 {
-	size_t buffer[BLOCK_SIZE / sizeof(size_t)];
+	ssize_t buffer[BLOCK_SIZE / sizeof(ssize_t)];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -118,7 +118,7 @@ void *overwrite_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		srand((time(NULL) * sector + 2) % UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
-		buffer[0] = sector;
+		buffer[0] = (ssize_t)sector;
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
 					 sector);
 		if (ret < 0) {
