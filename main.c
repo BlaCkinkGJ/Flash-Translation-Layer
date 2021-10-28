@@ -27,7 +27,7 @@
 #define RAND_WORKLOAD
 
 #define DEVICE_PATH "/dev/nvme0n2"
-#define WRITE_SIZE ((size_t)8192 * 8192 * 16)
+#define WRITE_SIZE ((size_t)8192 * 8192 * 96)
 #define NR_ERASE (10)
 #if defined(RAND_WORKLOAD)
 #define BLOCK_SIZE ((size_t)4096) // 4 KiB
@@ -39,7 +39,7 @@ int is_check[WRITE_SIZE / BLOCK_SIZE];
 
 void *read_thread(void *data)
 {
-	int buffer[BLOCK_SIZE / sizeof(int)];
+	ssize_t buffer[BLOCK_SIZE / sizeof(size_t)];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -59,12 +59,12 @@ void *read_thread(void *data)
 			continue;
 		}
 		assert(ret == BLOCK_SIZE);
-		printf("%-12s: %-16d(sector: %lu)\n", "read", buffer[0],
+		printf("%-12s: %-16zd(sector: %zu)\n", "read", buffer[0],
 		       sector);
-		is_check[*(int *)buffer / BLOCK_SIZE] = 1;
+		is_check[*(ssize_t *)buffer / BLOCK_SIZE] = 1;
 		sector += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
-		usleep((rand() % 500) + 100);
+		usleep((rand() % 500) + 1000);
 #endif
 	}
 	return NULL;
@@ -72,7 +72,7 @@ void *read_thread(void *data)
 
 void *write_thread(void *data)
 {
-	int buffer[BLOCK_SIZE / sizeof(int)];
+	size_t buffer[BLOCK_SIZE / sizeof(size_t)];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -89,7 +89,7 @@ void *write_thread(void *data)
 		if (ret < 0) {
 			pr_err("write failed (sector: %zu)\n", sector);
 		}
-		printf("%-12s: %-16d(sector: %lu)\n", "write", buffer[0],
+		printf("%-12s: %-16zd(sector: %zu)\n", "write", buffer[0],
 		       sector);
 		assert(ret == BLOCK_SIZE);
 		sector += BLOCK_SIZE;
@@ -104,7 +104,7 @@ gint is_overwrite = 0;
 
 void *overwrite_thread(void *data)
 {
-	int buffer[BLOCK_SIZE / sizeof(int)];
+	size_t buffer[BLOCK_SIZE / sizeof(size_t)];
 	struct flash_device *flash;
 	size_t sector;
 	ssize_t ret;
@@ -124,7 +124,7 @@ void *overwrite_thread(void *data)
 		if (ret < 0) {
 			pr_err("overwrite failed (sector: %zu)\n", sector);
 		}
-		printf("%-12s: %-16d(sector: %lu)\n", "overwrite", buffer[0],
+		printf("%-12s: %-16zd(sector: %zu)\n", "overwrite", buffer[0],
 		       sector);
 		sector += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
