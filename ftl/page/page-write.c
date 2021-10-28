@@ -61,10 +61,6 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
  */
 static void page_ftl_write_end_rq(struct device_request *request)
 {
-	struct device_address paddr;
-
-	paddr = request->paddr;
-
 	free(request->data);
 	device_free_request(request);
 }
