@@ -49,7 +49,7 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 	info->nr_bus = (1 << DEVICE_NR_BUS_BITS);
 	info->nr_chips = (1 << DEVICE_NR_CHIPS_BITS);
 
-	package->nr_blocks = 512; /**< This for make 4GiB disk */
+	package->nr_blocks = 64; /**< This for make 4GiB disk */
 	block->nr_pages = (1 << DEVICE_NR_PAGES_BITS);
 	page->size = DEVICE_PAGE_SIZE;
 
