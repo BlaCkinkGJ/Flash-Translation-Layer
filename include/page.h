@@ -19,7 +19,8 @@
 #include "flash.h"
 #include "device.h"
 
-#define PAGE_FTL_CACHE_SIZE (2)
+#define PAGE_FTL_USE_CACHE
+#define PAGE_FTL_CACHE_SIZE (1000)
 #define PAGE_FTL_GC_RATIO                                                      \
 	((double)10 /                                                          \
 	 100) /**< maximum the number of segments garbage collected */
@@ -27,8 +28,7 @@
 	((double)20 /                                                          \
 	 100) /**< gc triggered when number of the free pages under threshold */
 
-enum {
-	PAGE_FTL_IOCTL_TRIM = 0,
+enum { PAGE_FTL_IOCTL_TRIM = 0,
 };
 
 /**
@@ -53,7 +53,10 @@ struct page_ftl {
 	uint64_t alloc_segnum; /**< last allocated segment number */
 	struct page_ftl_segment *segments;
 	struct device *dev;
-	pthread_spinlock_t mutex;
+#ifdef PAGE_FTL_USE_CACHE
+	struct lru_cache *cache;
+#endif
+	pthread_mutex_t mutex;
 	pthread_rwlock_t gc_rwlock;
 	pthread_rwlock_t *bus_rwlock;
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
