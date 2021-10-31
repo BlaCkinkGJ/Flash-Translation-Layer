@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -12,6 +13,7 @@
 #include "include/module.h"
 #include "include/device.h"
 
+#define USE_PER_CORE
 #define CRC32_INIT (0xffffffff)
 #define PAGE_SIZE (0x1 << 12)
 
@@ -495,11 +497,21 @@ static void *write_data(void *data)
 	gint thread_id;
 	struct flash_device *flash;
 	struct benchmark_parameter *parm;
+#ifdef USE_PER_CORE
+	uint64_t mask;
+#endif
 
 	parm = (struct benchmark_parameter *)data;
 	flash = parm->flash;
 
 	thread_id = g_atomic_int_add(&parm->thread_id_allocator, 1);
+
+#ifdef USE_PER_CORE
+	mask = (0x1 << thread_id);
+	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
+				     (cpu_set_t *)&mask);
+	g_assert(ret >= 0);
+#endif
 
 	buffer = (unsigned char *)alloc_buffer(parm->block_sz);
 	g_assert(buffer != NULL);
@@ -534,6 +546,9 @@ static void *read_data(void *data)
 	gint thread_id;
 	struct flash_device *flash;
 	struct benchmark_parameter *parm;
+#ifdef USE_PER_CORE
+	uint64_t mask;
+#endif
 
 	parm = (struct benchmark_parameter *)data;
 
@@ -542,7 +557,12 @@ static void *read_data(void *data)
 	g_assert(buffer != NULL);
 
 	thread_id = g_atomic_int_add(&parm->thread_id_allocator, 1);
-
+#ifdef USE_PER_CORE
+	mask = (0x1 << thread_id);
+	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
+				     (cpu_set_t *)&mask);
+	g_assert(ret >= 0);
+#endif
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
 		memset(buffer, 0, parm->block_sz);
 		sector = parm->sector_sequence[i];
