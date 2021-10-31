@@ -16,6 +16,7 @@ CC = gcc
 AR = ar
 CXX = g++
 TARGET = a.out
+BENCHMARK_TARGET = benchmark.out
 LIBRARY_TARGET = libftl.a
 
 GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
@@ -151,7 +152,7 @@ ifeq ($(PREFIX),)
 PREFIX := /usr/local
 endif
 
-all: $(TARGET)
+all: $(TARGET) $(BENCHMARK_TARGET)
 
 test: $(TEST_TARGET)
 
@@ -164,6 +165,10 @@ install:
 $(TARGET): main.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(LIBS)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
+
+$(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET)
+	$(CC) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
+	$(CC) $(MACROS) $(CFLAGS) -o $@ benchmark.c -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
