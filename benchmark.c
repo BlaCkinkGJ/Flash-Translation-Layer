@@ -7,18 +7,23 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
+#ifdef __cplusplus
+#define HAVE_DECL_BASENAME (1)
+#endif
 #include <libiberty/libiberty.h>
 #include <glib.h>
 #include <fcntl.h>
 #include <ctype.h>
 #include <pthread.h>
+#include <time.h>
 
 #include "include/module.h"
 #include "include/device.h"
 
 #define USE_LEGACY_RANDOM
 #ifdef USE_LEGACY_RANDOM
-#include <sys/random.h>
+#include <linux/random.h>
+#include <syscall.h>
 #endif
 
 #define USE_CRC
@@ -301,7 +306,17 @@ static void shuffling(size_t *sequence, size_t nr_blocks)
 	size_t swap_pos;
 	for (idx = 0; idx < nr_blocks; idx++) {
 		size_t temp;
+#ifdef USE_LEGACY_RANDOM
+		struct timespec tv;
+		uint64_t seed;
+		clock_gettime(CLOCK_MONOTONIC, &tv);
+
+		seed = (uint64_t)(tv.tv_sec * SEC_TO_NS) + tv.tv_nsec;
+		srand(seed);
+		swap_pos = (size_t)rand();
+#else
 		g_assert(getentropy(&swap_pos, sizeof(size_t)) == 0);
+#endif
 		swap_pos = swap_pos % nr_blocks;
 		temp = sequence[idx];
 		sequence[idx] = sequence[swap_pos];
@@ -502,7 +517,7 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 	ssize_t ret;
 	while (pos < block_sz) {
 		char *ptr = &buffer[pos];
-		ret = getrandom(ptr, block_sz, GRND_NONBLOCK);
+		ret = syscall(SYS_getrandom, ptr, block_sz, GRND_NONBLOCK);
 		g_assert(ret >= 0);
 		pos += ret;
 	}
