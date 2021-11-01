@@ -150,7 +150,7 @@ static int page_ftl_write_to_cache(struct page_ftl *pgftl,
 	struct device_request *cached;
 	cached = (struct device_request *)lru_get(pgftl->cache, lpn);
 	if (cached) {
-		__memcpy_aarch64_simd((cached->data, request->data,
+		__memcpy_aarch64_simd(cached->data, request->data,
 		       device_get_page_size(pgftl->dev));
 		free(request->data);
 		device_free_request(request);
