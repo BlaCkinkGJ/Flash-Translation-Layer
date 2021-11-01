@@ -5,7 +5,6 @@
  * @version 0.2
  * @date 2021-09-22
  */
-#include "include/device.h"
 #include <errno.h>
 
 #include <assert.h>
@@ -18,6 +17,8 @@
 #include "include/page.h"
 #include "include/log.h"
 #include "include/bits.h"
+#include "include/device.h"
+#include "include/lru.h"
 
 static int is_gc_thread_exit;
 
@@ -104,7 +105,7 @@ static void *page_ftl_gc_thread(void *data)
 			break;
 		}
 		free_pages = page_ftl_get_free_pages(pgftl);
-		if (free_pages > total_pages * PAGE_FTL_GC_THRESHOLD) {
+		if ((double)free_pages > total_pages * PAGE_FTL_GC_THRESHOLD) {
 			continue;
 		}
 		ret = page_ftl_gc_from_list(pgftl, &request);
@@ -218,6 +219,30 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 	return 0;
 }
 
+#ifdef PAGE_FTL_USE_CACHE
+static int page_ftl_lru_dealloc_fn(const uint64_t key, uintptr_t value)
+{
+	struct device_request *request;
+	struct page_ftl *pgftl;
+	struct device *dev;
+
+	int ret = 0;
+
+	(void)key;
+
+	request = (struct device_request *)value;
+	pgftl = (struct page_ftl *)request->rq_private;
+	dev = pgftl->dev;
+
+	ret = dev->d_op->write(dev, request);
+	if (ret != (ssize_t)device_get_page_size(dev)) {
+		pr_err("device write failed (ppn: %u)\n", request->paddr.lpn);
+		return ret;
+	}
+	return 0;
+}
+#endif
+
 /**
  * @brief allocate the page ftl structure's members
  *
@@ -245,15 +270,15 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 
 	assert(NULL != pgftl->dev);
 
-	err = pthread_spin_init(&pgftl->mutex, 0);
+	err = pthread_mutex_init(&pgftl->mutex, NULL);
 	if (err) {
 		pr_err("mutex initialize failed\n");
 		goto exception;
 	}
 
-	err = pthread_rwlock_init(&pgftl->gc_rwlock, NULL);
+	err = pthread_mutex_init(&pgftl->gc_mutex, NULL);
 	if (err) {
-		pr_err("gc_rwlock initialize failed\n");
+		pr_err("gc_mutex initialize failed\n");
 		goto exception;
 	}
 
@@ -320,6 +345,15 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 
 	pgftl->o_flags = flags;
 
+#ifdef PAGE_FTL_USE_CACHE
+	pgftl->cache = lru_init(PAGE_FTL_CACHE_SIZE, page_ftl_lru_dealloc_fn);
+	if (pgftl->cache == NULL) {
+		pr_err("cannot allocate cache failed\n");
+		err = -ENOMEM;
+		goto exception;
+	}
+#endif
+
 	g_atomic_int_set(&is_gc_thread_exit, 0);
 	gc_thread_status = pthread_create(&pgftl->gc_thread, NULL,
 					  page_ftl_gc_thread, (void *)pgftl);
@@ -356,14 +390,14 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 		       request);
 		return -EINVAL;
 	}
+	pthread_mutex_lock(&pgftl->gc_mutex);
 	switch (request->flag) {
 	case DEVICE_WRITE:
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_wrlock(&pgftl->rwlock);
 #endif
-		pthread_rwlock_rdlock(&pgftl->gc_rwlock);
+		pthread_mutex_unlock(&pgftl->gc_mutex);
 		ret = page_ftl_write(pgftl, request);
-		pthread_rwlock_unlock(&pgftl->gc_rwlock);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_unlock(&pgftl->rwlock);
 #endif
@@ -372,9 +406,8 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_rdlock(&pgftl->rwlock);
 #endif
-		pthread_rwlock_rdlock(&pgftl->gc_rwlock);
+		pthread_mutex_unlock(&pgftl->gc_mutex);
 		ret = page_ftl_read(pgftl, request);
-		pthread_rwlock_unlock(&pgftl->gc_rwlock);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_unlock(&pgftl->rwlock);
 #endif
@@ -383,9 +416,8 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_wrlock(&pgftl->rwlock);
 #endif
-		pthread_rwlock_wrlock(&pgftl->gc_rwlock);
 		ret = (ssize_t)page_ftl_do_gc(pgftl);
-		pthread_rwlock_unlock(&pgftl->gc_rwlock);
+		pthread_mutex_unlock(&pgftl->gc_mutex);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_unlock(&pgftl->rwlock);
 #endif
@@ -446,11 +478,18 @@ int page_ftl_close(struct page_ftl *pgftl)
 	g_atomic_int_set(&is_gc_thread_exit, 1);
 	pthread_join(pgftl->gc_thread, (void **)&status);
 
-	pthread_spin_destroy(&pgftl->mutex);
-	pthread_rwlock_destroy(&pgftl->gc_rwlock);
+	pthread_mutex_destroy(&pgftl->mutex);
+	pthread_mutex_destroy(&pgftl->gc_mutex);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 	pthread_rwlock_destroy(&pgftl->rwlock);
 #endif
+#ifdef PAGE_FTL_USE_CACHE
+	if (pgftl->cache) {
+		lru_free(pgftl->cache);
+		pgftl->cache = NULL;
+	}
+#endif
+
 	if (pgftl->segments) {
 		page_ftl_free_segments(pgftl);
 		free(pgftl->segments);
