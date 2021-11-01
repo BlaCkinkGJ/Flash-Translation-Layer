@@ -20,10 +20,11 @@
 #define SEC_TO_NS (1000000000L)
 #define NS_PER_MS (1000000L)
 
-enum { WRITE = 0,
-       READ,
-       RAND_WRITE,
-       RAND_READ,
+enum {
+	WRITE = 0,
+	READ,
+	RAND_WRITE,
+	RAND_READ,
 };
 
 static const char *module_str[] = {
@@ -111,6 +112,7 @@ int main(int argc, char **argv)
 	parm = init_parameters(argc, argv);
 	module = module_list[parm->module_idx];
 	device = device_list[parm->device_idx];
+	path = parm->device_path;
 
 	g_assert(module_init(module, &flash, device) == 0);
 	g_assert(flash->f_op->open(flash, path, O_CREAT | O_RDWR) == 0);
