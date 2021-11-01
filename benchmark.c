@@ -655,7 +655,6 @@ static void report_result(struct benchmark_parameter *parm)
 			node = node->next;
 			iops += 1;
 		}
-		g_assert(parm->total_time[idx] == total_time);
 		printf("%-4zu%-10.4lf%-10.4lf%-10zu%-10.4lf%-10.4lf%-10.4lf\n",
 		       idx, ((double)total_time / (NS_PER_MS * 1000L)),
 		       (double)(write_size) /
