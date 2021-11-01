@@ -21,15 +21,12 @@
 static void page_ftl_read_end_rq(struct device_request *read_rq)
 {
 	struct device_request *request;
-	struct device_address paddr;
 	struct page_ftl *pgftl;
 	size_t offset;
 
 	request = (struct device_request *)read_rq->rq_private;
 	pgftl = (struct page_ftl *)request->rq_private;
 	offset = page_ftl_get_page_offset(pgftl, request->sector);
-
-	paddr = read_rq->paddr;
 
 	memcpy(request->data, &((char *)read_rq->data)[offset],
 	       request->data_len);
