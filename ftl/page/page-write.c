@@ -172,9 +172,6 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 {
 	struct device *dev;
 	struct device_address paddr;
-#ifdef PAGE_FTL_USE_CACHE
-	struct device_request *cached;
-#endif
 	char *buffer;
 	ssize_t ret;
 	size_t page_size;
@@ -224,10 +221,6 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	memset(buffer, 0, page_size);
 	pthread_mutex_lock(&pgftl->mutex);
 	is_exist = pgftl->trans_map[lpn] != PADDR_EMPTY;
-#ifdef PAGE_FTL_USE_CACHE
-	cached = (struct device_request *)lru_get(pgftl->cache, lpn);
-	is_exist &= (cached == NULL);
-#endif
 	pthread_mutex_unlock(&pgftl->mutex);
 	if (is_exist) {
 		ssize_t ret;
@@ -237,11 +230,6 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 			return ret;
 		}
 	}
-#ifdef PAGE_FTL_USE_CACHE
-	if (cached) {
-		memcpy(buffer, cached->data, page_size);
-	}
-#endif
 	memcpy(&buffer[offset], request->data, write_size);
 
 	request->flag = DEVICE_WRITE;

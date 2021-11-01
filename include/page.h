@@ -20,7 +20,7 @@
 #include "device.h"
 
 // #define PAGE_FTL_USE_CACHE
-#define PAGE_FTL_CACHE_SIZE (1000)
+#define PAGE_FTL_CACHE_SIZE ((1 << 10))
 #define PAGE_FTL_GC_RATIO                                                      \
 	((double)10 /                                                          \
 	 100) /**< maximum the number of segments garbage collected */
@@ -57,7 +57,7 @@ struct page_ftl {
 	struct lru_cache *cache;
 #endif
 	pthread_mutex_t mutex;
-	pthread_rwlock_t gc_rwlock;
+	pthread_mutex_t gc_mutex;
 	pthread_rwlock_t *bus_rwlock;
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 	pthread_rwlock_t rwlock;

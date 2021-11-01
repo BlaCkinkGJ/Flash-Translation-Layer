@@ -13,9 +13,12 @@
 #include "include/module.h"
 #include "include/device.h"
 
+#define USE_CRC
 #define USE_PER_CORE
 #define CRC32_INIT (0xffffffff)
 #define PAGE_SIZE (0x1 << 12)
+#define SEC_TO_NS (1000000000L)
+#define NS_PER_MS (1000000L)
 
 enum { WRITE = 0,
        READ,
@@ -70,6 +73,7 @@ struct benchmark_parameter {
 	size_t *sector_sequence;
 	gint thread_id_allocator;
 	size_t *wp;
+	size_t *total_time;
 	GList **timer_list;
 };
 
@@ -80,7 +84,9 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv);
 static void free_parameters(struct benchmark_parameter *);
 static void print_parameters(const struct benchmark_parameter *parm);
 
+#ifdef USE_CRC
 static void fill_buffer_random(char *buffer, size_t block_sz);
+#endif
 static void *alloc_buffer(size_t block_sz);
 static void free_buffer(void *buffer);
 
@@ -98,7 +104,7 @@ int main(int argc, char **argv)
 	int module, device;
 
 	size_t idx;
-	size_t wp;
+	size_t wp, total_time;
 	void *(*pthread_func)(void *) = NULL;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -149,11 +155,19 @@ int main(int argc, char **argv)
 
 	do {
 		wp = INT32_MAX;
+		total_time = 0;
 		for (idx = 0; idx < (size_t)parm->nr_jobs; idx++) {
-			wp = wp < parm->wp[idx] ? wp : parm->wp[idx];
+			if (wp < parm->wp[idx]) {
+				continue;
+			}
+			wp = parm->wp[idx];
+			total_time = parm->total_time[idx];
 		}
-		printf("\rProcessing: %.2lf%%",
-		       ((double)wp / (parm->nr_blocks - 1)) * 100.0);
+		printf("\rProcessing: %.2lf%% [%.2lf MiB/s]",
+		       ((double)wp / (parm->nr_blocks - 1)) * 100.0,
+		       ((double)wp * parm->block_sz) /
+			       (((double)total_time / (NS_PER_MS * 1000L)) *
+				(0x1 << 20)));
 		sleep(1);
 	} while (wp < parm->nr_blocks - 1);
 	printf("\n");
@@ -412,6 +426,10 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 	g_assert(parm->wp != NULL);
 	memset(parm->wp, 0, parm->nr_jobs * sizeof(size_t));
 
+	parm->total_time = (size_t *)malloc(parm->nr_jobs * sizeof(size_t));
+	g_assert(parm->total_time != NULL);
+	memset(parm->total_time, 0, parm->nr_jobs * sizeof(size_t));
+
 	return parm;
 }
 
@@ -426,7 +444,7 @@ static void print_parameters(const struct benchmark_parameter *parm)
 	printf("\t- jobs        %d\n", parm->nr_jobs);
 	printf("\t- block size  %zu\n", parm->block_sz);
 	printf("\t- # of block  %zu\n", parm->nr_blocks);
-	printf("\t- write size  %zuMiB\n",
+	printf("\t- io size     %zuMiB\n",
 	       (parm->nr_blocks * parm->block_sz) >> 20);
 	printf("\t- path        %s\n", path);
 }
@@ -451,6 +469,9 @@ static void free_parameters(struct benchmark_parameter *parm)
 	if (parm->wp) {
 		free(parm->wp);
 	}
+	if (parm->total_time) {
+		free(parm->total_time);
+	}
 	if (parm->timer_list) {
 		int idx;
 		for (idx = 0; idx < parm->nr_jobs; idx++) {
@@ -464,6 +485,7 @@ static void free_parameters(struct benchmark_parameter *parm)
 	free(parm);
 }
 
+#ifdef USE_CRC
 static void fill_buffer_random(char *buffer, size_t block_sz)
 {
 	size_t pos = 0;
@@ -474,11 +496,13 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 		pos += 256;
 	}
 }
+#endif
 
 static void *alloc_buffer(size_t block_sz)
 {
 	char *buffer;
 	buffer = (char *)malloc(block_sz);
+	memset(buffer, 0, block_sz);
 	return (void *)buffer;
 }
 
@@ -489,7 +513,7 @@ static void free_buffer(void *buffer)
 
 static void *write_data(void *data)
 {
-	clock_t start, end;
+	struct timespec start, end;
 	gsize interval;
 	ssize_t ret;
 	size_t sector;
@@ -518,17 +542,21 @@ static void *write_data(void *data)
 
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
 		sector = parm->sector_sequence[i];
+#ifdef USE_CRC
 		fill_buffer_random((char *)buffer, parm->block_sz);
 		parm->crc32_list[sector / parm->block_sz] =
 			xcrc32(buffer, parm->block_sz, CRC32_INIT);
-		start = clock();
+#endif
+		clock_gettime(CLOCK_MONOTONIC, &start);
 		ret = flash->f_op->write(flash, buffer, parm->block_sz, sector);
-		end = clock();
-		interval = (gsize)(end - start);
-		parm->timer_list[thread_id] =
-			g_list_append(parm->timer_list[thread_id],
-				      GSIZE_TO_POINTER(interval));
+		clock_gettime(CLOCK_MONOTONIC, &end);
 		g_assert(ret == (ssize_t)parm->block_sz);
+		interval = (gsize)((end.tv_sec - start.tv_sec) * SEC_TO_NS) +
+			   (end.tv_nsec - start.tv_nsec);
+		parm->total_time[thread_id] += interval;
+		parm->timer_list[thread_id] =
+			g_list_prepend(parm->timer_list[thread_id],
+				       GSIZE_TO_POINTER(interval));
 		parm->wp[thread_id] = i;
 	}
 	free_buffer(buffer);
@@ -537,12 +565,14 @@ static void *write_data(void *data)
 
 static void *read_data(void *data)
 {
-	clock_t start, end;
+	struct timespec start, end;
 	gsize interval;
 	ssize_t ret;
 	size_t sector;
 	unsigned char *buffer;
+#ifdef USE_CRC
 	uint32_t crc32;
+#endif
 	gint thread_id;
 	struct flash_device *flash;
 	struct benchmark_parameter *parm;
@@ -564,21 +594,27 @@ static void *read_data(void *data)
 	g_assert(ret >= 0);
 #endif
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
-		memset(buffer, 0, parm->block_sz);
 		sector = parm->sector_sequence[i];
-		crc32 = xcrc32(buffer, parm->block_sz, CRC32_INIT);
-		start = clock();
+#ifdef USE_CRC
+		memset(buffer, 0, parm->block_sz);
+#endif
+		clock_gettime(CLOCK_MONOTONIC, &start);
 		ret = flash->f_op->read(flash, buffer, parm->block_sz, sector);
-		end = clock();
-		interval = (gsize)(end - start);
-		parm->timer_list[thread_id] =
-			g_list_append(parm->timer_list[thread_id],
-				      GSIZE_TO_POINTER(interval));
+		clock_gettime(CLOCK_MONOTONIC, &end);
 		g_assert(ret == (ssize_t)parm->block_sz);
+		interval = (gsize)((end.tv_sec - start.tv_sec) * SEC_TO_NS) +
+			   (end.tv_nsec - start.tv_nsec);
+		parm->total_time[thread_id] += interval;
+		parm->timer_list[thread_id] =
+			g_list_prepend(parm->timer_list[thread_id],
+				       GSIZE_TO_POINTER(interval));
 		parm->wp[thread_id] = i;
+#ifdef USE_CRC
+		crc32 = xcrc32(buffer, parm->block_sz, CRC32_INIT);
 		if (crc32 != parm->crc32_list[sector / parm->block_sz]) {
-			parm->crc32_list[sector / parm->block_sz] = false;
+			parm->crc32_is_match[sector / parm->block_sz] = false;
 		}
+#endif
 	}
 	free_buffer(buffer);
 	return NULL;
@@ -587,19 +623,21 @@ static void *read_data(void *data)
 static void report_result(struct benchmark_parameter *parm)
 {
 	GList *node;
-	clock_t total_time;
-	clock_t max_latency, min_latency;
+	size_t total_time;
+	size_t max_latency, min_latency;
 	size_t iops;
 	size_t idx = 0;
 	size_t write_size;
+#ifdef USE_CRC
 	bool is_valid;
+#endif
 
 	max_latency = 0;
 	min_latency = INT32_MAX;
 
 	write_size = parm->block_sz * parm->nr_blocks;
 	printf("[job information]\n");
-	printf("%-4s%-10s%-10s%-10s%-10s%-10s%-10s\n", "id", "time(ms)",
+	printf("%-4s%-10s%-10s%-10s%-10s%-10s%-10s\n", "id", "time(s)",
 	       "bw(MiB/s)", "iops", "avg(ms)", "max(ms)", "min(ms)");
 	printf("=====\n");
 	/* check interval */
@@ -609,29 +647,32 @@ static void report_result(struct benchmark_parameter *parm)
 		while (node != NULL) {
 			gsize interval;
 			interval = GPOINTER_TO_SIZE(node->data);
-			total_time += (clock_t)interval;
-			max_latency = max_latency > (clock_t)interval ?
-					      max_latency :
-					      (clock_t)interval;
-			min_latency = min_latency < (clock_t)interval ?
-					      min_latency :
-					      (clock_t)interval;
+			total_time += interval;
+			max_latency =
+				max_latency > interval ? max_latency : interval;
+			min_latency =
+				min_latency < interval ? min_latency : interval;
 			node = node->next;
 			iops += 1;
 		}
-		printf("%-4zu%-10ld%-10.2lf%-10zu%-10zu%-10zu%-10zu\n", idx,
-		       total_time,
-		       (double)((write_size >> 20) * CLOCKS_PER_SEC) /
-			       total_time,
-		       iops, total_time / iops, max_latency, min_latency);
+		g_assert(parm->total_time[idx] == total_time);
+		printf("%-4zu%-10.4lf%-10.4lf%-10zu%-10.4lf%-10.4lf%-10.4lf\n",
+		       idx, ((double)total_time / (NS_PER_MS * 1000L)),
+		       (double)(write_size) /
+			       (((double)total_time / (NS_PER_MS * 1000L)) *
+				(0x1 << 20)),
+		       iops, ((double)total_time / NS_PER_MS) / iops,
+		       (double)max_latency / NS_PER_MS,
+		       (double)min_latency / NS_PER_MS);
 	}
 
+#ifdef USE_CRC
 	printf("[crc status]\n");
 	/* check blocks */
 	is_valid = true;
 	if (parm->workload_idx == RAND_READ || parm->workload_idx == READ) {
 		for (idx = 0; idx < parm->nr_blocks; idx++) {
-			if (parm->crc32_is_match[idx]) {
+			if (!parm->crc32_is_match[idx]) {
 				is_valid = false;
 				break;
 			}
@@ -642,4 +683,5 @@ static void report_result(struct benchmark_parameter *parm)
 	} else {
 		printf("crc check success\n");
 	}
+#endif
 }

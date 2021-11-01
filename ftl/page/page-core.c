@@ -104,7 +104,7 @@ static void *page_ftl_gc_thread(void *data)
 			break;
 		}
 		free_pages = page_ftl_get_free_pages(pgftl);
-		if (free_pages > total_pages * PAGE_FTL_GC_THRESHOLD) {
+		if ((double)free_pages > total_pages * PAGE_FTL_GC_THRESHOLD) {
 			continue;
 		}
 		ret = page_ftl_gc_from_list(pgftl, &request);
@@ -275,9 +275,9 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 		goto exception;
 	}
 
-	err = pthread_rwlock_init(&pgftl->gc_rwlock, NULL);
+	err = pthread_mutex_init(&pgftl->gc_mutex, NULL);
 	if (err) {
-		pr_err("gc_rwlock initialize failed\n");
+		pr_err("gc_mutex initialize failed\n");
 		goto exception;
 	}
 
@@ -388,14 +388,14 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 		       request);
 		return -EINVAL;
 	}
+	pthread_mutex_lock(&pgftl->gc_mutex);
 	switch (request->flag) {
 	case DEVICE_WRITE:
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_wrlock(&pgftl->rwlock);
 #endif
-		pthread_rwlock_rdlock(&pgftl->gc_rwlock);
+		pthread_mutex_unlock(&pgftl->gc_mutex);
 		ret = page_ftl_write(pgftl, request);
-		pthread_rwlock_unlock(&pgftl->gc_rwlock);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_unlock(&pgftl->rwlock);
 #endif
@@ -404,9 +404,8 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_rdlock(&pgftl->rwlock);
 #endif
-		pthread_rwlock_rdlock(&pgftl->gc_rwlock);
+		pthread_mutex_unlock(&pgftl->gc_mutex);
 		ret = page_ftl_read(pgftl, request);
-		pthread_rwlock_unlock(&pgftl->gc_rwlock);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_unlock(&pgftl->rwlock);
 #endif
@@ -415,9 +414,8 @@ ssize_t page_ftl_submit_request(struct page_ftl *pgftl,
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_wrlock(&pgftl->rwlock);
 #endif
-		pthread_rwlock_wrlock(&pgftl->gc_rwlock);
 		ret = (ssize_t)page_ftl_do_gc(pgftl);
-		pthread_rwlock_unlock(&pgftl->gc_rwlock);
+		pthread_mutex_unlock(&pgftl->gc_mutex);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 		pthread_rwlock_unlock(&pgftl->rwlock);
 #endif
@@ -479,7 +477,7 @@ int page_ftl_close(struct page_ftl *pgftl)
 	pthread_join(pgftl->gc_thread, (void **)&status);
 
 	pthread_mutex_destroy(&pgftl->mutex);
-	pthread_rwlock_destroy(&pgftl->gc_rwlock);
+	pthread_mutex_destroy(&pgftl->gc_mutex);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 	pthread_rwlock_destroy(&pgftl->rwlock);
 #endif

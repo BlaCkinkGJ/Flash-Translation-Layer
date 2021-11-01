@@ -7,6 +7,7 @@
  */
 #include "include/page.h"
 #include "include/log.h"
+#include "include/lru.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -59,6 +60,10 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	struct device_request *read_rq;
 	struct device_address paddr;
 
+#ifdef PAGE_FTL_USE_CACHE
+	struct device_request *cached;
+#endif
+
 	char *buffer;
 
 	size_t page_size;
@@ -73,9 +78,21 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	dev = pgftl->dev;
 	page_size = device_get_page_size(dev);
 	lpn = page_ftl_get_lpn(pgftl, request->sector);
+	offset = page_ftl_get_page_offset(pgftl, request->sector);
 
 	pthread_mutex_lock(&pgftl->mutex);
 	paddr.lpn = pgftl->trans_map[lpn];
+#ifdef PAGE_FTL_USE_CACHE
+	cached = (struct device_request *)lru_get(pgftl->cache, lpn);
+	if (cached) {
+		memcpy(request->data, &((char *)cached->data)[offset],
+		       request->data_len);
+		ret = request->data_len;
+		device_free_request(request);
+		pthread_mutex_unlock(&pgftl->mutex);
+		goto exception;
+	}
+#endif
 	pthread_mutex_unlock(&pgftl->mutex);
 
 	if (paddr.lpn == PADDR_EMPTY) { /**< YOU MUST TAKE CARE OF THIS LINE */
@@ -88,8 +105,6 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	}
 
 	request->rq_private = pgftl;
-
-	offset = page_ftl_get_page_offset(pgftl, request->sector);
 
 	if (offset + request->data_len > page_size) {
 		pr_err("overflow the read data (offset: %lu, length: %zu)\n",
