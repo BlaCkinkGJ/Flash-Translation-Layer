@@ -5,6 +5,7 @@
  * @version 0.2
  * @date 2021-09-22
  */
+#include <ctime>
 #include <errno.h>
 
 #include <assert.h>
@@ -19,6 +20,7 @@
 #include "include/bits.h"
 #include "include/device.h"
 #include "include/lru.h"
+#include <time.h>
 
 static int is_gc_thread_exit;
 
@@ -88,6 +90,10 @@ static void *page_ftl_gc_thread(void *data)
 	size_t total_pages;
 	ssize_t ret;
 	struct device_request request;
+	struct timespec req;
+
+	req.tv_sec = 1;
+	req.tv_nsec = 0;
 
 	pgftl = (struct page_ftl *)data;
 	assert(NULL != pgftl);
@@ -100,7 +106,7 @@ static void *page_ftl_gc_thread(void *data)
 	ret = 0;
 	while (1) {
 		size_t free_pages;
-		usleep(100);
+		g_assert(nanosleep(&req, NULL) == 0);
 		if (g_atomic_int_get(&is_gc_thread_exit) == 1) {
 			break;
 		}
@@ -244,6 +250,59 @@ static int page_ftl_lru_dealloc_fn(const uint64_t key, uintptr_t value)
 #endif
 
 /**
+ * @brief initialize the page-ftl's each bus rwlock
+ *
+ * @param pgftl pointer of the page-ftl structure
+ *
+ * @return 0 to success, negative value to fail
+ */
+static int page_ftl_init_bus_lock(struct page_ftl *pgftl)
+{
+	struct device *dev;
+	size_t i;
+	dev = pgftl->dev;
+	pgftl->bus_rwlock = (pthread_rwlock_t *)malloc(
+		sizeof(pthread_rwlock_t) * dev->info.nr_bus);
+	if (pgftl->bus_rwlock == NULL) {
+		pr_err("rwlock allocation failed\n");
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < dev->info.nr_bus; i++) {
+		int err;
+		err = pthread_rwlock_init(&pgftl->bus_rwlock[i], NULL);
+		if (err) {
+			pr_err("rwlock initialize failed\n");
+			return -errno;
+		}
+	}
+	return 0;
+}
+
+/**
+ * @brief initialize the page-ftl's mapping table
+ *
+ * @param pgftl pointer of the page-ftl structure
+ *
+ * @return  0 to success, negative value to fail
+ */
+static int page_ftl_init_map(struct page_ftl *pgftl)
+{
+	size_t map_size;
+	map_size = page_ftl_get_map_size(pgftl);
+	pgftl->trans_map = (uint32_t *)malloc(map_size);
+	if (pgftl->trans_map == NULL) {
+		pr_err("cannot allocate the memory for mapping table\n");
+		return -ENOMEM;
+	}
+	/** initialize the mapping table */
+	for (uint32_t lpn = 0; lpn < map_size / sizeof(uint32_t); lpn++) {
+		pgftl->trans_map[lpn] = PADDR_EMPTY;
+	}
+	return 0;
+}
+
+/**
  * @brief allocate the page ftl structure's members
  *
  * @param pgftl pointer of the page ftl structure
@@ -258,8 +317,6 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 {
 	int err;
 	int gc_thread_status;
-	size_t i;
-	size_t map_size;
 	size_t nr_segments;
 
 	struct device *dev;
@@ -298,33 +355,14 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 		goto exception;
 	}
 
-	pgftl->bus_rwlock = (pthread_rwlock_t *)malloc(
-		sizeof(pthread_rwlock_t) * dev->info.nr_bus);
-	if (pgftl->bus_rwlock == NULL) {
-		pr_err("rwlock allocation failed\n");
-		err = ENOMEM;
+	err = page_ftl_init_bus_lock(pgftl);
+	if (err) {
 		goto exception;
 	}
 
-	for (i = 0; i < dev->info.nr_bus; i++) {
-		err = pthread_rwlock_init(&pgftl->bus_rwlock[i], NULL);
-		if (err) {
-			pr_err("rwlock initialize failed\n");
-			err = -errno;
-			goto exception;
-		}
-	}
-
-	map_size = page_ftl_get_map_size(pgftl);
-	pgftl->trans_map = (uint32_t *)malloc(map_size);
-	if (pgftl->trans_map == NULL) {
-		pr_err("cannot allocate the memory for mapping table\n");
-		err = -ENOMEM;
+	err = page_ftl_init_map(pgftl);
+	if (err) {
 		goto exception;
-	}
-	/** initialize the mapping table */
-	for (uint32_t lpn = 0; lpn < map_size / sizeof(uint32_t); lpn++) {
-		pgftl->trans_map[lpn] = PADDR_EMPTY;
 	}
 
 	err = page_ftl_init_segment(pgftl);
@@ -469,7 +507,6 @@ static void page_ftl_free_segments(struct page_ftl *pgftl)
 int page_ftl_close(struct page_ftl *pgftl)
 {
 	int ret = 0;
-	size_t i = 0;
 	long status = 0;
 	if (pgftl == NULL) {
 		pr_err("null page ftl structure submitted\n");
@@ -512,6 +549,7 @@ int page_ftl_close(struct page_ftl *pgftl)
 	}
 
 	if (pgftl->dev && pgftl->bus_rwlock) {
+		size_t i = 0;
 		size_t nr_bus = pgftl->dev->info.nr_bus;
 		for (i = 0; i < nr_bus; i++) {
 			pthread_rwlock_destroy(&pgftl->bus_rwlock[i]);

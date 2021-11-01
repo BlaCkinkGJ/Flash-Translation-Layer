@@ -1,4 +1,7 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -12,6 +15,11 @@
 
 #include "include/module.h"
 #include "include/device.h"
+
+#define USE_LEGACY_RANDOM
+#ifdef USE_LEGACY_RANDOM
+#include <sys/random.h>
+#endif
 
 #define USE_CRC
 #define USE_PER_CORE
@@ -489,6 +497,16 @@ static void free_parameters(struct benchmark_parameter *parm)
 #ifdef USE_CRC
 static void fill_buffer_random(char *buffer, size_t block_sz)
 {
+#ifdef USE_LEGACY_RANDOM
+	size_t pos = 0;
+	ssize_t ret;
+	while (pos < block_sz) {
+		char *ptr = &buffer[pos];
+		ret = getrandom(ptr, block_sz, GRND_NONBLOCK);
+		g_assert(ret >= 0);
+		pos += ret;
+	}
+#else
 	size_t pos = 0;
 	g_assert(block_sz % 256 == 0);
 	while (pos < block_sz) {
@@ -496,6 +514,7 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 		g_assert(getentropy(ptr, 256) == 0);
 		pos += 256;
 	}
+#endif
 }
 #endif
 
