@@ -26,6 +26,8 @@
 #include <syscall.h>
 #endif
 
+#define DO_WARM_UP (1) /**< Do not erase */
+
 #define USE_CRC
 #define USE_PER_CORE
 #define CRC32_INIT (0xffffffff)
@@ -115,6 +117,7 @@ int main(int argc, char **argv)
 	char *path = NULL;
 
 	int module, device;
+	int warm_up = DO_WARM_UP;
 
 	size_t idx;
 	size_t wp, total_time;
@@ -132,7 +135,8 @@ int main(int argc, char **argv)
 
 	/* running part */
 	print_parameters(parm);
-	if (parm->workload_idx == RAND_READ || parm->workload_idx == READ) {
+	if (warm_up || parm->workload_idx == RAND_READ ||
+	    parm->workload_idx == READ) {
 		int idx;
 		printf("fill data start!\n");
 		write_data(parm);
@@ -142,6 +146,7 @@ int main(int argc, char **argv)
 			}
 			g_list_free(parm->timer_list[idx]);
 			parm->timer_list[idx] = NULL;
+			parm->wp[idx] = 0;
 		}
 		printf("ready to read!\n");
 	}
