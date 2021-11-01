@@ -167,8 +167,8 @@ $(TARGET): main.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET)
-	$(CC) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
-	$(CC) $(MACROS) $(CFLAGS) -o $@ benchmark.c -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.c -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
