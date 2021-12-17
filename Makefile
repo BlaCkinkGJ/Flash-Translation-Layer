@@ -206,6 +206,6 @@ flow:
 
 clean:
 	find . -name '*.o'  | xargs -i rm -f {}
-	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET)
+	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	rm -rf doxygen/
 
