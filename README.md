@@ -20,7 +20,7 @@ the package manager.
 
 ```bash
 sudo apt update -y
-sudo apt install -y git make gcc g++ libglib2.0-dev
+sudo apt install -y git make gcc g++ libglib2.0-dev libiberty-dev
 ```
 
 After you download the packages you must receive this project code
