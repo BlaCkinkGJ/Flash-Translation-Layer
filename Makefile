@@ -29,6 +29,7 @@ USE_ZONE_DEVICE = 0
 USE_BLUEDBM_DEVICE = 0
 # Debug Setting
 USE_DEBUG = 0
+USE_LOG_SILENT = 0
 
 ifeq ($(USE_DEBUG), 1)
 DEBUG_FLAGS = -g -pg \
@@ -43,6 +44,10 @@ DEBUG_FLAGS =
 MACROS = -DUSE_GC_MESSAGE
 MEMORY_CHECK_LIBS =
 MEMORY_CHECK_CFLAGS = 
+endif
+
+ifeq ($(USE_LOG_SILENT), 1)
+DEBUG_FLAGS += -DENABLE_LOG_SILENT
 endif
 
 TEST_TARGET := lru-test.out \
@@ -86,7 +91,7 @@ endif
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 DEVICE_INFO += -DDEVICE_USE_ZONED \
-	       -DPAGE_FTL_USE_GLOBAL_RWLOCK
+               -DPAGE_FTL_USE_GLOBAL_RWLOCK
 endif
 
 ifeq ($(USE_BLUEDBM_DEVICE), 1)
@@ -155,6 +160,9 @@ endif
 all: $(TARGET) $(BENCHMARK_TARGET)
 
 test: $(TEST_TARGET)
+	@for target in $(TEST_TARGET) ; do \
+		./$$target ; \
+	done
 
 install:
 	install -d $(DESTDIR)$(PREFIX)/lib/

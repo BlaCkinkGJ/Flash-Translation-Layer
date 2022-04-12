@@ -19,6 +19,11 @@ extern "C" {
 #define pr_debug(...) (void)0
 #endif
 
+#ifdef ENABLE_LOG_SILENT
+#define pr_err(...) (void)0
+#define pr_warn(...) (void)0
+#define pr_info(...) (void)0
+#else
 #define pr_info(fmt, ...)                                                      \
 	fprintf(stdout, "INFO:[" __FILE__ ":%s(" TOSTRING(__LINE__) ")] " fmt, \
 		__func__, ##__VA_ARGS__)
@@ -32,6 +37,7 @@ extern "C" {
 	fprintf(stderr,                                                        \
 		"ERROR:[" __FILE__ ":%s(" TOSTRING(__LINE__) ")] " fmt,        \
 		__func__, ##__VA_ARGS__)
+#endif
 
 #ifdef __cplusplus
 }
