@@ -5,10 +5,10 @@
  * @version 0.2
  * @date 2021-10-05
  */
-#include "include/bits.h"
-#include "include/page.h"
-#include "include/device.h"
-#include "include/log.h"
+#include "bits.h"
+#include "page.h"
+#include "device.h"
+#include "log.h"
 
 #include <errno.h>
 

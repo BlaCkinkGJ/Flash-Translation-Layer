@@ -14,10 +14,10 @@
 #include <assert.h>
 #include <string.h>
 
-#include "include/bluedbm.h"
-#include "include/device.h"
-#include "include/log.h"
-#include "include/bits.h"
+#include "bluedbm.h"
+#include "device.h"
+#include "log.h"
+#include "bits.h"
 
 gint *g_badseg_counter = NULL; /**< counter for bad segemnt detection */
 gint *g_erase_counter = NULL; /**< counter for # of erase in the segment*/

@@ -9,9 +9,9 @@
 #include <string.h>
 #include <fcntl.h>
 
-#include "include/log.h"
-#include "include/page.h"
-#include "include/device.h"
+#include "log.h"
+#include "page.h"
+#include "device.h"
 
 /**
  * @brief open the page flash translation layer based device

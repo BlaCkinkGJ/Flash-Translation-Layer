@@ -5,12 +5,12 @@
  * @version 0.2
  * @date 2021-09-22
  */
-#include "include/module.h"
-#include "include/page.h"
-#include "include/device.h"
-#include "include/log.h"
-#include "include/lru.h"
-#include "include/bits.h"
+#include "module.h"
+#include "page.h"
+#include "device.h"
+#include "log.h"
+#include "lru.h"
+#include "bits.h"
 
 #include <pthread.h>
 #include <assert.h>

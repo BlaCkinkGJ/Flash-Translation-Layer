@@ -16,9 +16,9 @@
 #include <glib.h>
 #include <unistd.h>
 
-#include "include/zone.h"
-#include "include/device.h"
-#include "include/log.h"
+#include "zone.h"
+#include "device.h"
+#include "log.h"
 
 /**
  * @brief open the zoned block deivce file

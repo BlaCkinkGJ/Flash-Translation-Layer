@@ -8,9 +8,9 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#include "include/module.h"
-#include "include/flash.h"
-#include "include/log.h"
+#include "module.h"
+#include "flash.h"
+#include "log.h"
 
 /**
  * @brief initialize the flash module
