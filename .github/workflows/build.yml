@@ -1,0 +1,30 @@
+name: Flash Translation Layer CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - name: prepare environment
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y git make gcc g++ libglib2.0-dev libiberty-dev
+        sudo apt-get install -y cppcheck flawfinder
+        sudo apt-get install -y python3-pip
+        sudo pip3 install lizard
+    - name: make
+      run: make
+    - name: make check
+      run: make check
+    - name: make test
+      run: make test USE_LOG_SILENT=1
