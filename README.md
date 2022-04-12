@@ -47,10 +47,18 @@ Each module's requirements are as follows.
 
 ### Test
 
+Before you execute the test and related things, you must install the below tools.
+
+- [flawfinder](https://dwheeler.com/flawfinder/)
+- [cppcheck](https://cppcheck.sourceforge.io/)
+- [lizard](https://github.com/terryyin/lizard)
+
+You can check the source code status by using `make check`.
+
 If you want to generate test files, execute the below command.
 
 ```bash
-make clean && make -j$(nproc) test
+make clean && make -j$(nproc) test USE_LOG_SILENT=1
 ```
 
 After the build finish, you can get the various test files from the results.

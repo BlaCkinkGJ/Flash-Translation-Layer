@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #include "include/ramdisk.h"
 #include "include/device.h"
@@ -25,7 +26,7 @@ void tearDown(void)
 void test_open_and_close(void)
 {
 	TEST_ASSERT_NOT_NULL(dev->d_op);
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL, O_CREAT | O_RDWR));
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
 }
 
@@ -37,7 +38,7 @@ void test_full_write(void)
 	size_t page_size;
 	size_t total_pages;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL, O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = device_get_total_pages(dev);
 
@@ -83,7 +84,7 @@ void test_overwrite(void)
 	size_t page_size;
 	size_t total_pages;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL, O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = device_get_total_pages(dev);
 	buffer = (char *)malloc(page_size);
@@ -128,7 +129,7 @@ void test_erase(void)
 	size_t nr_pages_per_segment;
 	size_t segnum;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL, O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = device_get_total_pages(dev);
 	buffer = (char *)malloc(page_size);
@@ -205,7 +206,7 @@ void test_end_rq_works(void)
 	size_t segnum;
 	size_t nr_segments;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL, O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = device_get_total_pages(dev);
 	nr_segments = device_get_nr_segments(dev);

@@ -13,17 +13,6 @@ void tearDown(void)
 {
 }
 
-static void lru_internal_print(struct lru_cache *cache)
-{
-	struct lru_node *head = cache->head;
-	struct lru_node *it = head->next;
-	while (it != head) {
-		printf("%ld(%ld), ", it->key, it->value);
-		it = it->next;
-	}
-	printf("\n");
-}
-
 void test_lru_init(void)
 {
 	struct lru_cache *cache;
@@ -41,17 +30,11 @@ void test_lru_fill(void)
 	for (int i = 1; i <= 10; i++) {
 		TEST_ASSERT_EQUAL_INT(0, lru_put(cache, i, i * 2));
 	}
-	lru_internal_print(cache);
 	for (int i = 1; i <= 10; i++) {
 		TEST_ASSERT_EQUAL_INT(i * 2, lru_get(cache, i));
-		printf("=========================\n");
-		lru_internal_print(cache);
 	}
-	lru_internal_print(cache);
 	for (int i = 1; i <= 10; i++) {
 		TEST_ASSERT_EQUAL_INT(0, lru_put(cache, i + 10, (i + 10) * 2));
-		printf("=========================\n");
-		lru_internal_print(cache);
 	}
 	lru_free(cache);
 }
@@ -106,7 +89,6 @@ void test_lru_small_fill(void)
 		*data = i;
 		lru_put(cache, i, (uintptr_t)data);
 		test = lru_get(cache, i);
-		lru_internal_print(cache);
 		TEST_ASSERT_EQUAL_INT(i, *(int *)test);
 	}
 	TEST_ASSERT_EQUAL_INT(0, lru_free(cache));
