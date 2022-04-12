@@ -29,23 +29,23 @@ void test_bits(void)
 		set_bit(bits, i);
 		one = find_first_one_bit(bits, nr_bits, 0);
 		zero = find_first_zero_bit(bits, nr_bits, 0);
-    TEST_ASSERT_EQUAL_UINT64(0,one);
-    if (i + 1 < nr_bits) {
-      TEST_ASSERT_EQUAL_UINT64(i + 1,zero);
-    } else {
-      TEST_ASSERT_EQUAL_INT64(-1,(int64_t)zero);
-    }
+		TEST_ASSERT_EQUAL_UINT64(0, one);
+		if (i + 1 < nr_bits) {
+			TEST_ASSERT_EQUAL_UINT64(i + 1, zero);
+		} else {
+			TEST_ASSERT_EQUAL_INT64(-1, (int64_t)zero);
+		}
 	}
 	for (uint64_t i = 0; i < nr_bits; i++) {
 		reset_bit(bits, i);
 		one = find_first_one_bit(bits, nr_bits, 0);
 		zero = find_first_zero_bit(bits, nr_bits, 0);
-    if (i + 1 < nr_bits) {
-      TEST_ASSERT_EQUAL_UINT64(i + 1,one);
-    } else {
-      TEST_ASSERT_EQUAL_INT64(-1,(int64_t)one);
-    }
-    TEST_ASSERT_EQUAL_UINT64(0,zero);
+		if (i + 1 < nr_bits) {
+			TEST_ASSERT_EQUAL_UINT64(i + 1, one);
+		} else {
+			TEST_ASSERT_EQUAL_INT64(-1, (int64_t)one);
+		}
+		TEST_ASSERT_EQUAL_UINT64(0, zero);
 	}
 	free(bits);
 }

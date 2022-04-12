@@ -41,7 +41,8 @@ void test_full_write(void)
 	size_t page_size;
 	size_t total_pages;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME, O_CREAT | O_RDWR));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME,
+						 O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = WRITE_PAGE_SIZE(dev);
 
@@ -87,7 +88,8 @@ void test_overwrite(void)
 	size_t page_size;
 	size_t total_pages;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME, O_CREAT | O_RDWR));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME,
+						 O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = WRITE_PAGE_SIZE(dev);
 	buffer = (char *)malloc(page_size);
@@ -132,7 +134,8 @@ void test_erase(void)
 	size_t nr_pages_per_segment;
 	size_t segnum;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME, O_CREAT | O_RDWR));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME,
+						 O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = WRITE_PAGE_SIZE(dev);
 	buffer = (char *)malloc(page_size);
@@ -209,7 +212,8 @@ void test_end_rq_works(void)
 	size_t segnum;
 	size_t nr_segments;
 
-	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME, O_CREAT | O_RDWR));
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, ZBD_FILE_NAME,
+						 O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = WRITE_PAGE_SIZE(dev);
 	nr_segments = WRITE_PAGE_SIZE(dev) / device_get_pages_per_segment(dev);
