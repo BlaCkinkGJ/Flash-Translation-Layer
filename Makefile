@@ -192,7 +192,7 @@ endif
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
-	cppcheck --quiet --enable=all --inconclusive --std=posix -I include/ $(SRCS)
+	cppcheck --quiet --enable=all --inconclusive -I include/ $(SRCS) *.c
 	@echo "[[ FLAWFINDER ROUTINE ]]"
 	flawfinder $(SRCS) include/*.h
 	@echo "[[ STATIC ANALYSIS ROUTINE ]]"
