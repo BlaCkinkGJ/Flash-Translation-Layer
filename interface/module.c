@@ -7,10 +7,10 @@
  */
 #include <assert.h>
 
-#include "include/flash.h"
-#include "include/module.h"
-#include "include/page.h"
-#include "include/log.h"
+#include "flash.h"
+#include "module.h"
+#include "page.h"
+#include "log.h"
 
 /**
  * @brief submodule list table
@@ -19,7 +19,7 @@
  * @param int flags for flash module
  *
  * @note
- * You must follow the submodule index in the `include/module.h`
+ * You must follow the submodule index in the `module.h`
  */
 static int (*submodule_init[])(struct flash_device *, uint64_t) = {
 	/* [PAGE_FTL_MODULE] = */ page_ftl_module_init,
@@ -28,7 +28,7 @@ static int (*submodule_init[])(struct flash_device *, uint64_t) = {
 /**
  * @brief generic initializer for initialize the module
  *
- * @param modnum module number described in the `include/module.h`
+ * @param modnum module number described in the `module.h`
  * @param __flash double pointer of the flash device information
  * @param flags flags for flash and submodule
  *

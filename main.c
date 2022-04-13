@@ -14,11 +14,11 @@
 #include <fcntl.h>
 #include <glib.h>
 
-#include "include/module.h"
-#include "include/flash.h"
-#include "include/page.h"
-#include "include/log.h"
-#include "include/device.h"
+#include "module.h"
+#include "flash.h"
+#include "page.h"
+#include "log.h"
+#include "device.h"
 
 // #define USE_FORCE_ERASE
 #define USE_RANDOM_WAIT

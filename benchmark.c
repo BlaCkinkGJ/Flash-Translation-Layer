@@ -17,8 +17,8 @@
 #include <pthread.h>
 #include <time.h>
 
-#include "include/module.h"
-#include "include/device.h"
+#include "module.h"
+#include "device.h"
 
 // #define USE_LEGACY_RANDOM
 #ifdef USE_LEGACY_RANDOM

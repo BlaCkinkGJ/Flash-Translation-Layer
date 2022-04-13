@@ -10,8 +10,8 @@
 #include <errno.h>
 #include <assert.h>
 
-#include "include/log.h"
-#include "include/lru.h"
+#include "log.h"
+#include "lru.h"
 
 /**
  * @brief initialize the LRU cache data strcture

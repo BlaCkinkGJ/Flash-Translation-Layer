@@ -1,4 +1,4 @@
-#include "include/lru.h"
+#include "lru.h"
 #include "unity.h"
 
 #include <stdlib.h>
