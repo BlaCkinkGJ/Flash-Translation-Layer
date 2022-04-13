@@ -75,12 +75,35 @@ make clean && make -j$(nproc)
 
 Now, you can run that program by using `./a.out`
 
-## How to use this project
+Note that this repositories `main.c` file conducts
+the integration test of this project.
 
-You can easily use this program like below. This program writes
-the random data into 10 segments. And read from each segment written data.
-Also, do garbage collection after the number of write to the segments is
-the multiplication of 5.
+### Installation
+
+This project also supports generating the static library
+for using the external project. If you want to use it,
+please follow the below commands.
+
+```bash
+make clean
+make -j$(nproc)
+sudo make install
+```
+
+Then you must add some items to your compile commands.
+
+```makefile
+LIBS = -lpthread -lftl $(shell pkg-config --libs glib-2.0)
+CFLAGS = $(shell pkg-config --cflags glib-2.0) -I${FTL_INCLUDE_PATH}
+```
+
+Normally, `libftl.a` file's include path is existed in the
+`/usr/local/include/ftl`. Therefore, you just set the `${FTL_INCLUDE_PATH}`
+to `/usr/local/include/ftl`.
+
+## Example
+
+You can make a program like the below. This program executes simple random read/write.
 
 ```c
 #include <assert.h>
@@ -88,11 +111,11 @@ the multiplication of 5.
 #include <string.h>
 #include <fcntl.h>
 
-#include "include/module.h"
-#include "include/flash.h"
-#include "include/page.h"
-#include "include/log.h"
-#include "include/device.h"
+#include "module.h"
+#include "flash.h"
+#include "page.h"
+#include "log.h"
+#include "device.h"
 
 int main(void)
 {
