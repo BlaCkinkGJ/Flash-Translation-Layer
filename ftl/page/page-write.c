@@ -223,7 +223,6 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	is_exist = pgftl->trans_map[lpn] != PADDR_EMPTY;
 	pthread_mutex_unlock(&pgftl->mutex);
 	if (is_exist) {
-		ssize_t ret;
 		ret = page_ftl_read_for_overwrite(pgftl, lpn, buffer);
 		if (ret < 0) {
 			pr_err("read failed (lpn:%lu)\n", lpn);
