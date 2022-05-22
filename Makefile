@@ -15,7 +15,7 @@
 CC = gcc
 AR = ar
 CXX = g++
-TARGET = a.out
+INTEGRATION_TEST_TARGET = integration-test.out
 BENCHMARK_TARGET = benchmark.out
 LIBRARY_TARGET = libftl.a
 
@@ -157,12 +157,15 @@ ifeq ($(PREFIX),)
 PREFIX := /usr/local
 endif
 
-all: $(TARGET) $(BENCHMARK_TARGET)
+all: $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 
 test: $(TEST_TARGET)
 	@for target in $(TEST_TARGET) ; do \
 		./$$target ; \
 	done
+
+integration-test: $(INTEGRATION_TEST_TARGET)
+	./$(INTEGRATION_TEST_TARGET)
 
 install:
 	install -d $(DESTDIR)$(PREFIX)/lib/
@@ -170,9 +173,9 @@ install:
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
-$(TARGET): main.c $(LIBRARY_TARGET)
-	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
+$(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET)
+	$(CXX) $(MACROS) $(CXXFLAGS) -c integration-test.c $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
