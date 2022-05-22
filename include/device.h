@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "include/log.h" /**< to use the TOSTRING */
+#include "log.h" /**< to use the TOSTRING */
 
 #define PADDR_EMPTY ((uint32_t)UINT32_MAX)
 

@@ -5,9 +5,9 @@
  * @version 0.2
  * @date 2021-09-22
  */
-#include "include/page.h"
-#include "include/log.h"
-#include "include/lru.h"
+#include "page.h"
+#include "log.h"
+#include "lru.h"
 
 #include <errno.h>
 #include <stdlib.h>

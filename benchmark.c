@@ -17,8 +17,8 @@
 #include <pthread.h>
 #include <time.h>
 
-#include "include/module.h"
-#include "include/device.h"
+#include "module.h"
+#include "device.h"
 
 // #define USE_LEGACY_RANDOM
 #ifdef USE_LEGACY_RANDOM
@@ -34,11 +34,13 @@
 #define PAGE_SIZE (0x1 << 12)
 #define SEC_TO_NS (1000000000L)
 #define NS_PER_MS (1000000L)
+#define DEVICE_PATH_SIZE (PAGE_SIZE)
 
-enum { WRITE = 0,
-       READ,
-       RAND_WRITE,
-       RAND_READ,
+enum {
+	WRITE = 0,
+	READ,
+	RAND_WRITE,
+	RAND_READ,
 };
 
 static const char *module_str[] = {
@@ -77,7 +79,7 @@ struct benchmark_parameter {
 	size_t block_sz;
 	size_t nr_blocks;
 
-	char device_path[PAGE_SIZE];
+	char device_path[DEVICE_PATH_SIZE];
 
 	struct flash_device *flash;
 	pthread_t *threads;
@@ -117,10 +119,9 @@ int main(int argc, char **argv)
 	char *path = NULL;
 
 	int module, device;
-	int warm_up = DO_WARM_UP;
 
 	size_t idx;
-	size_t wp, total_time;
+	size_t wp;
 	void *(*pthread_func)(void *) = NULL;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -135,12 +136,11 @@ int main(int argc, char **argv)
 
 	/* running part */
 	print_parameters(parm);
-	if (warm_up || parm->workload_idx == RAND_READ ||
+	if (DO_WARM_UP || parm->workload_idx == RAND_READ ||
 	    parm->workload_idx == READ) {
-		int idx;
 		printf("fill data start!\n");
 		write_data(parm);
-		for (idx = 0; idx < parm->nr_jobs; idx++) {
+		for (idx = 0; idx < (size_t)parm->nr_jobs; idx++) {
 			if (!parm->timer_list[idx]) {
 				continue;
 			}
@@ -173,8 +173,8 @@ int main(int argc, char **argv)
 	}
 
 	do {
+		size_t total_time = 0;
 		wp = INT32_MAX;
-		total_time = 0;
 		for (idx = 0; idx < (size_t)parm->nr_jobs; idx++) {
 			if (wp < parm->wp[idx]) {
 				continue;
@@ -308,9 +308,9 @@ static void make_sequence(struct benchmark_parameter *parm)
 static void shuffling(size_t *sequence, size_t nr_blocks)
 {
 	size_t idx;
-	size_t swap_pos;
 	for (idx = 0; idx < nr_blocks; idx++) {
 		size_t temp;
+		size_t swap_pos;
 #ifdef USE_LEGACY_RANDOM
 		struct timespec tv;
 		uint64_t seed;
@@ -349,11 +349,10 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 
 	parm = (struct benchmark_parameter *)malloc(
 		sizeof(struct benchmark_parameter));
-	g_assert(parm != NULL);
 	memset(parm, 0, sizeof(struct benchmark_parameter));
 
 	device_path = parm->device_path;
-	memset(device_path, 0, sizeof(device_path) - 1);
+	memset(device_path, 0, DEVICE_PATH_SIZE - 1);
 	nr_jobs = g_get_num_processors();
 
 	while ((c = getopt(argc, argv, "m:d:t:j:b:n:p:h")) != -1) {
@@ -400,7 +399,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 			nr_blocks = nr_blocks * get_size_from_character(optarg);
 			break;
 		case 'p':
-			strncpy(device_path, optarg, PAGE_SIZE - 1);
+			strncpy(device_path, optarg, DEVICE_PATH_SIZE - 1);
 			break;
 		case 'h':
 			help_message(parm, argv);
@@ -519,8 +518,8 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 {
 #ifdef USE_LEGACY_RANDOM
 	size_t pos = 0;
-	ssize_t ret;
 	while (pos < block_sz) {
+		ssize_t ret;
 		char *ptr = &buffer[pos];
 		ret = syscall(SYS_getrandom, ptr, block_sz, GRND_NONBLOCK);
 		g_assert(ret >= 0);
@@ -556,7 +555,6 @@ static void *write_data(void *data)
 	struct timespec start, end;
 	gsize interval;
 	ssize_t ret;
-	size_t sector;
 	unsigned char *buffer;
 	gint thread_id;
 	struct flash_device *flash;
@@ -581,7 +579,7 @@ static void *write_data(void *data)
 	g_assert(buffer != NULL);
 
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
-		sector = parm->sector_sequence[i];
+		size_t sector = parm->sector_sequence[i];
 #ifdef USE_CRC
 		fill_buffer_random((char *)buffer, parm->block_sz);
 		parm->crc32_list[sector / parm->block_sz] =
@@ -608,11 +606,7 @@ static void *read_data(void *data)
 	struct timespec start, end;
 	gsize interval;
 	ssize_t ret;
-	size_t sector;
 	unsigned char *buffer;
-#ifdef USE_CRC
-	uint32_t crc32;
-#endif
 	gint thread_id;
 	struct flash_device *flash;
 	struct benchmark_parameter *parm;
@@ -634,7 +628,7 @@ static void *read_data(void *data)
 	g_assert(ret >= 0);
 #endif
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
-		sector = parm->sector_sequence[i];
+		size_t sector = parm->sector_sequence[i];
 #ifdef USE_CRC
 		memset(buffer, 0, parm->block_sz);
 #endif
@@ -650,9 +644,14 @@ static void *read_data(void *data)
 				       GSIZE_TO_POINTER(interval));
 		parm->wp[thread_id] = i;
 #ifdef USE_CRC
-		crc32 = xcrc32(buffer, parm->block_sz, CRC32_INIT);
-		if (crc32 != parm->crc32_list[sector / parm->block_sz]) {
-			parm->crc32_is_match[sector / parm->block_sz] = false;
+		{
+			uint32_t crc32 =
+				xcrc32(buffer, parm->block_sz, CRC32_INIT);
+			if (crc32 !=
+			    parm->crc32_list[sector / parm->block_sz]) {
+				parm->crc32_is_match[sector / parm->block_sz] =
+					false;
+			}
 		}
 #endif
 	}
@@ -663,9 +662,7 @@ static void *read_data(void *data)
 static void report_result(struct benchmark_parameter *parm)
 {
 	GList *node;
-	size_t total_time;
 	size_t max_latency, min_latency;
-	size_t iops;
 	size_t idx = 0;
 	size_t write_size;
 #ifdef USE_CRC
@@ -682,7 +679,8 @@ static void report_result(struct benchmark_parameter *parm)
 	printf("=====\n");
 	/* check interval */
 	for (idx = 0; idx < (size_t)parm->nr_jobs; idx++) {
-		iops = total_time = 0;
+		size_t total_time = 0;
+		size_t iops = 0;
 		node = parm->timer_list[idx];
 		while (node != NULL) {
 			gsize interval;

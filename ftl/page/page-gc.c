@@ -11,9 +11,9 @@
 #include <string.h>
 #include <errno.h>
 
-#include "include/page.h"
-#include "include/log.h"
-#include "include/bits.h"
+#include "page.h"
+#include "log.h"
+#include "bits.h"
 
 /**
  * @brief page ftl gc list compare function

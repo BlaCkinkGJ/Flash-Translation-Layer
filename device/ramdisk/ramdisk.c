@@ -13,11 +13,11 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "include/flash.h"
-#include "include/ramdisk.h"
-#include "include/device.h"
-#include "include/log.h"
-#include "include/bits.h"
+#include "flash.h"
+#include "ramdisk.h"
+#include "device.h"
+#include "log.h"
+#include "bits.h"
 
 /**
  * @brief open the ramdisk (allocate the device resources)

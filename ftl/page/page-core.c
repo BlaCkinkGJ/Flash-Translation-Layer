@@ -14,11 +14,11 @@
 #include <string.h>
 #include <glib.h>
 
-#include "include/page.h"
-#include "include/log.h"
-#include "include/bits.h"
-#include "include/device.h"
-#include "include/lru.h"
+#include "page.h"
+#include "log.h"
+#include "bits.h"
+#include "device.h"
+#include "lru.h"
 #include <time.h>
 
 static int is_gc_thread_exit;

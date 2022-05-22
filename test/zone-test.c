@@ -1,7 +1,7 @@
 #include <fcntl.h>
 
-#include "include/device.h"
-#include "include/zone.h"
+#include "device.h"
+#include "zone.h"
 #include "unity.h"
 
 #define ZBD_FILE_NAME "/dev/nvme0n2"

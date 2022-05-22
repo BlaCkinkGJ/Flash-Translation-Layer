@@ -121,7 +121,7 @@ CXXFLAGS := $(CFLAGS) \
 UNITY_ROOT := ./unity
 LIBS := -lm -lpthread $(GLIB_LIBS) $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
 
-INCLUDES := -I./ -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
+INCLUDES := -I./include -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
@@ -203,7 +203,7 @@ endif
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
-	cppcheck --quiet --enable=all --inconclusive --std=posix -I include/ $(SRCS)
+	cppcheck --quiet --enable=all --inconclusive -I include/ $(SRCS) *.c
 	@echo "[[ FLAWFINDER ROUTINE ]]"
 	flawfinder $(SRCS) include/*.h
 	@echo "[[ STATIC ANALYSIS ROUTINE ]]"

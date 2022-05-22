@@ -5,14 +5,14 @@
  * @version 0.2
  * @date 2021-10-01
  */
-#include "include/device.h"
-#include "include/log.h"
-#include "include/ramdisk.h"
+#include "device.h"
+#include "log.h"
+#include "ramdisk.h"
 #ifdef DEVICE_USE_BLUEDBM
-#include "include/bluedbm.h"
+#include "bluedbm.h"
 #endif
 #ifdef DEVICE_USE_ZONED
-#include "include/zone.h"
+#include "zone.h"
 #endif
 
 #include <stdlib.h>

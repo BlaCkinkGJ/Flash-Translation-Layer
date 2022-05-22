@@ -4,8 +4,8 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#include "include/ramdisk.h"
-#include "include/device.h"
+#include "ramdisk.h"
+#include "device.h"
 #include "unity.h"
 
 struct device *dev;
