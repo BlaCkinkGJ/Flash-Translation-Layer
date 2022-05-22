@@ -19,7 +19,7 @@
  *
  * @return free space's device address
  */
-struct device_address page_ftl_get_free_page(struct page_ftl *pgftl)
+struct device_address page_ftl_get_ftl_free_page(struct page_ftl *pgftl)
 {
 	struct device_address paddr;
 	struct device *dev;

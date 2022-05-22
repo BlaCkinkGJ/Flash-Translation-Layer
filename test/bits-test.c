@@ -5,8 +5,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
+
+#include "layer.h"
 
 void setUp(void)
 {
@@ -21,8 +22,8 @@ void test_bits(void)
 	const uint64_t nr_bits = 4096;
 	uint64_t *bits;
 	uint64_t zero, one;
-	bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits));
-	memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
+	bits = (uint64_t *)ftl_malloc(BITS_TO_UINT64_ALIGN(nr_bits));
+	ftl_memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
 	one = find_first_one_bit(bits, nr_bits, 0);
 	zero = find_first_zero_bit(bits, nr_bits, 0);
 	for (uint64_t i = 0; i < nr_bits; i++) {
@@ -47,7 +48,7 @@ void test_bits(void)
 		}
 		TEST_ASSERT_EQUAL_UINT64(0, zero);
 	}
-	free(bits);
+	ftl_free(bits);
 }
 
 void test_get_bits(void)
@@ -58,10 +59,10 @@ void test_get_bits(void)
 		uint64_t i;
 		char *setbit;
 		uint64_t *bits;
-		setbit = (char *)malloc(nr_bits);
-		memset(setbit, 0, nr_bits);
-		bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits));
-		memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
+		setbit = (char *)ftl_malloc(nr_bits);
+		ftl_memset(setbit, 0, nr_bits);
+		bits = (uint64_t *)ftl_malloc(BITS_TO_UINT64_ALIGN(nr_bits));
+		ftl_memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
 		srand(time(NULL) + (counter * rand()) % INT_MAX);
 		for (i = 0; i < nr_bits; i++) {
 			setbit[i] = (rand() % 2);
@@ -76,8 +77,8 @@ void test_get_bits(void)
 			int bit = get_bit(bits, i);
 			TEST_ASSERT_EQUAL_INT(setbit[i], bit);
 		}
-		free(bits);
-		free(setbit);
+		ftl_free(bits);
+		ftl_free(setbit);
 		counter -= 1;
 	}
 }

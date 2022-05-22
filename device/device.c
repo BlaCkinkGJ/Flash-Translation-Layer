@@ -5,7 +5,13 @@
  * @version 0.2
  * @date 2021-10-01
  */
+#include <assert.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <errno.h>
+
 #include "device.h"
+#include "layer.h"
 #include "log.h"
 #include "ramdisk.h"
 #ifdef DEVICE_USE_BLUEDBM
@@ -14,12 +20,6 @@
 #ifdef DEVICE_USE_ZONED
 #include "zone.h"
 #endif
-
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include <pthread.h>
 
 /**
  * @brief initialize the submodule
@@ -54,13 +54,13 @@ struct device_request *device_alloc_request(uint64_t flags)
 	int ret = 0;
 	(void)flags;
 
-	request =
-		(struct device_request *)malloc(sizeof(struct device_request));
+	request = (struct device_request *)ftl_malloc(
+		sizeof(struct device_request));
 	if (request == NULL) {
 		pr_err("request allocation failed\n");
 		return NULL;
 	}
-	memset(request, 0, sizeof(struct device_request));
+	ftl_memset(request, 0, sizeof(struct device_request));
 	ret = pthread_mutex_init(&request->mutex, NULL);
 	if (ret) {
 		pr_err("pthread mutex initialize failed\n");
@@ -89,7 +89,7 @@ void device_free_request(struct device_request *request)
 {
 	pthread_cond_destroy(&request->cond);
 	pthread_mutex_destroy(&request->mutex);
-	free(request);
+	ftl_free(request);
 }
 
 /**
@@ -106,13 +106,13 @@ int device_module_init(const uint64_t modnum, struct device **__dev,
 {
 	int ret;
 	struct device *dev;
-	dev = (struct device *)malloc(sizeof(struct device));
+	dev = (struct device *)ftl_malloc(sizeof(struct device));
 	if (dev == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(dev, 0, sizeof(struct device));
+	ftl_memset(dev, 0, sizeof(struct device));
 	pthread_mutex_init(&dev->mutex, NULL);
 	(void)flags;
 	ret = submodule_init[modnum](dev, flags);
@@ -146,6 +146,6 @@ int device_module_exit(struct device *dev)
 		dev->d_submodule_exit = NULL;
 	}
 	pthread_mutex_destroy(&dev->mutex);
-	free(dev);
+	ftl_free(dev);
 	return ret;
 }

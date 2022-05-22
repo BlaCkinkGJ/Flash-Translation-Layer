@@ -10,12 +10,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>
-#include <string.h>
 #include <unistd.h>
 
 #include "flash.h"
 #include "ramdisk.h"
 #include "device.h"
+#include "layer.h"
 #include "log.h"
 #include "bits.h"
 
@@ -58,35 +58,35 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 	ramdisk->o_flags = flags;
 
 	pr_info("ramdisk generated (size: %zu bytes)\n", ramdisk->size);
-	buffer = (char *)malloc(ramdisk->size);
+	buffer = (char *)ftl_malloc(ramdisk->size);
 	if (buffer == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(buffer, 0, ramdisk->size);
+	ftl_memset(buffer, 0, ramdisk->size);
 	ramdisk->buffer = buffer;
 
 	bitmap_size = BITS_TO_UINT64_ALIGN(ramdisk->size / page->size);
-	is_used = (uint64_t *)malloc(bitmap_size);
+	is_used = (uint64_t *)ftl_malloc(bitmap_size);
 	if (is_used == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
 	pr_info("bitmap generated (size: %zu bytes)\n", bitmap_size);
-	memset(is_used, 0, bitmap_size);
+	ftl_memset(is_used, 0, bitmap_size);
 	ramdisk->is_used = is_used;
 
 	nr_segments = device_get_nr_segments(dev);
 	dev->badseg_bitmap =
-		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
+		(uint64_t *)ftl_malloc(BITS_TO_UINT64_ALIGN(nr_segments));
 	if (dev->badseg_bitmap == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+	ftl_memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
 	for (uint64_t i = 0; i < 10; i++) {
 		set_bit(dev->badseg_bitmap, i);
 	}
@@ -145,8 +145,8 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 	set_bit(ramdisk->is_used, addr.lpn);
-	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
-	       request->data_len);
+	ftl_memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
+		   request->data_len);
 	ret = request->data_len;
 	if (request->end_rq) {
 		request->end_rq(request);
@@ -199,8 +199,8 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 
-	memcpy(request->data, &ramdisk->buffer[addr.lpn * page_size],
-	       request->data_len);
+	ftl_memcpy(request->data, &ramdisk->buffer[addr.lpn * page_size],
+		   request->data_len);
 	ret = request->data_len;
 	pr_debug("request->end_rq %p %p\n", request->end_rq,
 		 &((struct device_request *)request->rq_private)->mutex);
@@ -244,7 +244,7 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 	addr.lpn = 0;
 	addr.format.block = segnum;
 	for (lpn = addr.lpn; lpn < addr.lpn + nr_pages_per_segment; lpn++) {
-		memset(&ramdisk->buffer[lpn * page_size], 0, page_size);
+		ftl_memset(&ramdisk->buffer[lpn * page_size], 0, page_size);
 		reset_bit(ramdisk->is_used, lpn);
 	}
 
@@ -266,7 +266,7 @@ int ramdisk_close(struct device *dev)
 {
 	struct ramdisk *ramdisk;
 	if (dev->badseg_bitmap != NULL) {
-		free(dev->badseg_bitmap);
+		ftl_free(dev->badseg_bitmap);
 		dev->badseg_bitmap = NULL;
 	}
 	ramdisk = (struct ramdisk *)dev->d_private;
@@ -274,11 +274,11 @@ int ramdisk_close(struct device *dev)
 		return 0;
 	}
 	if (ramdisk->buffer != NULL) {
-		free(ramdisk->buffer);
+		ftl_free(ramdisk->buffer);
 		ramdisk->buffer = NULL;
 	}
 	if (ramdisk->is_used != NULL) {
-		free(ramdisk->is_used);
+		ftl_free(ramdisk->is_used);
 		ramdisk->is_used = NULL;
 	}
 	ramdisk->size = 0;
@@ -310,7 +310,7 @@ int ramdisk_device_init(struct device *dev, uint64_t flags)
 	struct ramdisk *ramdisk;
 
 	(void)flags;
-	ramdisk = (struct ramdisk *)malloc(sizeof(struct ramdisk));
+	ramdisk = (struct ramdisk *)ftl_malloc(sizeof(struct ramdisk));
 	if (ramdisk == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
@@ -340,7 +340,7 @@ int ramdisk_device_exit(struct device *dev)
 	ramdisk = (struct ramdisk *)dev->d_private;
 	if (ramdisk != NULL) {
 		ramdisk_close(dev);
-		free(ramdisk);
+		ftl_free(ramdisk);
 		dev->d_private = NULL;
 	}
 	return 0;

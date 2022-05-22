@@ -28,7 +28,8 @@
 	((double)20 /                                                          \
 	 100) /**< gc triggered when number of the free pages under threshold */
 
-enum { PAGE_FTL_IOCTL_TRIM = 0,
+enum {
+	PAGE_FTL_IOCTL_TRIM = 0,
 };
 
 /**
@@ -81,7 +82,7 @@ int page_ftl_module_init(struct flash_device *, uint64_t flags);
 int page_ftl_module_exit(struct flash_device *);
 
 /* page-map.c */
-struct device_address page_ftl_get_free_page(struct page_ftl *);
+struct device_address page_ftl_get_ftl_free_page(struct page_ftl *);
 int page_ftl_update_map(struct page_ftl *, size_t sector, uint32_t ppn);
 
 /* page-core.c */

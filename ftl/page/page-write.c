@@ -5,20 +5,19 @@
  * @version 0.2
  * @date 2021-09-22
  */
-#include "module.h"
-#include "page.h"
-#include "device.h"
-#include "log.h"
-#include "lru.h"
-#include "bits.h"
-
 #include <pthread.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <string.h>
-
 #include <glib.h>
+
+#include "module.h"
+#include "page.h"
+#include "device.h"
+#include "layer.h"
+#include "log.h"
+#include "lru.h"
+#include "bits.h"
 
 /**
  * @brief invalidate a segment that including to the given LPN
@@ -61,7 +60,7 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
  */
 static void page_ftl_write_end_rq(struct device_request *request)
 {
-	free(request->data);
+	ftl_free(request->data);
 	device_free_request(request);
 }
 
@@ -137,7 +136,7 @@ static void page_ftl_write_update_metadata(struct page_ftl *pgftl,
 
 	pr_debug("new address: %lu => %u (seg: %u)\n", lpn,
 		 pgftl->trans_map[lpn], pgftl->trans_map[lpn] >> 13);
-	pr_debug("%u/%u(free/valid)\n",
+	pr_debug("%u/%u(ftl_free/valid)\n",
 		 g_atomic_int_get(&segment->nr_free_pages),
 		 g_atomic_int_get(&segment->nr_valid_pages));
 }
@@ -149,9 +148,9 @@ static int page_ftl_write_to_cache(struct page_ftl *pgftl,
 	struct device_request *cached;
 	cached = (struct device_request *)lru_get(pgftl->cache, lpn);
 	if (cached) {
-		memcpy(cached->data, request->data,
-		       device_get_page_size(pgftl->dev));
-		free(request->data);
+		ftl_memcpy(cached->data, request->data,
+			   device_get_page_size(pgftl->dev));
+		ftl_free(request->data);
 		device_free_request(request);
 	} else {
 		return lru_put(pgftl->cache, lpn, (uintptr_t)request);
@@ -206,19 +205,19 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	}
 
 	pthread_mutex_lock(&pgftl->mutex);
-	paddr = page_ftl_get_free_page(pgftl); /**< global data retrieve */
+	paddr = page_ftl_get_ftl_free_page(pgftl); /**< global data retrieve */
 	pthread_mutex_unlock(&pgftl->mutex);
 	if (paddr.lpn == PADDR_EMPTY) {
 		pr_err("cannot allocate the valid page from device\n");
 		return -EFAULT;
 	}
 
-	buffer = (char *)malloc(page_size);
+	buffer = (char *)ftl_malloc(page_size);
 	if (buffer == NULL) {
 		pr_err("memory allocation failed\n");
 		return -ENOMEM;
 	}
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 	pthread_mutex_lock(&pgftl->mutex);
 	is_exist = pgftl->trans_map[lpn] != PADDR_EMPTY;
 	pthread_mutex_unlock(&pgftl->mutex);
@@ -229,7 +228,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 			return ret;
 		}
 	}
-	memcpy(&buffer[offset], request->data, write_size);
+	ftl_memcpy(&buffer[offset], request->data, write_size);
 
 	request->flag = DEVICE_WRITE;
 	request->data = buffer;

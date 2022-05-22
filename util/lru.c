@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <assert.h>
 
+#include "layer.h"
 #include "log.h"
 #include "lru.h"
 
@@ -29,7 +30,7 @@ struct lru_cache *lru_init(const size_t capacity, lru_dealloc_fn deallocate)
 		goto exception;
 	}
 
-	cache = (struct lru_cache *)malloc(sizeof(struct lru_cache));
+	cache = (struct lru_cache *)ftl_malloc(sizeof(struct lru_cache));
 	if (cache == NULL) {
 		pr_err("memory allocation failed\n");
 		goto exception;
@@ -62,7 +63,7 @@ exception:
 static struct lru_node *lru_alloc_node(const uint64_t key, uintptr_t value)
 {
 	struct lru_node *node;
-	node = (struct lru_node *)malloc(sizeof(struct lru_node));
+	node = (struct lru_node *)ftl_malloc(sizeof(struct lru_node));
 	if (node == NULL) {
 		pr_err("node allocation failed\n");
 		return NULL;
@@ -84,7 +85,7 @@ static void lru_dealloc_node(struct lru_node *node)
 	pr_debug("deallcate the node (key: %ld, value: %ld)\n", node->key,
 		 node->value); /**< Not recommend to print this line */
 #endif
-	free(node);
+	ftl_free(node);
 }
 
 /**
@@ -279,9 +280,9 @@ int lru_free(struct lru_cache *cache)
 				return ret;
 			}
 		}
-		free(node);
+		ftl_free(node);
 		node = next;
 	}
-	free(cache);
+	ftl_free(cache);
 	return ret;
 }

@@ -6,9 +6,9 @@
  * @date 2021-09-22
  */
 #include <errno.h>
-#include <string.h>
 #include <fcntl.h>
 
+#include "layer.h"
 #include "log.h"
 #include "page.h"
 #include "device.h"
@@ -188,7 +188,7 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 	}
 
 	page_size = device_get_page_size(pgftl->dev);
-	temp = (char *)malloc(page_size);
+	temp = (char *)ftl_malloc(page_size);
 	if (temp == NULL) {
 		pr_err("memory allocation failed\n");
 		size = -ENOMEM;
@@ -228,18 +228,18 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 			size = -EINVAL;
 			goto exception;
 		}
-		memcpy(ptr, temp, read_size);
+		ftl_memcpy(ptr, temp, read_size);
 		offset += read_size;
 		count -= read_size;
 		ptr += read_size;
 		size += read_size;
 	}
-	free(temp);
+	ftl_free(temp);
 	return size;
 
 exception:
 	if (temp) {
-		free(temp);
+		ftl_free(temp);
 	}
 	if (request) {
 		device_free_request(request);
@@ -343,13 +343,13 @@ int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 
 	flash->f_op = &__page_fops;
 
-	pgftl = (struct page_ftl *)malloc(sizeof(struct page_ftl));
+	pgftl = (struct page_ftl *)ftl_malloc(sizeof(struct page_ftl));
 	if (pgftl == NULL) {
 		err = errno;
 		pr_err("fail to allocate the page FTL information pointer\n");
 		goto exception;
 	}
-	memset(pgftl, 0, sizeof(*pgftl));
+	ftl_memset(pgftl, 0, sizeof(*pgftl));
 
 	err = device_module_init(modnum, &pgftl->dev, 0);
 	if (err) {
@@ -393,7 +393,7 @@ int page_ftl_module_exit(struct flash_device *flash)
 	}
 	dev = pgftl->dev;
 	page_ftl_close(pgftl);
-	free(pgftl);
+	ftl_free(pgftl);
 
 	if (dev == NULL) {
 		pr_info("device module doesn't exist\n");

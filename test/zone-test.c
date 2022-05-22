@@ -46,13 +46,13 @@ void test_full_write(void)
 	page_size = device_get_page_size(dev);
 	total_pages = WRITE_PAGE_SIZE(dev);
 
-	buffer = (char *)malloc(page_size);
+	buffer = (char *)ftl_malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 
 	/**< note that all I/O functions run synchronously */
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		ftl_memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -63,7 +63,7 @@ void test_full_write(void)
 				      dev->d_op->write(dev, &request));
 	}
 
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
 		request.paddr = addr;
 		request.data_len = page_size;
@@ -77,7 +77,7 @@ void test_full_write(void)
 	}
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
-	free(buffer);
+	ftl_free(buffer);
 }
 
 void test_overwrite(void)
@@ -92,13 +92,13 @@ void test_overwrite(void)
 						 O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = WRITE_PAGE_SIZE(dev);
-	buffer = (char *)malloc(page_size);
+	buffer = (char *)ftl_malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 
 	/**< note that all I/O functions run synchronously */
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		ftl_memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -120,7 +120,7 @@ void test_overwrite(void)
 	}
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
-	free(buffer);
+	ftl_free(buffer);
 }
 
 void test_erase(void)
@@ -138,13 +138,13 @@ void test_erase(void)
 						 O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = WRITE_PAGE_SIZE(dev);
-	buffer = (char *)malloc(page_size);
+	buffer = (char *)ftl_malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 
 	/**< note that all I/O functions run synchronously */
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		ftl_memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -168,7 +168,7 @@ void test_erase(void)
 	nr_pages_per_segment = device_get_pages_per_segment(dev);
 	for (addr.lpn = 0; addr.lpn < total_pages - nr_pages_per_segment;
 	     addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		ftl_memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -180,7 +180,7 @@ void test_erase(void)
 	}
 
 	for (; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		ftl_memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = NULL;
@@ -191,7 +191,7 @@ void test_erase(void)
 	}
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
-	free(buffer);
+	ftl_free(buffer);
 }
 
 static void end_rq(struct device_request *request)
@@ -218,17 +218,17 @@ void test_end_rq_works(void)
 	total_pages = WRITE_PAGE_SIZE(dev);
 	nr_segments = WRITE_PAGE_SIZE(dev) / device_get_pages_per_segment(dev);
 
-	buffer = (char *)malloc(page_size);
+	buffer = (char *)ftl_malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 
-	is_check = (uint8_t *)malloc(total_pages);
+	is_check = (uint8_t *)ftl_malloc(total_pages);
 	TEST_ASSERT_NOT_NULL(is_check);
-	memset(is_check, 0, total_pages);
+	ftl_memset(is_check, 0, total_pages);
 
 	/**< note that all I/O functions run synchronously */
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
-		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+		ftl_memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
 		request.data_len = page_size;
 		request.end_rq = end_rq;
@@ -244,7 +244,7 @@ void test_end_rq_works(void)
 		TEST_ASSERT_EQUAL_INT(1, is_check[addr.lpn]);
 	}
 
-	memset(is_check, 0, total_pages);
+	ftl_memset(is_check, 0, total_pages);
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
 		request.paddr = addr;
 		request.data_len = page_size;
@@ -261,7 +261,7 @@ void test_end_rq_works(void)
 		TEST_ASSERT_EQUAL_INT(1, is_check[addr.lpn]);
 	}
 
-	memset(is_check, 0, total_pages);
+	ftl_memset(is_check, 0, total_pages);
 	for (segnum = 0; segnum < nr_segments; segnum++) {
 		addr.lpn = 0;
 		addr.format.block = segnum;
@@ -278,8 +278,8 @@ void test_end_rq_works(void)
 	}
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
-	free(buffer);
-	free(is_check);
+	ftl_free(buffer);
+	ftl_free(is_check);
 }
 
 int main(void)

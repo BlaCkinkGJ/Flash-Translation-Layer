@@ -10,6 +10,7 @@
 
 #include "module.h"
 #include "flash.h"
+#include "layer.h"
 #include "log.h"
 
 /**
@@ -30,7 +31,7 @@ int flash_module_init(struct flash_device **__flash, uint64_t flags)
 
 	(void)flags;
 
-	flash = (struct flash_device *)malloc(sizeof(struct flash_device));
+	flash = (struct flash_device *)ftl_malloc(sizeof(struct flash_device));
 	if (flash == NULL) {
 		err = -errno;
 		pr_err("fail to allocate the flash information pointer\n");
@@ -63,6 +64,6 @@ int flash_module_exit(struct flash_device *flash)
 		return 0;
 	}
 
-	free(flash);
+	ftl_free(flash);
 	return 0;
 }

@@ -12,10 +12,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <assert.h>
-#include <string.h>
 
 #include "bluedbm.h"
 #include "device.h"
+#include "layer.h"
 #include "log.h"
 #include "bits.h"
 
@@ -168,29 +168,29 @@ int bluedbm_open(struct device *dev, const char *name, int flags)
 	bdbm->mio = mio;
 
 	dev->badseg_bitmap =
-		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
+		(uint64_t *)ftl_malloc(BITS_TO_UINT64_ALIGN(nr_segments));
 	if (dev->badseg_bitmap == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+	ftl_memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
 
-	g_erase_counter = (gint *)malloc(nr_segments * sizeof(gint));
+	g_erase_counter = (gint *)ftl_malloc(nr_segments * sizeof(gint));
 	if (g_erase_counter == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(g_erase_counter, 0, nr_segments * sizeof(gint));
+	ftl_memset(g_erase_counter, 0, nr_segments * sizeof(gint));
 
-	g_badseg_counter = (gint *)malloc(nr_segments * sizeof(gint));
+	g_badseg_counter = (gint *)ftl_malloc(nr_segments * sizeof(gint));
 	if (g_badseg_counter == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(g_badseg_counter, 0, nr_segments * sizeof(gint));
+	ftl_memset(g_badseg_counter, 0, nr_segments * sizeof(gint));
 
 	if (bdbm->o_flags & O_CREAT) {
 		bluedbm_clear(dev);
@@ -222,7 +222,7 @@ static void bluedbm_end_rw_request(async_bdbm_req *rw_req)
 	dma = (bluedbm_dma_t *)rw_req->private_data;
 	if (dma == NULL) {
 		pr_warn("NULL request detected (rw_req: %p)\n", rw_req);
-		free(rw_req);
+		ftl_free(rw_req);
 		return;
 	}
 	user_rq = (struct device_request *)dma->d_private;
@@ -233,7 +233,7 @@ static void bluedbm_end_rw_request(async_bdbm_req *rw_req)
 		memio_free_dma(DMA_WRITE_BUF, dma->tag);
 		break;
 	case REQTYPE_IO_READ:
-		memcpy(user_rq->data, dma->data, user_rq->data_len);
+		ftl_memcpy(user_rq->data, dma->data, user_rq->data_len);
 		memio_free_dma(DMA_READ_BUF, dma->tag);
 		break;
 	default:
@@ -241,8 +241,8 @@ static void bluedbm_end_rw_request(async_bdbm_req *rw_req)
 			rw_req->type);
 		break;
 	}
-	free(dma);
-	free(rw_req);
+	ftl_free(dma);
+	ftl_free(rw_req);
 
 	if (user_rq && user_rq->end_rq) {
 		user_rq->end_rq(user_rq);
@@ -308,7 +308,7 @@ ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 
 	lpn = request->paddr.lpn;
 
-	dma = (bluedbm_dma_t *)malloc(sizeof(bluedbm_dma_t));
+	dma = (bluedbm_dma_t *)ftl_malloc(sizeof(bluedbm_dma_t));
 	if (dma == NULL) {
 		pr_err("dma cannot be allocated\n");
 		ret = -errno;
@@ -316,9 +316,9 @@ ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 	}
 	dma->tag = memio_alloc_dma(DMA_WRITE_BUF, &dma->data);
 	dma->d_private = (void *)request;
-	memcpy(dma->data, request->data, page_size);
+	ftl_memcpy(dma->data, request->data, page_size);
 
-	write_rq = (async_bdbm_req *)malloc(sizeof(async_bdbm_req));
+	write_rq = (async_bdbm_req *)ftl_malloc(sizeof(async_bdbm_req));
 	if (write_rq == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
@@ -333,10 +333,10 @@ ssize_t bluedbm_write(struct device *dev, struct device_request *request)
 	return ret;
 exception:
 	if (write_rq) {
-		free(write_rq);
+		ftl_free(write_rq);
 	}
 	if (dma) {
-		free(dma);
+		ftl_free(dma);
 	}
 	return ret;
 }
@@ -398,7 +398,7 @@ ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 
 	lpn = request->paddr.lpn;
 
-	dma = (bluedbm_dma_t *)malloc(sizeof(bluedbm_dma_t));
+	dma = (bluedbm_dma_t *)ftl_malloc(sizeof(bluedbm_dma_t));
 	if (dma == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
@@ -407,7 +407,7 @@ ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 	dma->tag = memio_alloc_dma(DMA_READ_BUF, &dma->data);
 	dma->d_private = (void *)request;
 
-	read_rq = (async_bdbm_req *)malloc(sizeof(async_bdbm_req));
+	read_rq = (async_bdbm_req *)ftl_malloc(sizeof(async_bdbm_req));
 	if (read_rq == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
@@ -422,10 +422,10 @@ ssize_t bluedbm_read(struct device *dev, struct device_request *request)
 	return ret;
 exception:
 	if (read_rq) {
-		free(read_rq);
+		ftl_free(read_rq);
 	}
 	if (dma) {
-		free(dma);
+		ftl_free(dma);
 	}
 	return ret;
 }
@@ -510,17 +510,17 @@ int bluedbm_close(struct device *dev)
 	}
 
 	if (dev->badseg_bitmap) {
-		free(dev->badseg_bitmap);
+		ftl_free(dev->badseg_bitmap);
 		dev->badseg_bitmap = NULL;
 	}
 
 	if (g_erase_counter) {
-		free(g_erase_counter);
+		ftl_free(g_erase_counter);
 		g_erase_counter = NULL;
 	}
 
 	if (g_badseg_counter) {
-		free(g_badseg_counter);
+		ftl_free(g_badseg_counter);
 		g_badseg_counter = NULL;
 	}
 
@@ -552,13 +552,13 @@ int bluedbm_device_init(struct device *dev, uint64_t flags)
 	struct bluedbm *bdbm;
 
 	(void)flags;
-	bdbm = (struct bluedbm *)malloc(sizeof(struct bluedbm));
+	bdbm = (struct bluedbm *)ftl_malloc(sizeof(struct bluedbm));
 	if (bdbm == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(bdbm, 0, sizeof(struct bluedbm));
+	ftl_memset(bdbm, 0, sizeof(struct bluedbm));
 	dev->d_op = &__bluedbm_dops;
 	dev->d_private = (void *)bdbm;
 	dev->d_submodule_exit = bluedbm_device_exit;
@@ -581,7 +581,7 @@ int bluedbm_device_exit(struct device *dev)
 	bdbm = (struct bluedbm *)dev->d_private;
 	if (bdbm) {
 		bluedbm_close(dev);
-		free(bdbm);
+		ftl_free(bdbm);
 		dev->d_private = NULL;
 	}
 	return 0;

@@ -204,7 +204,7 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 		buffer = NULL;
 		goto exit;
 	}
-	memcpy(buffer, request->data, request->data_len);
+	ftl_memcpy(buffer, request->data, request->data_len);
 	zone_num = zone_get_zone_number(dev, request->paddr);
 	if (zone_num >= meta->nr_zones) {
 		pr_err("invalid address value detected (lpn: %u)\n",
@@ -245,7 +245,7 @@ ssize_t zone_write(struct device *dev, struct device_request *request)
 	}
 exit:
 	if (buffer) {
-		free(buffer);
+		ftl_free(buffer);
 	}
 	return ret;
 }
@@ -307,17 +307,17 @@ ssize_t zone_read(struct device *dev, struct device_request *request)
 		buffer = NULL;
 		goto exit;
 	}
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 	ret = zone_do_rw(meta->read.fd, request->flag, buffer,
 			 request->data_len,
 			 (off_t)request->paddr.lpn * page_size);
-	memcpy(request->data, buffer, page_size);
+	ftl_memcpy(request->data, buffer, page_size);
 	if (request && request->end_rq) {
 		request->end_rq(request);
 	}
 exit:
 	if (buffer) {
-		free(buffer);
+		ftl_free(buffer);
 	}
 	return ret;
 }
@@ -384,7 +384,7 @@ int zone_close(struct device *dev)
 		meta->write.fd = -1;
 	}
 	if (meta->zones) {
-		free(meta->zones);
+		ftl_free(meta->zones);
 		meta->zones = NULL;
 	}
 	return 0;
@@ -416,13 +416,13 @@ int zone_device_init(struct device *dev, uint64_t flags)
 
 	(void)flags;
 
-	meta = (struct zone_meta *)malloc(sizeof(struct zone_meta));
+	meta = (struct zone_meta *)ftl_malloc(sizeof(struct zone_meta));
 	if (meta == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(meta, 0, sizeof(struct zone_meta));
+	ftl_memset(meta, 0, sizeof(struct zone_meta));
 	meta->read.fd = -1;
 	meta->write.fd = -1;
 
@@ -449,7 +449,7 @@ int zone_device_exit(struct device *dev)
 	meta = (struct zone_meta *)dev->d_private;
 	if (meta != NULL) {
 		zone_close(dev);
-		free(meta);
+		ftl_free(meta);
 		dev->d_private = NULL;
 	}
 	return 0;

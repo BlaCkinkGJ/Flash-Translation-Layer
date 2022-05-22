@@ -44,7 +44,7 @@ static int dealloc_data(const uint64_t key, uintptr_t value)
 	int *data = (int *)value;
 	(void)key;
 	TEST_ASSERT_NOT_NULL(data);
-	free(data);
+	ftl_free(data);
 	return 0;
 }
 
@@ -58,7 +58,7 @@ void test_lru_big_fill(void)
 	cache = lru_init(cache_size, dealloc_data);
 	for (int i = 0; i < total_size; i++) {
 		int *data;
-		data = (int *)malloc(sizeof(int));
+		data = (int *)ftl_malloc(sizeof(int));
 		*data = i;
 		lru_put(cache, i, (uintptr_t)data);
 	}
@@ -85,7 +85,7 @@ void test_lru_small_fill(void)
 	for (int i = 0; i < total_size; i++) {
 		int *data;
 		uintptr_t test;
-		data = (int *)malloc(sizeof(int));
+		data = (int *)ftl_malloc(sizeof(int));
 		*data = i;
 		lru_put(cache, i, (uintptr_t)data);
 		test = lru_get(cache, i);

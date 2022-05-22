@@ -9,7 +9,6 @@
 #include <climits>
 #include <stdio.h>
 #include <unistd.h>
-#include <string.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <glib.h>
@@ -17,6 +16,7 @@
 #include "module.h"
 #include "flash.h"
 #include "page.h"
+#include "layer.h"
 #include "log.h"
 #include "device.h"
 
@@ -49,7 +49,7 @@ void *read_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		ssize_t ret;
 		srand((time(NULL) * sector) % UINT_MAX);
-		memset(buffer, 0, sizeof(buffer));
+		ftl_memset(buffer, 0, sizeof(buffer));
 		ret = flash->f_op->read(flash, (void *)buffer, BLOCK_SIZE,
 					sector);
 		if (ret < 0 || (sector > 0 && buffer[0] == 0)) {
@@ -82,7 +82,7 @@ void *write_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		ssize_t ret;
 		srand((time(NULL) * sector + 1) % UINT_MAX);
-		memset(buffer, 0, sizeof(buffer));
+		ftl_memset(buffer, 0, sizeof(buffer));
 		buffer[0] = (ssize_t)sector;
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
 					 sector);
@@ -117,7 +117,7 @@ void *overwrite_thread(void *data)
 	while (sector < WRITE_SIZE) {
 		ssize_t ret;
 		srand((time(NULL) * sector + 2) % UINT_MAX);
-		memset(buffer, 0, sizeof(buffer));
+		ftl_memset(buffer, 0, sizeof(buffer));
 		buffer[0] = (ssize_t)sector;
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
 					 sector);
@@ -163,7 +163,7 @@ int main(void)
 	size_t i;
 	struct flash_device *flash = NULL;
 
-	memset(is_check, 0, sizeof(is_check));
+	ftl_memset(is_check, 0, sizeof(is_check));
 #if defined(DEVICE_USE_ZONED)
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, ZONE_MODULE));
 #elif defined(DEVICE_USE_BLUEDBM)

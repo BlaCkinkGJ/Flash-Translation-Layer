@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include <string.h>
 #ifdef __cplusplus
 #define HAVE_DECL_BASENAME (1)
 #endif
@@ -19,6 +18,7 @@
 
 #include "module.h"
 #include "device.h"
+#include "layer.h"
 
 // #define USE_LEGACY_RANDOM
 #ifdef USE_LEGACY_RANDOM
@@ -347,12 +347,12 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 	int c = 0;
 	int i;
 
-	parm = (struct benchmark_parameter *)malloc(
+	parm = (struct benchmark_parameter *)ftl_malloc(
 		sizeof(struct benchmark_parameter));
-	memset(parm, 0, sizeof(struct benchmark_parameter));
+	ftl_memset(parm, 0, sizeof(struct benchmark_parameter));
 
 	device_path = parm->device_path;
-	memset(device_path, 0, DEVICE_PATH_SIZE - 1);
+	ftl_memset(device_path, 0, DEVICE_PATH_SIZE - 1);
 	nr_jobs = g_get_num_processors();
 
 	while ((c = getopt(argc, argv, "m:d:t:j:b:n:p:h")) != -1) {
@@ -425,24 +425,27 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 
 	/* initialize the crc32 list */
 	parm->crc32_list =
-		(uint32_t *)malloc(parm->nr_blocks * sizeof(uint32_t));
+		(uint32_t *)ftl_malloc(parm->nr_blocks * sizeof(uint32_t));
 	g_assert(parm->crc32_list != NULL);
-	memset(parm->crc32_list, 0, parm->nr_blocks * sizeof(uint32_t));
+	ftl_memset(parm->crc32_list, 0, parm->nr_blocks * sizeof(uint32_t));
 
-	parm->crc32_is_match = (bool *)malloc(parm->nr_blocks * sizeof(bool));
+	parm->crc32_is_match =
+		(bool *)ftl_malloc(parm->nr_blocks * sizeof(bool));
 	g_assert(parm->crc32_is_match != NULL);
-	memset(parm->crc32_is_match, true, parm->nr_blocks * sizeof(bool));
+	ftl_memset(parm->crc32_is_match, true, parm->nr_blocks * sizeof(bool));
 
 	parm->sector_sequence =
-		(size_t *)malloc(parm->nr_blocks * sizeof(size_t));
+		(size_t *)ftl_malloc(parm->nr_blocks * sizeof(size_t));
 	g_assert(parm->sector_sequence != NULL);
 	make_sequence(parm);
 
-	parm->threads = (pthread_t *)malloc(parm->nr_jobs * sizeof(pthread_t));
+	parm->threads =
+		(pthread_t *)ftl_malloc(parm->nr_jobs * sizeof(pthread_t));
 	g_assert(parm->threads != NULL);
-	memset(parm->threads, 0, parm->nr_jobs * sizeof(pthread_t));
+	ftl_memset(parm->threads, 0, parm->nr_jobs * sizeof(pthread_t));
 
-	parm->timer_list = (GList **)malloc(parm->nr_jobs * sizeof(GList *));
+	parm->timer_list =
+		(GList **)ftl_malloc(parm->nr_jobs * sizeof(GList *));
 	g_assert(parm->timer_list != NULL);
 	for (i = 0; i < parm->nr_jobs; i++) {
 		parm->timer_list[i] = NULL;
@@ -450,13 +453,13 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 
 	g_atomic_int_set(&parm->thread_id_allocator, 0);
 
-	parm->wp = (size_t *)malloc(parm->nr_jobs * sizeof(size_t));
+	parm->wp = (size_t *)ftl_malloc(parm->nr_jobs * sizeof(size_t));
 	g_assert(parm->wp != NULL);
-	memset(parm->wp, 0, parm->nr_jobs * sizeof(size_t));
+	ftl_memset(parm->wp, 0, parm->nr_jobs * sizeof(size_t));
 
-	parm->total_time = (size_t *)malloc(parm->nr_jobs * sizeof(size_t));
+	parm->total_time = (size_t *)ftl_malloc(parm->nr_jobs * sizeof(size_t));
 	g_assert(parm->total_time != NULL);
-	memset(parm->total_time, 0, parm->nr_jobs * sizeof(size_t));
+	ftl_memset(parm->total_time, 0, parm->nr_jobs * sizeof(size_t));
 
 	return parm;
 }
@@ -483,22 +486,22 @@ static void free_parameters(struct benchmark_parameter *parm)
 		return;
 	}
 	if (parm->crc32_list) {
-		free(parm->crc32_list);
+		ftl_free(parm->crc32_list);
 	}
 	if (parm->crc32_is_match) {
-		free(parm->crc32_is_match);
+		ftl_free(parm->crc32_is_match);
 	}
 	if (parm->sector_sequence) {
-		free(parm->sector_sequence);
+		ftl_free(parm->sector_sequence);
 	}
 	if (parm->threads) {
-		free(parm->threads);
+		ftl_free(parm->threads);
 	}
 	if (parm->wp) {
-		free(parm->wp);
+		ftl_free(parm->wp);
 	}
 	if (parm->total_time) {
-		free(parm->total_time);
+		ftl_free(parm->total_time);
 	}
 	if (parm->timer_list) {
 		int idx;
@@ -508,9 +511,9 @@ static void free_parameters(struct benchmark_parameter *parm)
 			}
 			g_list_free(parm->timer_list[idx]);
 		}
-		free(parm->timer_list);
+		ftl_free(parm->timer_list);
 	}
-	free(parm);
+	ftl_free(parm);
 }
 
 #ifdef USE_CRC
@@ -540,14 +543,14 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 static void *alloc_buffer(size_t block_sz)
 {
 	char *buffer;
-	buffer = (char *)malloc(block_sz);
-	memset(buffer, 0, block_sz);
+	buffer = (char *)ftl_malloc(block_sz);
+	ftl_memset(buffer, 0, block_sz);
 	return (void *)buffer;
 }
 
 static void free_buffer(void *buffer)
 {
-	free(buffer);
+	ftl_free(buffer);
 }
 
 static void *write_data(void *data)
@@ -630,7 +633,7 @@ static void *read_data(void *data)
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
 		size_t sector = parm->sector_sequence[i];
 #ifdef USE_CRC
-		memset(buffer, 0, parm->block_sz);
+		ftl_memset(buffer, 0, parm->block_sz);
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &start);
 		ret = flash->f_op->read(flash, buffer, parm->block_sz, sector);

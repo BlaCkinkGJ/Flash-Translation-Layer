@@ -8,10 +8,10 @@
 #include <glib.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 #include <errno.h>
 
 #include "page.h"
+#include "layer.h"
 #include "log.h"
 #include "bits.h"
 
@@ -123,13 +123,13 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 	page_size = device_get_page_size(dev);
 	request = NULL;
 
-	buffer = (char *)malloc(page_size);
+	buffer = (char *)ftl_malloc(page_size);
 	if (buffer == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 
 	request = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 	if (request == NULL) {
@@ -154,7 +154,7 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 	return ret;
 exception:
 	if (buffer) {
-		free(buffer);
+		ftl_free(buffer);
 	}
 	if (request) {
 		device_free_request(request);
@@ -199,7 +199,7 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 		       page_size, ret);
 		return -EFAULT;
 	}
-	free(buffer);
+	ftl_free(buffer);
 	return ret;
 }
 

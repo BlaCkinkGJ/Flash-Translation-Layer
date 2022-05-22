@@ -5,13 +5,13 @@
  * @version 0.2
  * @date 2021-09-22
  */
-#include "page.h"
-#include "log.h"
-#include "lru.h"
-
 #include <errno.h>
 #include <stdlib.h>
-#include <string.h>
+
+#include "page.h"
+#include "layer.h"
+#include "log.h"
+#include "lru.h"
 
 /**
  * @brief read's end request function
@@ -28,9 +28,9 @@ static void page_ftl_read_end_rq(struct device_request *read_rq)
 	pgftl = (struct page_ftl *)request->rq_private;
 	offset = page_ftl_get_page_offset(pgftl, request->sector);
 
-	memcpy(request->data, &((char *)read_rq->data)[offset],
-	       request->data_len);
-	free(read_rq->data);
+	ftl_memcpy(request->data, &((char *)read_rq->data)[offset],
+		   request->data_len);
+	ftl_free(read_rq->data);
 	device_free_request(read_rq);
 
 	pthread_mutex_lock(&request->mutex);
@@ -82,8 +82,8 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 #ifdef PAGE_FTL_USE_CACHE
 	cached = (struct device_request *)lru_get(pgftl->cache, lpn);
 	if (cached) {
-		memcpy(request->data, &((char *)cached->data)[offset],
-		       request->data_len);
+		ftl_memcpy(request->data, &((char *)cached->data)[offset],
+			   request->data_len);
 		ret = request->data_len;
 		device_free_request(request);
 		pthread_mutex_unlock(&pgftl->mutex);
@@ -95,7 +95,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	if (paddr.lpn == PADDR_EMPTY) { /**< YOU MUST TAKE CARE OF THIS LINE */
 		pr_warn("cannot find the mapping information (lpn: %zu)\n",
 			lpn);
-		memset(request->data, 0, request->data_len);
+		ftl_memset(request->data, 0, request->data_len);
 		ret = request->data_len;
 		device_free_request(request);
 		goto exception;
@@ -110,13 +110,13 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 		goto exception;
 	}
 
-	buffer = (char *)malloc(page_size);
+	buffer = (char *)ftl_malloc(page_size);
 	if (buffer == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(buffer, 0, page_size);
+	ftl_memset(buffer, 0, page_size);
 
 	read_rq = device_alloc_request(DEVICE_DEFAULT_REQUEST);
 	if (read_rq == NULL) {
@@ -153,7 +153,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	return ret;
 exception:
 	if (buffer) {
-		free(buffer);
+		ftl_free(buffer);
 	}
 	if (read_rq) {
 		device_free_request(read_rq);
