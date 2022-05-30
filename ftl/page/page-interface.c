@@ -107,14 +107,14 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		request->sector = offset;
 		request->data = ptr;
 
-		pr_debug("%zu (length: %zu, buffer: %lu, count: %lu)\n",
+		pr_debug("%zu (length: %zu, buffer: %lu, count:%zu)\n",
 			 request->sector, request->data_len,
 			 (uintptr_t)request->data - (uintptr_t)buffer, count);
 
 		/** submit the request */
 		write_size = page_ftl_submit_request(pgftl, request);
 		if (write_size != submit_size) {
-			pr_err("page FTL submit request failed (write size: %zu)\n",
+			pr_err("page FTL submit request failed (write size: %ld)\n",
 			       write_size);
 			if (write_size > 0) {
 				request = NULL;

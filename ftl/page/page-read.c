@@ -104,7 +104,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	request->rq_private = pgftl;
 
 	if (offset + request->data_len > page_size) {
-		pr_err("overflow the read data (offset: %lu, length: %zu)\n",
+		pr_err("overflow the read data (offset: %zu, length: %zu)\n",
 		       offset, request->data_len);
 		ret = -EINVAL;
 		goto exception;

@@ -59,7 +59,7 @@ static struct page_ftl_segment *page_ftl_pick_gc_target(struct page_ftl *pgftl)
 	}
 	pgftl->gc_list = g_list_sort(pgftl->gc_list, page_ftl_gc_list_cmp);
 	segment = (struct page_ftl_segment *)pgftl->gc_list->data;
-	pr_debug("gc target: %zd (valid: %u) => %p\n",
+	pr_debug("gc target: %zu (valid: %ld) => %p\n",
 		 page_ftl_get_segment_number(pgftl, (uintptr_t)segment),
 		 g_atomic_int_get(&segment->nr_valid_pages), segment);
 	pgftl->gc_list = g_list_remove(pgftl->gc_list, segment);

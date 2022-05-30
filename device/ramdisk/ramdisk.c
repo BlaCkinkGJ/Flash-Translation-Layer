@@ -74,7 +74,7 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	pr_info("bitmap generated (size: %zu bytes)\n", bitmap_size);
+	pr_info("bitmap generated (size: %lu bytes)\n", bitmap_size);
 	memset(is_used, 0, bitmap_size);
 	ramdisk->is_used = is_used;
 
@@ -321,6 +321,11 @@ int ramdisk_device_init(struct device *dev, uint64_t flags)
 	dev->d_op = &__ramdisk_dops;
 	dev->d_private = (void *)ramdisk;
 	dev->d_submodule_exit = ramdisk_device_exit;
+
+	if (dev->d_private == NULL) {
+		goto exception;
+	}
+
 	return ret;
 exception:
 	ramdisk_device_exit(dev);

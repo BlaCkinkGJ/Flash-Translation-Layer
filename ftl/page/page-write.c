@@ -124,7 +124,7 @@ static void page_ftl_write_update_metadata(struct page_ftl *pgftl,
 	lpn = page_ftl_get_lpn(pgftl, sector);
 	if (pgftl->trans_map[lpn] != PADDR_EMPTY) {
 		page_ftl_invalidate(pgftl, lpn);
-		pr_debug("invalidate address: %lu => %u\n", lpn,
+		pr_debug("invalidate address: %zu => %u\n", lpn,
 			 pgftl->trans_map[lpn]);
 	}
 	/**< segment information update */
@@ -135,7 +135,7 @@ static void page_ftl_write_update_metadata(struct page_ftl *pgftl,
 	/**< global information update */
 	page_ftl_update_map(pgftl, sector, paddr.lpn);
 
-	pr_debug("new address: %lu => %u (seg: %u)\n", lpn,
+	pr_debug("new address: %zu => %u (seg: %u)\n", lpn,
 		 pgftl->trans_map[lpn], pgftl->trans_map[lpn] >> 13);
 	pr_debug("%u/%u(free/valid)\n",
 		 g_atomic_int_get(&segment->nr_free_pages),
@@ -194,13 +194,13 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 
 	nr_entries = page_ftl_get_map_size(pgftl) / sizeof(uint32_t);
 	if (lpn > nr_entries) {
-		pr_err("invalid lpn detected (lpn: %lu, max: %lu)\n", lpn,
+		pr_err("invalid lpn detected (lpn: %zu, max: %zu)\n", lpn,
 		       nr_entries);
 		return -EINVAL;
 	}
 
 	if (offset + request->data_len > page_size) {
-		pr_err("overflow the write data (offset: %lu, length: %zu)\n",
+		pr_err("overflow the write data (offset: %zu, length: %zu)\n",
 		       offset, request->data_len);
 		return -EINVAL;
 	}
@@ -225,7 +225,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	if (is_exist) {
 		ret = page_ftl_read_for_overwrite(pgftl, lpn, buffer);
 		if (ret < 0) {
-			pr_err("read failed (lpn:%lu)\n", lpn);
+			pr_err("read failed (lpn:%zu)\n", lpn);
 			return ret;
 		}
 	}
@@ -242,7 +242,7 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	pthread_mutex_lock(&pgftl->mutex);
 	ret = page_ftl_write_to_cache(pgftl, request, lpn);
 	if (ret != 0) {
-		pr_err("write to cache failed (lpn:%lu)\n", lpn);
+		pr_err("write to cache failed (lpn:%zu)\n", lpn);
 		return ret;
 	}
 	pthread_mutex_unlock(&pgftl->mutex);
