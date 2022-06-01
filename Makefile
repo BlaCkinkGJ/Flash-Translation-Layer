@@ -162,6 +162,7 @@ all: $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 test: $(TEST_TARGET)
 	@for target in $(TEST_TARGET) ; do \
 		./$$target ; \
+		gcov ./$$target ; \
 	done
 
 integration-test: $(INTEGRATION_TEST_TARGET)
@@ -187,19 +188,22 @@ $(LIBRARY_TARGET): $(OBJS)
 $(OBJS): $(SRCS)
 	$(CXX) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
 
-lru-test.out: $(UNITY_ROOT)/src/unity.c ./util/lru.c ./test/lru-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+lru-test.out: unity.o ./util/lru.c ./test/lru-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
-bits-test.out: $(UNITY_ROOT)/src/unity.c ./test/bits-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+bits-test.out: unity.o ./test/bits-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
-ramdisk-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/ramdisk-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
-zone-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/zone-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+zone-test.out: $(OBJS) ./test/zone-test.c
+	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 endif
+
+unity.o: $(UNITY_ROOT)/src/unity.c
+	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -c $^ $(LIBS)
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"

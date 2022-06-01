@@ -19,6 +19,7 @@ jobs:
       run: |
         sudo apt-get update -y
         sudo apt-get install -y git make gcc g++ libglib2.0-dev libiberty-dev
+        sudo apt-get install -y gcov
         sudo apt-get install -y cppcheck flawfinder
         sudo apt-get install -y python3-pip
         sudo pip3 install lizard
