@@ -28,3 +28,5 @@ jobs:
       run: make
     - name: make test
       run: make clean && make test USE_LOG_SILENT=1
+    - name: make integration-test
+      run: make clean && make integration-test

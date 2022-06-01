@@ -20,19 +20,20 @@
 #include "log.h"
 #include "device.h"
 
-// #define USE_FORCE_ERASE
+#define USE_FORCE_ERASE
 #define USE_RANDOM_WAIT
+// #define USE_DEBUG_PRINT
 
-// #define SEQ_WORKLOAD
-#define RAND_WORKLOAD
+// #define BLOCKSIZE_1MB
+#define BLOCKSIZE_4KB
 
 #define DEVICE_PATH "/dev/nvme0n2"
-#define WRITE_SIZE ((size_t)8192 * 8192 * 96)
+#define WRITE_SIZE ((size_t)128 * (size_t)(1 << 20)) // 128 MiB
 #define NR_ERASE (10)
-#if defined(RAND_WORKLOAD)
-#define BLOCK_SIZE ((size_t)4096) // 4 KiB
-#elif defined(SEQ_WORKLOAD)
-#define BLOCK_SIZE ((size_t)1024 * 1024) // 1 MiB
+#if defined(BLOCKSIZE_4KB)
+#define BLOCK_SIZE ((size_t)4 * (size_t)(1 << 10)) // 4 KiB
+#elif defined(BLOCKSIZE_1MB)
+#define BLOCK_SIZE ((size_t)(1 << 20)) // 1 MiB
 #endif
 
 int is_check[WRITE_SIZE / BLOCK_SIZE];
@@ -59,8 +60,10 @@ void *read_thread(void *data)
 			continue;
 		}
 		assert(ret == BLOCK_SIZE);
+#ifdef USE_DEBUG_PRINT
 		printf("%-12s: %-16zd(sector: %zu)\n", "read", buffer[0],
 		       sector);
+#endif
 		is_check[*(ssize_t *)buffer / BLOCK_SIZE] = 1;
 		sector += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
@@ -89,8 +92,10 @@ void *write_thread(void *data)
 		if (ret < 0) {
 			pr_err("write failed (sector: %zu)\n", sector);
 		}
+#ifdef USE_DEBUG_PRINT
 		printf("%-12s: %-16zd(sector: %zu)\n", "write", buffer[0],
 		       sector);
+#endif
 		assert(ret == BLOCK_SIZE);
 		sector += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
@@ -124,8 +129,10 @@ void *overwrite_thread(void *data)
 		if (ret < 0) {
 			pr_err("overwrite failed (sector: %zu)\n", sector);
 		}
+#ifdef USE_DEBUG_PRINT
 		printf("%-12s: %-16zd(sector: %zu)\n", "overwrite", buffer[0],
 		       sector);
+#endif
 		sector += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
 		usleep((rand() % 500) + 100);
@@ -146,7 +153,9 @@ void *erase_thread(void *data)
 	for (i = 0; i < NR_ERASE; i++) {
 		usleep(1000 * 1000);
 		flash->f_op->ioctl(flash, PAGE_FTL_IOCTL_TRIM);
+#ifdef USE_DEBUG_PRINT
 		printf("\tforced garbage collection!\n");
+#endif
 	}
 #endif
 	(void)data;

@@ -15,7 +15,7 @@
 CC = gcc
 AR = ar
 CXX = g++
-TARGET = a.out
+INTEGRATION_TEST_TARGET = integration-test.out
 BENCHMARK_TARGET = benchmark.out
 LIBRARY_TARGET = libftl.a
 
@@ -157,12 +157,19 @@ ifeq ($(PREFIX),)
 PREFIX := /usr/local
 endif
 
-all: $(TARGET) $(BENCHMARK_TARGET)
+all: $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 
 test: $(TEST_TARGET)
 	@for target in $(TEST_TARGET) ; do \
 		./$$target ; \
 	done
+	# show coverage 
+	@for target in $(TEST_TARGET) ; do \
+		gcov ./$$target ; \
+	done
+
+integration-test: $(INTEGRATION_TEST_TARGET)
+	./$(INTEGRATION_TEST_TARGET)
 
 install:
 	install -d $(DESTDIR)$(PREFIX)/lib/
@@ -170,13 +177,13 @@ install:
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
-$(TARGET): main.c $(LIBRARY_TARGET)
-	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
+$(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET)
+	$(CXX) $(MACROS) $(CXXFLAGS) -c integration-test.c $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.c -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
@@ -184,23 +191,26 @@ $(LIBRARY_TARGET): $(OBJS)
 $(OBJS): $(SRCS)
 	$(CXX) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
 
-lru-test.out: $(UNITY_ROOT)/src/unity.c ./util/lru.c ./test/lru-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+lru-test.out: unity.o ./util/lru.c ./test/lru-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
-bits-test.out: $(UNITY_ROOT)/src/unity.c ./test/bits-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+bits-test.out: unity.o ./test/bits-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
-ramdisk-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/ramdisk-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
-zone-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/zone-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+zone-test.out: $(OBJS) ./test/zone-test.c
+	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 endif
+
+unity.o: $(UNITY_ROOT)/src/unity.c
+	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -c $^ $(LIBS)
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
-	cppcheck --quiet --enable=all --inconclusive -I include/ $(SRCS) *.c
+	cppcheck --quiet --error-exitcode=0 --enable=all --inconclusive -I include/ $(SRCS) *.c
 	@echo "[[ FLAWFINDER ROUTINE ]]"
 	flawfinder $(SRCS) include/*.h
 	@echo "[[ STATIC ANALYSIS ROUTINE ]]"
@@ -214,6 +224,9 @@ flow:
 
 clean:
 	find . -name '*.o'  | xargs -i rm -f {}
-	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
+	find . -name '*.gcov'  | xargs -i rm -f {}
+	find . -name '*.gcda'  | xargs -i rm -f {}
+	find . -name '*.gcno'  | xargs -i rm -f {}
+	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	rm -rf doxygen/
 

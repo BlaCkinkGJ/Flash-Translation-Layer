@@ -62,7 +62,7 @@ static ssize_t page_ftl_gc_from_list(struct page_ftl *pgftl,
 	size_t nr_segments, nr_gc_segments, idx;
 	nr_segments = device_get_nr_segments(pgftl->dev);
 	nr_gc_segments = nr_segments * PAGE_FTL_GC_RATIO;
-	for (idx = 0; idx < nr_gc_segments; idx++) {
+	for (idx = 0; (ssize_t)idx >= 0 && idx < nr_gc_segments; idx++) {
 		ret = page_ftl_submit_request(pgftl, request);
 		if (ret) {
 			pr_err("garbage collection from list failed\n");
@@ -120,7 +120,7 @@ static void *page_ftl_gc_thread(void *data)
 			break;
 		}
 #ifdef USE_GC_MESSAGE
-		pr_info("gc triggered (nr_erase: %lu)\n", ret);
+		pr_info("gc triggered (nr_erase: %ld)\n", ret);
 #endif
 	}
 	return NULL;
