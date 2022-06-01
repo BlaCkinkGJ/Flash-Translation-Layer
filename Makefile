@@ -162,6 +162,9 @@ all: $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 test: $(TEST_TARGET)
 	@for target in $(TEST_TARGET) ; do \
 		./$$target ; \
+	done
+	# show coverage 
+	@for target in $(TEST_TARGET) ; do \
 		gcov ./$$target ; \
 	done
 
@@ -221,6 +224,8 @@ flow:
 
 clean:
 	find . -name '*.o'  | xargs -i rm -f {}
+	find . -name '*.gcov'  | xargs -i rm -f {}
+	find . -name '*.gcda'  | xargs -i rm -f {}
 	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	rm -rf doxygen/
 
