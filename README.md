@@ -1,5 +1,9 @@
 # Flash Translation Layer
 
+![build-and-test](https://github.com/BlaCkinkGJ/Flash-Translation-Layer/actions/workflows//build.yml/badge.svg)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/9b16f37d8a314e14a049312b5cfad674)](https://www.codacy.com/gh/BlaCkinkGJ/Flash-Translation-Layer/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=BlaCkinkGJ/Flash-Translation-Layer&amp;utm_campaign=Badge_Grade)
+
+
 ## Overview
 
 This repository contains the simple Flash Translation Layers made on the Linux Environments.
