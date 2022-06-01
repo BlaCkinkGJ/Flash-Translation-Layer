@@ -226,6 +226,7 @@ clean:
 	find . -name '*.o'  | xargs -i rm -f {}
 	find . -name '*.gcov'  | xargs -i rm -f {}
 	find . -name '*.gcda'  | xargs -i rm -f {}
-	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
+	find . -name '*.gcno'  | xargs -i rm -f {}
+	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	rm -rf doxygen/
 
