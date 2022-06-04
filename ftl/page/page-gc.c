@@ -29,9 +29,11 @@ gint page_ftl_gc_list_cmp(gconstpointer a, gconstpointer b)
 	uint64_t nr_valid_pages[2];
 	segment[0] = (struct page_ftl_segment *)a;
 	segment[1] = (struct page_ftl_segment *)b;
-	nr_valid_pages[0] = g_atomic_int_get(&segment[0]->nr_valid_pages);
-	nr_valid_pages[1] = g_atomic_int_get(&segment[1]->nr_valid_pages);
-	return nr_valid_pages[0] - nr_valid_pages[1];
+	nr_valid_pages[0] =
+		(uint64_t)g_atomic_int_get(&segment[0]->nr_valid_pages);
+	nr_valid_pages[1] =
+		(uint64_t)g_atomic_int_get(&segment[1]->nr_valid_pages);
+	return (gint)(nr_valid_pages[0] - nr_valid_pages[1]);
 }
 
 /**
@@ -116,7 +118,7 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 	struct device *dev;
 	struct device_request *request;
 	char *buffer;
-	ssize_t page_size;
+	size_t page_size;
 	ssize_t ret;
 
 	dev = pgftl->dev;
@@ -144,7 +146,7 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 	request->data = buffer;
 
 	ret = page_ftl_read(pgftl, request);
-	if (ret != page_size) {
+	if (ret != (ssize_t)page_size) {
 		pr_err("invalid read size detected (expected: %zd, acutal: %zd)\n",
 		       page_size, ret);
 		return -EFAULT;
@@ -176,7 +178,7 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 {
 	struct device *dev;
 	struct device_request *request;
-	ssize_t page_size;
+	size_t page_size;
 	ssize_t ret;
 
 	dev = pgftl->dev;
@@ -194,7 +196,7 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 	request->data = buffer;
 
 	ret = page_ftl_write(pgftl, request);
-	if (ret != page_size) {
+	if (ret != (ssize_t)page_size) {
 		pr_err("invalid write size detected (expected: %zd, acutal: %zd)\n",
 		       page_size, ret);
 		return -EFAULT;
@@ -211,10 +213,10 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
  *
  * @return 0 for success, negative number for fail
  */
-static int page_ftl_valid_page_copy(struct page_ftl *pgftl,
-				    struct page_ftl_segment *segment)
+static ssize_t page_ftl_valid_page_copy(struct page_ftl *pgftl,
+					struct page_ftl_segment *segment)
 {
-	int ret = 0;
+	ssize_t ret = 0;
 	GList *list;
 
 	(void)pgftl;
@@ -248,11 +250,11 @@ static int page_ftl_valid_page_copy(struct page_ftl *pgftl,
  *
  * @return 0 for success, negative number for fail
  */
-int page_ftl_do_gc(struct page_ftl *pgftl)
+ssize_t page_ftl_do_gc(struct page_ftl *pgftl)
 {
 	struct device_address paddr;
 	struct page_ftl_segment *segment;
-	int ret;
+	ssize_t ret;
 	size_t segnum;
 
 	pthread_mutex_lock(&pgftl->mutex);
@@ -272,7 +274,7 @@ int page_ftl_do_gc(struct page_ftl *pgftl)
 	}
 
 	paddr.lpn = 0;
-	paddr.format.block = segnum;
+	paddr.format.block = (uint16_t)segnum;
 	ret = page_ftl_segment_erase(pgftl, paddr);
 	if (ret) {
 		pr_err("do erase failed\n");

@@ -147,7 +147,7 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	set_bit(ramdisk->is_used, addr.lpn);
 	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
 	       request->data_len);
-	ret = request->data_len;
+	ret = (ssize_t)request->data_len;
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
@@ -201,7 +201,7 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 
 	memcpy(request->data, &ramdisk->buffer[addr.lpn * page_size],
 	       request->data_len);
-	ret = request->data_len;
+	ret = (ssize_t)request->data_len;
 	pr_debug("request->end_rq %p %p\n", request->end_rq,
 		 &((struct device_request *)request->rq_private)->mutex);
 	if (request->end_rq) {
@@ -222,13 +222,14 @@ exit:
 int ramdisk_erase(struct device *dev, struct device_request *request)
 {
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
-	struct device_address addr = request->paddr;
+	struct device_address addr;
 	size_t page_size;
-	size_t segnum;
 	uint32_t nr_pages_per_segment;
 	uint32_t lpn;
+	uint16_t segnum;
 	int ret;
 
+	addr.lpn = 0;
 	ret = 0;
 
 	if (request->flag != DEVICE_ERASE) {
@@ -237,11 +238,9 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 		ret = -EINVAL;
 		goto exit;
 	}
-
+	segnum = (uint16_t)request->paddr.format.block;
 	page_size = device_get_page_size(dev);
 	nr_pages_per_segment = (uint32_t)device_get_pages_per_segment(dev);
-	segnum = addr.format.block;
-	addr.lpn = 0;
 	addr.format.block = segnum;
 	for (lpn = addr.lpn; lpn < addr.lpn + nr_pages_per_segment; lpn++) {
 		memset(&ramdisk->buffer[lpn * page_size], 0, page_size);
