@@ -61,7 +61,7 @@ static ssize_t page_ftl_gc_from_list(struct page_ftl *pgftl,
 	ssize_t ret = 0;
 	size_t nr_segments, nr_gc_segments, idx;
 	nr_segments = device_get_nr_segments(pgftl->dev);
-	nr_gc_segments = nr_segments * PAGE_FTL_GC_RATIO;
+	nr_gc_segments = (size_t)((double)nr_segments * PAGE_FTL_GC_RATIO);
 	for (idx = 0; (ssize_t)idx >= 0 && idx < nr_gc_segments; idx++) {
 		ret = page_ftl_submit_request(pgftl, request);
 		if (ret) {
@@ -72,7 +72,7 @@ static ssize_t page_ftl_gc_from_list(struct page_ftl *pgftl,
 			break;
 		}
 	}
-	ret = idx;
+	ret = (ssize_t)idx;
 	return ret;
 }
 
@@ -110,7 +110,8 @@ static void *page_ftl_gc_thread(void *data)
 			break;
 		}
 		free_pages = page_ftl_get_free_pages(pgftl);
-		if ((double)free_pages > total_pages * PAGE_FTL_GC_THRESHOLD) {
+		if ((double)free_pages >
+		    (double)total_pages * PAGE_FTL_GC_THRESHOLD) {
 			continue;
 		}
 		ret = page_ftl_gc_from_list(pgftl, &request);
@@ -161,8 +162,8 @@ static int page_ftl_alloc_bitmap(struct page_ftl *pgftl, uint64_t **bitmap)
 int page_ftl_segment_data_init(struct page_ftl *pgftl,
 			       struct page_ftl_segment *segment)
 {
-	size_t nr_pages_per_segment;
-	nr_pages_per_segment = device_get_pages_per_segment(pgftl->dev);
+	gint nr_pages_per_segment;
+	nr_pages_per_segment = (gint)device_get_pages_per_segment(pgftl->dev);
 	g_atomic_int_set(&segment->nr_free_pages, nr_pages_per_segment);
 	g_atomic_int_set(&segment->nr_valid_pages, 0);
 

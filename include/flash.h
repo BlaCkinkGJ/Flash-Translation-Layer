@@ -19,7 +19,8 @@ extern "C" {
 /**
  * @brief flags related on the flash and submodule
  */
-enum { FLASH_DEFAULT_FLAG = 0 /**< flash default flags */,
+enum {
+	FLASH_DEFAULT_FLAG = 0 /**< flash default flags */,
 };
 
 struct flash_device;

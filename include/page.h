@@ -83,13 +83,13 @@ int page_ftl_module_exit(struct flash_device *);
 
 /* page-map.c */
 struct device_address page_ftl_get_free_page(struct page_ftl *);
-int page_ftl_update_map(struct page_ftl *, uint64_t sector, uint32_t ppn);
+int page_ftl_update_map(struct page_ftl *, size_t sector, uint32_t ppn);
 
 /* page-core.c */
 int page_ftl_segment_data_init(struct page_ftl *, struct page_ftl_segment *);
 
 /* page-gc.c */
-int page_ftl_do_gc(struct page_ftl *);
+ssize_t page_ftl_do_gc(struct page_ftl *);
 
 static inline size_t page_ftl_get_map_size(struct page_ftl *pgftl)
 {

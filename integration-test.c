@@ -42,18 +42,19 @@ void *read_thread(void *data)
 {
 	ssize_t buffer[BLOCK_SIZE / sizeof(size_t)];
 	struct flash_device *flash;
-	size_t sector;
+	off_t offset;
 
-	sector = 0;
+	offset = 0;
 	flash = (struct flash_device *)data;
 
-	while (sector < WRITE_SIZE) {
+	while (offset < (off_t)WRITE_SIZE) {
 		ssize_t ret;
-		srand((time(NULL) * sector) % UINT_MAX);
+		srand(((unsigned int)time(NULL) * (unsigned int)offset) %
+		      UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
 		ret = flash->f_op->read(flash, (void *)buffer, BLOCK_SIZE,
-					sector);
-		if (ret < 0 || (sector > 0 && buffer[0] == 0)) {
+					offset);
+		if (ret < 0 || (offset > 0 && buffer[0] == 0)) {
 			continue;
 		}
 		if (buffer[0] == -1) {
@@ -61,11 +62,11 @@ void *read_thread(void *data)
 		}
 		assert(ret == BLOCK_SIZE);
 #ifdef USE_DEBUG_PRINT
-		printf("%-12s: %-16zd(sector: %zu)\n", "read", buffer[0],
-		       sector);
+		printf("%-12s: %-16zd(offset: %zu)\n", "read", buffer[0],
+		       offset);
 #endif
-		is_check[*(ssize_t *)buffer / BLOCK_SIZE] = 1;
-		sector += BLOCK_SIZE;
+		is_check[(size_t)(*(ssize_t *)buffer) / BLOCK_SIZE] = 1;
+		offset += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
 		usleep((rand() % 500) + 1000);
 #endif
@@ -77,27 +78,28 @@ void *write_thread(void *data)
 {
 	ssize_t buffer[BLOCK_SIZE / sizeof(ssize_t)];
 	struct flash_device *flash;
-	size_t sector;
+	off_t offset;
 
-	sector = 0;
+	offset = 0;
 	flash = (struct flash_device *)data;
 
-	while (sector < WRITE_SIZE) {
+	while (offset < (off_t)WRITE_SIZE) {
 		ssize_t ret;
-		srand((time(NULL) * sector + 1) % UINT_MAX);
+		srand((((unsigned int)time(NULL) * (unsigned int)offset) + 1) %
+		      UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
-		buffer[0] = (ssize_t)sector;
+		buffer[0] = (ssize_t)offset;
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
-					 sector);
+					 offset);
 		if (ret < 0) {
-			pr_err("write failed (sector: %zu)\n", sector);
+			pr_err("write failed (offset: %zu)\n", offset);
 		}
 #ifdef USE_DEBUG_PRINT
-		printf("%-12s: %-16zd(sector: %zu)\n", "write", buffer[0],
-		       sector);
+		printf("%-12s: %-16zd(offset: %zu)\n", "write", buffer[0],
+		       offset);
 #endif
 		assert(ret == BLOCK_SIZE);
-		sector += BLOCK_SIZE;
+		offset += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
 		usleep((rand() % 500) + 100);
 #endif
@@ -111,29 +113,30 @@ void *overwrite_thread(void *data)
 {
 	ssize_t buffer[BLOCK_SIZE / sizeof(ssize_t)];
 	struct flash_device *flash;
-	size_t sector;
+	off_t offset;
 
-	sector = 0;
+	offset = 0;
 	flash = (struct flash_device *)data;
 
 	g_atomic_int_set(&is_overwrite, 1);
 
 	sleep(2);
-	while (sector < WRITE_SIZE) {
+	while (offset < (off_t)WRITE_SIZE) {
 		ssize_t ret;
-		srand((time(NULL) * sector + 2) % UINT_MAX);
+		srand((((unsigned int)time(NULL) * (unsigned int)offset) + 2) %
+		      UINT_MAX);
 		memset(buffer, 0, sizeof(buffer));
-		buffer[0] = (ssize_t)sector;
+		buffer[0] = (ssize_t)offset;
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
-					 sector);
+					 offset);
 		if (ret < 0) {
-			pr_err("overwrite failed (sector: %zu)\n", sector);
+			pr_err("overwrite failed (offset: %zu)\n", offset);
 		}
 #ifdef USE_DEBUG_PRINT
-		printf("%-12s: %-16zd(sector: %zu)\n", "overwrite", buffer[0],
-		       sector);
+		printf("%-12s: %-16zd(offset: %zu)\n", "overwrite", buffer[0],
+		       offset);
 #endif
-		sector += BLOCK_SIZE;
+		offset += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
 		usleep((rand() % 500) + 100);
 #endif
@@ -231,7 +234,7 @@ int main(void)
 	is_all_valid = 1;
 	for (i = 0; i < sizeof(is_check) / sizeof(int); i++) {
 		if (!is_check[i]) {
-			printf("read failed sector: %-20zu\n",
+			printf("read failed offset: %-20zu\n",
 			       (i * BLOCK_SIZE));
 			is_all_valid = 0;
 		}

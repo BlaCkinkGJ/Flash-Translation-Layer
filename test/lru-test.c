@@ -27,13 +27,13 @@ void test_lru_fill(void)
 {
 	struct lru_cache *cache;
 	cache = lru_init(10, NULL);
-	for (int i = 1; i <= 10; i++) {
+	for (size_t i = 1; i <= 10; i++) {
 		TEST_ASSERT_EQUAL_INT(0, lru_put(cache, i, i * 2));
 	}
-	for (int i = 1; i <= 10; i++) {
+	for (size_t i = 1; i <= 10; i++) {
 		TEST_ASSERT_EQUAL_INT(i * 2, lru_get(cache, i));
 	}
-	for (int i = 1; i <= 10; i++) {
+	for (size_t i = 1; i <= 10; i++) {
 		TEST_ASSERT_EQUAL_INT(0, lru_put(cache, i + 10, (i + 10) * 2));
 	}
 	lru_free(cache);
@@ -52,22 +52,22 @@ void test_lru_big_fill(void)
 {
 	const int cache_size = 1024;
 	const int total_size = cache_size * 100;
-	int counter = 0;
-	int last_size = 0;
+	size_t counter = 0;
+	size_t last_size = 0;
 	struct lru_cache *cache;
 	cache = lru_init(cache_size, dealloc_data);
 	for (int i = 0; i < total_size; i++) {
 		int *data;
 		data = (int *)malloc(sizeof(int));
 		*data = i;
-		lru_put(cache, i, (uintptr_t)data);
+		lru_put(cache, (uint64_t)i, (uintptr_t)data);
 	}
 	last_size = cache->size;
-	for (int i = total_size - 1; i >= 0; i--) {
+	for (ssize_t i = total_size - 1; i >= 0; i--) {
 		if (counter >= last_size) {
-			TEST_ASSERT_NULL((void *)lru_get(cache, i));
+			TEST_ASSERT_NULL((void *)lru_get(cache, (size_t)i));
 		} else {
-			uintptr_t data = lru_get(cache, i);
+			uintptr_t data = lru_get(cache, (size_t)i);
 			TEST_ASSERT_NOT_NULL((void *)data);
 			TEST_ASSERT_EQUAL_INT(i, *(int *)data);
 		}
@@ -82,11 +82,11 @@ void test_lru_small_fill(void)
 	const int total_size = 100;
 	struct lru_cache *cache;
 	cache = lru_init(cache_size, dealloc_data);
-	for (int i = 0; i < total_size; i++) {
+	for (size_t i = 0; i < total_size; i++) {
 		int *data;
 		uintptr_t test;
 		data = (int *)malloc(sizeof(int));
-		*data = i;
+		*data = (int)i;
 		lru_put(cache, i, (uintptr_t)data);
 		test = lru_get(cache, i);
 		TEST_ASSERT_EQUAL_INT(i, *(int *)test);

@@ -110,6 +110,8 @@ CFLAGS := -Wall \
           -Wmissing-field-initializers \
           -Wno-unknown-pragmas \
           -Wundef \
+          -Wconversion \
+          -Werror \
           $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
           $(MEMORY_CHECK_CFLAGS) \

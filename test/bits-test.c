@@ -62,9 +62,9 @@ void test_get_bits(void)
 		memset(setbit, 0, nr_bits);
 		bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits));
 		memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
-		srand(time(NULL) + (counter * rand()) % INT_MAX);
+		srand((unsigned int)time(NULL) + (counter * rand()) % INT_MAX);
 		for (i = 0; i < nr_bits; i++) {
-			setbit[i] = (rand() % 2);
+			setbit[i] = (char)(rand() % 2);
 		}
 		for (i = 0; i < nr_bits; i++) {
 			if (setbit[i] == 0) {
