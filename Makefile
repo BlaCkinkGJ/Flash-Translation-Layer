@@ -3,6 +3,8 @@
 # `bear make all -j$(nproc)`
 # `compdb -p ./ list > ../compile_commands.json`
 # `cp ../compile_commands.json ./
+# or
+# `make compiledb`
 #
 # You can get `bear` from [link](https://github.com/rizsotto/Bear)
 # You can get `compdb` from [link](https://github.com/Sarcasm/compdb)
@@ -23,6 +25,7 @@ GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
 DEVICE_INCLUDES = 
 
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
+DOCKER_TAG_ROOT = ftl
 
 # Device Module Setting
 USE_ZONE_DEVICE = 0
@@ -210,6 +213,21 @@ endif
 unity.o: $(UNITY_ROOT)/src/unity.c
 	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -c $^ $(LIBS)
 
+docker-builder:
+	docker build -t $(DOCKER_TAG_ROOT)/ftl-builder \
+		-f docker/Dockerfile ./docker
+
+docker-make-%:
+	docker run --rm -v $(PWD):/ftl \
+		$(DOCKER_TAG_ROOT)/ftl-builder /bin/bash -c "make clean && make $*"
+
+docker-console:
+	docker run --rm -it -v $(PWD):/ftl \
+		-v ${HOME}/.zshrc:/root/.zshrc \
+		-v ${HOME}/.vim:/root/.vim \
+		-v ${HOME}/.vimrc:/root/.vimrc \
+		$(DOCKER_TAG_ROOT)/ftl-builder /bin/bash
+
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
 	cppcheck --quiet --error-exitcode=0 --enable=all --inconclusive -I include/ $(SRCS) *.c
@@ -224,11 +242,14 @@ documents:
 flow:
 	find . -type f -name '*.[ch]' ! -path "./unity/*" ! -path "./test/*" | xargs -i cflow {}
 
-clean:
-	find . -name '*.o'  | xargs -i rm -f {}
-	find . -name '*.gcov'  | xargs -i rm -f {}
-	find . -name '*.gcda'  | xargs -i rm -f {}
-	find . -name '*.gcno'  | xargs -i rm -f {}
-	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
-	rm -rf doxygen/
+compiledb:
+	bear $(MAKE) all
+	compdb -p ./ list > ../compile_commands.json
+	mv ../compile_commands.json ./
 
+clean:
+	find . -name '*.o' -exec rm -f {} +
+	find . -name '*.gcov' -exec rm -f {} +
+	find . -name '*.gcda' -exec rm -f {} +
+	find . -name '*.gcno' -exec rm -f {} +
+	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)

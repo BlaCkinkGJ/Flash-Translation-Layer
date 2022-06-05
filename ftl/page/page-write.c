@@ -44,7 +44,8 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 
 	nr_valid_pages = g_atomic_int_get(&segment->nr_valid_pages);
 	nr_free_pages = g_atomic_int_get(&segment->nr_free_pages);
-	g_atomic_int_set(&segment->nr_valid_pages, nr_valid_pages - 1);
+	g_atomic_int_set(&segment->nr_valid_pages,
+			 (unsigned int)(nr_valid_pages - 1));
 
 	/**< global information update */
 	pgftl->trans_map[lpn] = PADDR_EMPTY;
