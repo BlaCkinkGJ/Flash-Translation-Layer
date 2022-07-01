@@ -17,12 +17,11 @@ jobs:
         submodules: recursive
     - name: prepare environment
       run: |
-        sudo apt-get update -y
+        sudo apt-get update -y && sudo apt-get clean
         sudo apt-get install --no-install-recommends -y git make gcc g++ libglib2.0-dev libiberty-dev
         sudo apt-get install --no-install-recommends -y cppcheck flawfinder cflow
         sudo apt-get install --no-install-recommends -y python3-pip
         sudo pip3 install lizard==1.17.0
-        sudo apt-get clean
     - name: make check
       run: make check
     - name: make flow
