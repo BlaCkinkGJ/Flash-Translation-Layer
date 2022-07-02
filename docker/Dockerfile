@@ -16,4 +16,4 @@ RUN pip3 install compdb==0.2.0
 RUN mkdir -p /ftl
 WORKDIR /ftl
 
-CMD make
+CMD [ "make" ]
