@@ -9,7 +9,7 @@ RUN apt-get install --no-install-recommends -y zsh
 RUN apt-get clean
 RUN rm -rf /var/lib/apt/lists/*
 
-RUN chsh -s `which zsh`
+RUN chsh -s $(which zsh)
 RUN pip3 install lizard==1.17.10
 RUN pip3 install compdb==0.2.0
 
