@@ -11,6 +11,7 @@
 #include "log.h"
 
 #include <errno.h>
+#include <inttypes.h>
 
 /**
  * @brief get page from the segment
@@ -48,7 +49,7 @@ retry:
 		paddr.lpn = PADDR_EMPTY;
 		return paddr;
 	}
-	segnum = (pgftl->alloc_segnum + idx) % nr_segments;
+	segnum = ((size_t)pgftl->alloc_segnum + idx) % nr_segments;
 	idx += 1;
 
 	if (dev->badseg_bitmap && get_bit(dev->badseg_bitmap, segnum)) {
@@ -71,7 +72,8 @@ retry:
 	page = (uint32_t)find_first_zero_bit(segment->use_bits,
 					     pages_per_segment, 0);
 	if (page == (uint32_t)BITS_NOT_FOUND) {
-		pr_warn("nr_free_pages and use_bits bitmap are not synchronized(nr_free_pages: %lu, page: %u)\n",
+		pr_warn("nr_free_pages and use_bits bitmap are not synchronized(nr_free_pages: %" PRIu64
+			", page: %u)\n",
 			nr_free_pages, page);
 		goto retry;
 	}
@@ -107,7 +109,8 @@ int page_ftl_update_map(struct page_ftl *pgftl, size_t sector, uint32_t ppn)
 
 	map_size = page_ftl_get_map_size(pgftl) / sizeof(uint32_t);
 	if (lpn >= (uint64_t)map_size) {
-		pr_err("lpn value overflow detected (max: %zu, cur: %lu)\n",
+		pr_err("lpn value overflow detected (max: %zu, cur: %" PRIu64
+		       ")\n",
 		       map_size, lpn);
 		return -EINVAL;
 	}

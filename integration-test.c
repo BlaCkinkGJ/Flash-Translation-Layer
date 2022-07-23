@@ -92,11 +92,11 @@ void *write_thread(void *data)
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
 					 offset);
 		if (ret < 0) {
-			pr_err("write failed (offset: %zu)\n", offset);
+			pr_err("write failed (offset: %zu)\n", (size_t)offset);
 		}
 #ifdef USE_DEBUG_PRINT
 		printf("%-12s: %-16zd(offset: %zu)\n", "write", buffer[0],
-		       offset);
+		       (size_t)offset);
 #endif
 		assert(ret == BLOCK_SIZE);
 		offset += BLOCK_SIZE;
@@ -130,11 +130,12 @@ void *overwrite_thread(void *data)
 		ret = flash->f_op->write(flash, (void *)buffer, BLOCK_SIZE,
 					 offset);
 		if (ret < 0) {
-			pr_err("overwrite failed (offset: %zu)\n", offset);
+			pr_err("overwrite failed (offset: %zu)\n",
+			       (size_t)offset);
 		}
 #ifdef USE_DEBUG_PRINT
 		printf("%-12s: %-16zd(offset: %zu)\n", "overwrite", buffer[0],
-		       offset);
+		       (size_t)offset);
 #endif
 		offset += BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
