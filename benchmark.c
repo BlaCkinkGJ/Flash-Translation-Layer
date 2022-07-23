@@ -20,7 +20,6 @@
 #include "module.h"
 #include "device.h"
 
-// #define USE_LEGACY_RANDOM
 #ifdef USE_LEGACY_RANDOM
 #include <linux/random.h>
 #include <syscall.h>
