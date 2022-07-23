@@ -8,6 +8,8 @@
 #include <string.h>
 #include <time.h>
 
+#define UNITY_SUPPORT_64
+
 void setUp(void)
 {
 }
