@@ -39,6 +39,7 @@ jobs:
       - uses: pguyot/arm-runner-action@v2
         with:
           commands: |
+            grep MemTotal /proc/meminfo
             sudo apt-get update -y && sudo apt-get clean
             sudo apt-get install --no-install-recommends -y git make gcc g++ libglib2.0-dev libiberty-dev
             sudo apt-get install --no-install-recommends -y cppcheck flawfinder cflow

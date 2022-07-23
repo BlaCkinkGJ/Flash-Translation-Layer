@@ -85,9 +85,9 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 DEVICE_LIBS += -lmemio
 DEVICE_INCLUDES += -I/usr/local/include/memio
 else
-# Ramdisk Setting
-DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
-               -DDEVICE_NR_CHIPS_BITS=3 \
+# Ramdisk Setting (1GiB)
+DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
+               -DDEVICE_NR_CHIPS_BITS=2 \
                -DDEVICE_NR_PAGES_BITS=7 \
                -DDEVICE_NR_BLOCKS_BITS=19
 endif
