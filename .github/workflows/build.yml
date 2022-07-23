@@ -30,6 +30,8 @@ jobs:
       run: make clean && make test USE_LOG_SILENT=1
     - name: make integration-test
       run: make clean && make integration-test
+    - name: make benchmark.out
+      run: make clean && make benchmark.out
   build-and-test-arm:
     runs-on: ubuntu-latest
     steps:
@@ -50,3 +52,4 @@ jobs:
             make
             make clean && make test USE_LOG_SILENT=1
             make clean && make integration-test
+            make clean && make benchmark.out

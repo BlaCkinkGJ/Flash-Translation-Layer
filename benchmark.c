@@ -351,7 +351,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 	memset(parm, 0, sizeof(struct benchmark_parameter));
 
 	device_path = parm->device_path;
-	memset(device_path, 0, DEVICE_PATH_SIZE - 1);
+	memset(device_path, 0, (size_t)(DEVICE_PATH_SIZE - 1));
 	nr_jobs = (int)g_get_num_processors();
 
 	while ((c = getopt(argc, argv, "m:d:t:j:b:n:p:h")) != -1) {
