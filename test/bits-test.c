@@ -63,8 +63,8 @@ void test_get_bits(void)
 		uint64_t i;
 		char *setbit;
 		uint64_t *bits;
-		setbit = (char *)malloc(nr_bits);
-		memset(setbit, 0, nr_bits);
+		setbit = (char *)malloc((size_t)nr_bits);
+		memset(setbit, 0, (size_t)nr_bits);
 		bits = (uint64_t *)malloc(
 			(size_t)BITS_TO_UINT64_ALIGN(nr_bits));
 		memset(bits, 0, (size_t)BITS_TO_UINT64_ALIGN(nr_bits));
