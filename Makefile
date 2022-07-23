@@ -197,13 +197,13 @@ $(OBJS): $(SRCS)
 	$(CXX) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
 
 lru-test.out: unity.o ./util/lru.c ./test/lru-test.c
-	$(CXX) $(MACROS) $(CFLAGS) -DUNITY_SUPPORT_64 $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 bits-test.out: unity.o ./test/bits-test.c
-	$(CXX) $(MACROS) $(CFLAGS) -DUNITY_SUPPORT_64 $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
-	$(CXX) $(MACROS) $(CFLAGS) -DUNITY_SUPPORT_64 $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 zone-test.out: $(OBJS) ./test/zone-test.c
