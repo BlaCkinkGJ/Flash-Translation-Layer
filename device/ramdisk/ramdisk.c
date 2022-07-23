@@ -32,7 +32,7 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 {
 	int ret = 0;
 	char *buffer;
-	uint64_t bitmap_size;
+	size_t bitmap_size;
 	uint64_t *is_used;
 	struct ramdisk *ramdisk;
 
@@ -67,26 +67,27 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 	memset(buffer, 0, ramdisk->size);
 	ramdisk->buffer = buffer;
 
-	bitmap_size = BITS_TO_UINT64_ALIGN(ramdisk->size / page->size);
-	is_used = (uint64_t *)malloc(bitmap_size);
+	bitmap_size = (size_t)BITS_TO_UINT64_ALIGN(ramdisk->size / page->size);
+	is_used = (uint64_t *)malloc((size_t)bitmap_size);
 	if (is_used == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	pr_info("bitmap generated (size: %lu bytes)\n", bitmap_size);
+	pr_info("bitmap generated (size: %zu bytes)\n", bitmap_size);
 	memset(is_used, 0, bitmap_size);
 	ramdisk->is_used = is_used;
 
 	nr_segments = device_get_nr_segments(dev);
 	dev->badseg_bitmap =
-		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
+		(uint64_t *)malloc((size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 	if (dev->badseg_bitmap == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+	memset(dev->badseg_bitmap, 0,
+	       (size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 	for (uint64_t i = 0; i < 10; i++) {
 		set_bit(dev->badseg_bitmap, i);
 	}

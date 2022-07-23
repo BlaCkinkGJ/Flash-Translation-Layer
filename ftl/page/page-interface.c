@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <string.h>
 #include <fcntl.h>
+#include <inttypes.h>
 
 #include "log.h"
 #include "page.h"
@@ -116,7 +117,7 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		/** submit the request */
 		write_size = page_ftl_submit_request(pgftl, request);
 		if (write_size != submit_size) {
-			pr_err("page FTL submit request failed (write size: %ld)\n",
+			pr_err("page FTL submit request failed (write size: %zd)\n",
 			       write_size);
 			if (write_size > 0) {
 				request = NULL;
@@ -125,12 +126,12 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		}
 
 		offset += write_size;
-		remain -= (size_t)write_size;
+		remain -= (ssize_t)write_size;
 		ptr += write_size;
 		size += write_size;
 	}
 	if (remain != 0) {
-		pr_err("write failed; remain size must be zero, but %ld\n",
+		pr_err("write failed; remain size must be zero, but %zd\n",
 		       remain);
 		goto exception;
 	}

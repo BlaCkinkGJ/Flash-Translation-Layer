@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <glib.h>
+#include <inttypes.h>
 
 #include "page.h"
 #include "log.h"
@@ -121,7 +122,7 @@ static void *page_ftl_gc_thread(void *data)
 			break;
 		}
 #ifdef USE_GC_MESSAGE
-		pr_info("gc triggered (nr_erase: %ld)\n", ret);
+		pr_info("gc triggered (nr_erase: %zd)\n", ret);
 #endif
 	}
 	return NULL;
@@ -141,12 +142,13 @@ static int page_ftl_alloc_bitmap(struct page_ftl *pgftl, uint64_t **bitmap)
 	uint64_t *bits;
 
 	nr_pages_per_segment = device_get_pages_per_segment(pgftl->dev);
-	bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
+	bits = (uint64_t *)malloc(
+		(size_t)BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
 	if (bits == NULL) {
 		pr_err("bitmap allocation failed\n");
 		return -ENOMEM;
 	}
-	memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
+	memset(bits, 0, (size_t)BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
 	*bitmap = bits;
 	return 0;
 }
@@ -168,7 +170,7 @@ int page_ftl_segment_data_init(struct page_ftl *pgftl,
 	g_atomic_int_set(&segment->nr_valid_pages, 0);
 
 	memset(segment->use_bits, 0,
-	       BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
+	       (size_t)BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
 	if (segment->lpn_list) {
 		g_list_free(segment->lpn_list);
 	}
@@ -373,12 +375,13 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 
 	nr_segments = device_get_nr_segments(dev);
 	pgftl->gc_seg_bits =
-		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
+		(uint64_t *)malloc((size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 	if (pgftl->gc_seg_bits == NULL) {
 		pr_err("memory allocation failed\n");
 		goto exception;
 	}
-	memset(pgftl->gc_seg_bits, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+	memset(pgftl->gc_seg_bits, 0,
+	       (size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 
 	pgftl->o_flags = flags;
 
