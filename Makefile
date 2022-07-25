@@ -33,6 +33,8 @@ USE_BLUEDBM_DEVICE = 0
 # Debug Setting
 USE_DEBUG = 0
 USE_LOG_SILENT = 0
+# Random Generator Setting
+USE_LEGACY_RANDOM = 0
 
 ifeq ($(USE_DEBUG), 1)
 DEBUG_FLAGS = -g -pg \
@@ -51,6 +53,10 @@ endif
 
 ifeq ($(USE_LOG_SILENT), 1)
 DEBUG_FLAGS += -DENABLE_LOG_SILENT
+endif
+
+ifeq ($(USE_LEGACY_RANDOM), 1)
+MACROS += -DUSE_LEGACY_RANDOM
 endif
 
 TEST_TARGET := lru-test.out \

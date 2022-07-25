@@ -176,6 +176,12 @@ INFO:[interface/module.c:module_exit(83)] flash deallocates success
         - path        (null)
 ```
 
+If you encounter a random-related error, please run commands as follows:
+
+```bash
+make benchmark.out USE_LEGACY_RANDOM=1
+```
+
 ## How to get this project's documents
 
 You can get this program's documentation file by using `doxygen -s Doxyfile`. Also, you can get the flow of each function using `make flow`.
