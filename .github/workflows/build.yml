@@ -32,6 +32,8 @@ jobs:
       run: make clean && make integration-test
     - name: make benchmark.out
       run: make clean && make benchmark.out
+    - name: make benchmark.out with legacy random
+      run: make clean && make benchmark.out USE_LEGACY_RANDOM=1
   build-and-test-arm:
     runs-on: ubuntu-latest
     steps:
@@ -53,3 +55,4 @@ jobs:
             make clean && make test USE_LOG_SILENT=1
             make clean && make integration-test
             make clean && make benchmark.out
+            make clean && make benchmark.out USE_LEGACY_RANDOM=1

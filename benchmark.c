@@ -21,8 +21,11 @@
 #include "device.h"
 
 #ifdef USE_LEGACY_RANDOM
+#pragma message "Disable linux kernel supported random generator"
 #include <linux/random.h>
 #include <syscall.h>
+#else
+#pragma message "Enable linux kernel supported random generator"
 #endif
 
 #define DO_WARM_UP (1) /**< Do not erase */
@@ -316,7 +319,7 @@ static void shuffling(off_t *sequence, size_t nr_blocks)
 		clock_gettime(CLOCK_MONOTONIC, &tv);
 
 		seed = (uint64_t)(tv.tv_sec * SEC_TO_NS) + tv.tv_nsec;
-		srand(seed);
+		srand((unsigned int)seed);
 		swap_pos = (size_t)rand();
 #else
 		g_assert(getentropy(&swap_pos, sizeof(size_t)) == 0);
