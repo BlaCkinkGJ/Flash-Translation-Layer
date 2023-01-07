@@ -90,6 +90,7 @@ int page_ftl_segment_data_init(struct page_ftl *, struct page_ftl_segment *);
 
 /* page-gc.c */
 ssize_t page_ftl_do_gc(struct page_ftl *);
+ssize_t page_ftl_gc_from_list(struct page_ftl *, struct device_request *);
 
 static inline size_t page_ftl_get_map_size(struct page_ftl *pgftl)
 {

@@ -292,3 +292,32 @@ ssize_t page_ftl_do_gc(struct page_ftl *pgftl)
 
 	return 0;
 }
+
+/**
+ * @brief do garbage collection from the gc list
+ *
+ * @param pgftl pointer of the page ftl
+ * @param request pointer of the request
+ *
+ * @return number of erased segments
+ */
+ssize_t page_ftl_gc_from_list(struct page_ftl *pgftl,
+			      struct device_request *request)
+{
+	ssize_t ret = 0;
+	size_t nr_segments, nr_gc_segments, idx;
+	nr_segments = device_get_nr_segments(pgftl->dev);
+	nr_gc_segments = (size_t)((double)nr_segments * PAGE_FTL_GC_RATIO);
+	for (idx = 0; (ssize_t)idx >= 0 && idx < nr_gc_segments; idx++) {
+		ret = page_ftl_submit_request(pgftl, request);
+		if (ret) {
+			pr_err("garbage collection from list failed\n");
+			return ret;
+		}
+		if (pgftl->gc_list == NULL) {
+			break;
+		}
+	}
+	ret = (ssize_t)idx;
+	return ret;
+}
