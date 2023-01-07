@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <pthread.h>
 
+#include <assert.h>
 #include <limits.h>
 #include <unistd.h>
 
@@ -24,6 +25,7 @@
 #define PAGE_FTL_GC_RATIO                                                      \
 	((double)10 /                                                          \
 	 100) /**< maximum the number of segments garbage collected */
+#define PAGE_FTL_GC_ALL ((double)1) /**< collect all dirty segments */
 #define PAGE_FTL_GC_THRESHOLD                                                  \
 	((double)20 /                                                          \
 	 100) /**< gc triggered when number of the free pages under threshold */
@@ -90,7 +92,8 @@ int page_ftl_segment_data_init(struct page_ftl *, struct page_ftl_segment *);
 
 /* page-gc.c */
 ssize_t page_ftl_do_gc(struct page_ftl *);
-ssize_t page_ftl_gc_from_list(struct page_ftl *, struct device_request *);
+ssize_t page_ftl_gc_from_list(struct page_ftl *, struct device_request *,
+			      double gc_ratio);
 
 static inline size_t page_ftl_get_map_size(struct page_ftl *pgftl)
 {
@@ -114,5 +117,22 @@ static inline size_t page_ftl_get_segment_number(struct page_ftl *pgftl,
 {
 	return (segment - (uintptr_t)pgftl->segments) /
 	       sizeof(struct page_ftl_segment);
+}
+
+static inline size_t page_ftl_get_free_pages(struct page_ftl *pgftl)
+{
+	size_t free_pages;
+	size_t nr_segments, segnum;
+	struct page_ftl_segment *segment;
+
+	nr_segments = device_get_nr_segments(pgftl->dev);
+
+	free_pages = 0;
+	for (segnum = 0; segnum < nr_segments; segnum++) {
+		segment = &pgftl->segments[segnum];
+		assert(NULL != segment);
+		free_pages += (size_t)g_atomic_int_get(&segment->nr_free_pages);
+	}
+	return free_pages;
 }
 #endif

@@ -314,7 +314,8 @@ static int page_ftl_ioctl_interface(struct flash_device *flash,
 	switch (request) {
 	case PAGE_FTL_IOCTL_TRIM:
 		device_rq->flag = DEVICE_ERASE;
-		ret = (int)page_ftl_gc_from_list(pgftl, device_rq);
+		ret = (int)page_ftl_gc_from_list(pgftl, device_rq,
+						 PAGE_FTL_GC_ALL);
 		break;
 	default:
 		pr_err("invalid command requested(commands: %u)\n", request);

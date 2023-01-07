@@ -25,30 +25,6 @@
 static int is_gc_thread_exit;
 
 /**
- * @brief get number of invalid pages in the ftl
- *
- * @param pgftl pointer of the page ftl structure
- *
- * @return number of the invalid pages
- */
-static size_t page_ftl_get_free_pages(struct page_ftl *pgftl)
-{
-	size_t free_pages;
-	size_t nr_segments, segnum;
-	struct page_ftl_segment *segment;
-
-	nr_segments = device_get_nr_segments(pgftl->dev);
-
-	free_pages = 0;
-	for (segnum = 0; segnum < nr_segments; segnum++) {
-		segment = &pgftl->segments[segnum];
-		assert(NULL != segment);
-		free_pages += (size_t)g_atomic_int_get(&segment->nr_free_pages);
-	}
-	return free_pages;
-}
-
-/**
  * @brief do garbage collection thread
  *
  * @param data containing the pointer of the page ftl structure
@@ -86,7 +62,7 @@ static void *page_ftl_gc_thread(void *data)
 		    (double)total_pages * PAGE_FTL_GC_THRESHOLD) {
 			continue;
 		}
-		ret = page_ftl_gc_from_list(pgftl, &request);
+		ret = page_ftl_gc_from_list(pgftl, &request, PAGE_FTL_GC_RATIO);
 		if (ret < 0) {
 			pr_err("critical garbage collection error detected (errno: %zd)\n",
 			       ret);
