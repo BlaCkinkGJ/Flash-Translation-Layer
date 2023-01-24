@@ -175,25 +175,33 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 }
 
 #ifdef PAGE_FTL_USE_CACHE
-static int page_ftl_lru_dealloc_fn(const uint64_t key, uintptr_t value)
+//이걸로 cache->deallocate 처리
+static int page_ftl_lru_dealloc_fn(const uint64_t key, uintptr_t value, int* Dirty_Bit)
 {
 	struct device_request *request;
 	struct page_ftl *pgftl;
 	struct device *dev;
 
-	int ret = 0;
+	request = (struct device_request *)value;
+	pgftl = (struct page_ftl *)request->rq_private;
 
 	(void)key;
 
-	request = (struct device_request *)value;
-	pgftl = (struct page_ftl *)request->rq_private;
-	dev = pgftl->dev;
+	printf("node->Dirty_Bit : %d\n",*Dirty_Bit);
+	if(*Dirty_Bit)
+	{
+		int ret = 0;
+		dev = pgftl->dev;
+		ret = (int)(dev->d_op->write(dev, request));
+		if (ret != (ssize_t)device_get_page_size(dev)) {
+			pr_err("device write failed (ppn: %u)\n", request->paddr.lpn);
+			return ret;
+		}
 
-	ret = dev->d_op->write(dev, request);
-	if (ret != (ssize_t)device_get_page_size(dev)) {
-		pr_err("device write failed (ppn: %u)\n", request->paddr.lpn);
-		return ret;
+		page_ftl_Dirty_set(pgftl, Dirty_Bit, 0);//flush라서 0
+		printf("page_ftl_lru_dealloc_fn-Dirty fin\n");
 	}
+	else{printf("page_ftl_lru_dealloc_fn-Clean fin\n");}
 	return 0;
 }
 #endif
@@ -512,4 +520,39 @@ int page_ftl_close(struct page_ftl *pgftl)
 		ret = dev->d_op->close(dev);
 	}
 	return ret;
+}
+
+//This
+void page_ftl_Dirty_set(struct page_ftl *pgftl, int *Dirty_Bit, const int WRITE_FLAG)
+{
+	if (WRITE_FLAG)//WRITE
+	{
+		switch(*Dirty_Bit)
+		{
+			case 0://write인데 기존에 Clean이었던 경우
+				*Dirty_Bit = 1;
+				pgftl->cache->Dirty_Count ++;
+				break;
+			case 1://write 이고 기존 Dirty였던 경우
+				break;
+			default://write이지만 기존 DirtyBit이 세팅안된경우
+				pr_err("Dirty_Bit Error Invalid Dirty Bit\n");
+				break;
+		}
+	}
+	else//FLUSH
+	{
+		switch(*Dirty_Bit)
+		{
+			case 0://FLUSH 인데 기존에 Clean이었던 경우
+				break;
+			case 1://FLUSH 이고 기존 Dirty였던 경우
+				*Dirty_Bit = 0;
+				pgftl->cache->Dirty_Count --;
+				break;
+			default://FLUSH 기존 DirtyBit이 세팅안된경우
+				pr_err("Dirty_Bit Error Invalid Dirty Bit\n");
+				break;
+		}
+	}
 }

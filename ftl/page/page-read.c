@@ -141,6 +141,19 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 		goto exception;
 	}
 
+//#############################################################################
+#ifdef PAGE_FTL_USE_CACHE//This
+//Cache 안되있는 상황에서 dev->d_op->read 한걸로 Cache 만들어
+		ssize_t ret_new_read;
+		pthread_mutex_lock(&pgftl->mutex);
+		ret_new_read = lru_put(pgftl->cache, lpn, (uintptr_t)read_rq);
+		if (ret_new_read != 0) {
+			pr_err("write to cache failed <read uncached data> (lpn:%zu)\n", lpn);
+			return ret_new_read;
+		}
+		pthread_mutex_unlock(&pgftl->mutex);
+#endif
+
 	pthread_mutex_lock(&request->mutex);
 	while (g_atomic_int_get(&request->is_finish) == 0) {
 		pthread_cond_wait(&request->cond, &request->mutex);

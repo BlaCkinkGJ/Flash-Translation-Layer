@@ -1,0 +1,4 @@
+make clean;
+clear;
+make -j$(nproc);
+./benchmark.out -m pgftl -d ramdisk -t write -j 4 -b 1048576 -n 100

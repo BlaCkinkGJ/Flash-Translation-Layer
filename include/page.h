@@ -89,6 +89,7 @@ int page_ftl_update_map(struct page_ftl *, size_t sector, uint32_t ppn);
 
 /* page-core.c */
 int page_ftl_segment_data_init(struct page_ftl *, struct page_ftl_segment *);
+void page_ftl_Dirty_set(struct page_ftl *pgftl, int *Dirty_Bit, const int WRITE_FLAG);
 
 /* page-gc.c */
 ssize_t page_ftl_do_gc(struct page_ftl *);

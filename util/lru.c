@@ -70,6 +70,7 @@ static struct lru_node *lru_alloc_node(const uint64_t key, uintptr_t value)
 	}
 	node->key = key;
 	node->value = value;
+	node->Dirty_Bit = 0;//This
 	return node;
 }
 
@@ -129,7 +130,7 @@ static int __lru_do_evict(struct lru_cache *cache)
 	int ret = 0;
 	lru_delete_node(head, target);
 	if (cache->deallocate) {
-		ret = cache->deallocate(target->key, target->value);
+		ret = cache->deallocate(target->key, target->value, &(target->Dirty_Bit));
 	}
 	lru_dealloc_node(target);
 	return ret;
@@ -273,7 +274,7 @@ int lru_free(struct lru_cache *cache)
 		assert(NULL != node);
 		next = node->next;
 		if (cache->deallocate) {
-			ret = cache->deallocate(node->key, node->value);
+			ret = cache->deallocate(node->key, node->value, &(node->Dirty_Bit));
 			if (ret) {
 				pr_err("deallocate failed (key: %" PRIu64
 				       ", value: %" PRIuPTR ")\n",
@@ -286,4 +287,42 @@ int lru_free(struct lru_cache *cache)
 	}
 	free(cache);
 	return ret;
+}
+//This
+uintptr_t lru_get_n_get_node(struct lru_cache *cache, const uint64_t key, struct lru_node **ret_node)
+{
+	struct lru_node *head = cache->head;
+	struct lru_node *node;
+
+	uintptr_t value = (uintptr_t)NULL;
+	(void)ret_node;
+	
+	node = lru_find_node(cache, key);
+	if (node) {//원래자리에서 뜯어와서 맨 앞(head바로 뒤)으로 옮기기
+		lru_delete_node(head, node);
+		lru_node_insert(head, node);
+		value = node->value;
+		*ret_node = node;
+	}
+	return value;
+}
+
+int lru_put_n_get_node(struct lru_cache *cache, const uint64_t key, uintptr_t value, struct lru_node**ret_node)
+{
+	struct lru_node *head = cache->head;
+	struct lru_node *node = NULL;
+	assert(NULL != head);
+	if (cache->size >= cache->capacity) {//cache full
+		pr_debug("eviction is called (size: %zu, cap: %zu)\n", cache->size, cache->capacity);
+		lru_do_evict(cache, lru_get_evict_size(cache));//cache 전체의 약 30% 제거 ->> Write to disk 해야해
+	}
+	node = lru_alloc_node(key, value);
+	if (node == NULL) {
+		pr_err("memory allocation failed\n");
+		return -ENOMEM;
+	}
+	lru_node_insert(head, node);
+	cache->size += 1;
+	*ret_node = node;
+	return 0;
 }

@@ -22,7 +22,7 @@ extern "C" {
 /**
  * @brief deallocate the value for eviction function type. 0 means successfully evicted
  */
-typedef int (*lru_dealloc_fn)(const uint64_t, uintptr_t);
+typedef int (*lru_dealloc_fn)(const uint64_t, uintptr_t, int*);
 
 /**
  * @brief doubly-linked list data structure
@@ -32,6 +32,7 @@ struct lru_node {
 	uintptr_t value;
 	struct lru_node *next;
 	struct lru_node *prev;
+	int Dirty_Bit;
 };
 
 /**
@@ -43,6 +44,8 @@ struct lru_cache {
 	struct lru_node *head;
 	lru_dealloc_fn deallocate;
 	struct lru_node nil; /**< don't access this directly */
+
+	int Dirty_Count;
 };
 
 struct lru_cache *lru_init(const size_t capacity, lru_dealloc_fn deallocate);
@@ -50,6 +53,8 @@ int lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value);
 uintptr_t lru_get(struct lru_cache *cache, const uint64_t key);
 int lru_free(struct lru_cache *cache);
 
+uintptr_t lru_get_n_get_node(struct lru_cache *cache, const uint64_t key, struct lru_node **ret_node);//This
+int lru_put_n_get_node(struct lru_cache *, const uint64_t , uintptr_t , struct lru_node **);//This
 /**
  * @brief get evict size of the LRU cache
  *

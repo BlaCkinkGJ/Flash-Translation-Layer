@@ -148,14 +148,32 @@ static int page_ftl_write_to_cache(struct page_ftl *pgftl,
 				   struct device_request *request, size_t lpn)
 {
 	struct device_request *cached;
-	cached = (struct device_request *)lru_get(pgftl->cache, lpn);
-	if (cached) {
-		memcpy(cached->data, request->data,
-		       device_get_page_size(pgftl->dev));
+	struct lru_node *node = NULL;
+	cached = (struct device_request *)lru_get_n_get_node(pgftl->cache, lpn, &node);
+	if (cached) 
+	{// 이미 캐시된 데이터 덮어쓰기
+		printf("3a\n");
+		memcpy(cached->data, request->data, device_get_page_size(pgftl->dev));
+		printf("memcpy_Fin\n");
 		free(request->data);
+		printf("3a - free ERR??\n");
 		device_free_request(request);
-	} else {
-		return lru_put(pgftl->cache, lpn, (uintptr_t)request);
+
+		page_ftl_Dirty_set(pgftl, &(node->Dirty_Bit), 1);
+		printf("3a_FIN\n");
+	} 
+	else 
+	{// 새로 캐시하고 데이터 쓰기
+		printf("3b\n");
+		int ret;
+		ret = lru_put_n_get_node(pgftl->cache, lpn, (uintptr_t)request, &node);
+		printf("4 : ret=%d node=%p\n",ret,node);
+		if (ret==0){
+			page_ftl_Dirty_set(pgftl, &(node->Dirty_Bit), 1);
+			printf("dirty->bit : %d\n",node->Dirty_Bit);
+			printf("5\n");
+		}
+		return ret;
 	}
 	return 0;
 }
