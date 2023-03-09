@@ -88,9 +88,6 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 	}
 	memset(dev->badseg_bitmap, 0,
 	       (size_t)BITS_TO_UINT64_ALIGN(nr_segments));
-	for (uint64_t i = 0; i < 10; i++) {
-		set_bit(dev->badseg_bitmap, i);
-	}
 	return ret;
 exception:
 	ramdisk_close(dev);
