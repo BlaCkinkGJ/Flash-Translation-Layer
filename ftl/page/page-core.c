@@ -174,30 +174,6 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 	return 0;
 }
 
-#ifdef PAGE_FTL_USE_CACHE
-static int page_ftl_lru_dealloc_fn(const uint64_t key, uintptr_t value)
-{
-	struct device_request *request;
-	struct page_ftl *pgftl;
-	struct device *dev;
-
-	int ret = 0;
-
-	(void)key;
-
-	request = (struct device_request *)value;
-	pgftl = (struct page_ftl *)request->rq_private;
-	dev = pgftl->dev;
-
-	ret = dev->d_op->write(dev, request);
-	if (ret != (ssize_t)device_get_page_size(dev)) {
-		pr_err("device write failed (ppn: %u)\n", request->paddr.lpn);
-		return ret;
-	}
-	return 0;
-}
-#endif
-
 /**
  * @brief initialize the page-ftl's each bus rwlock
  *
@@ -288,14 +264,6 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 		goto exception;
 	}
 
-#ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
-	err = pthread_rwlock_init(&pgftl->rwlock, NULL);
-	if (err) {
-		pr_err("global rwlock initialize failed\n");
-		goto exception;
-	}
-#endif
-
 	dev = pgftl->dev;
 	err = dev->d_op->open(dev, name, flags);
 	if (err) {
@@ -331,15 +299,6 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 	       (size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 
 	pgftl->o_flags = flags;
-
-#ifdef PAGE_FTL_USE_CACHE
-	pgftl->cache = lru_init(PAGE_FTL_CACHE_SIZE, page_ftl_lru_dealloc_fn);
-	if (pgftl->cache == NULL) {
-		pr_err("cannot allocate cache failed\n");
-		err = -ENOMEM;
-		goto exception;
-	}
-#endif
 
 	g_atomic_int_set(&is_gc_thread_exit, 0);
 	gc_thread_status = pthread_create(&pgftl->gc_thread, NULL,
@@ -468,12 +427,6 @@ int page_ftl_close(struct page_ftl *pgftl)
 	pthread_mutex_destroy(&pgftl->gc_mutex);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 	pthread_rwlock_destroy(&pgftl->rwlock);
-#endif
-#ifdef PAGE_FTL_USE_CACHE
-	if (pgftl->cache) {
-		lru_free(pgftl->cache);
-		pgftl->cache = NULL;
-	}
 #endif
 
 	if (pgftl->segments) {

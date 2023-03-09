@@ -143,24 +143,6 @@ static void page_ftl_write_update_metadata(struct page_ftl *pgftl,
 		 g_atomic_int_get(&segment->nr_valid_pages));
 }
 
-#ifdef PAGE_FTL_USE_CACHE
-static int page_ftl_write_to_cache(struct page_ftl *pgftl,
-				   struct device_request *request, size_t lpn)
-{
-	struct device_request *cached;
-	cached = (struct device_request *)lru_get(pgftl->cache, lpn);
-	if (cached) {
-		memcpy(cached->data, request->data,
-		       device_get_page_size(pgftl->dev));
-		free(request->data);
-		device_free_request(request);
-	} else {
-		return lru_put(pgftl->cache, lpn, (uintptr_t)request);
-	}
-	return 0;
-}
-#endif
-
 /**
  * @brief the core logic for writing the request to the device.
  *
@@ -239,21 +221,11 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	request->data_len = page_size;
 	request->end_rq = page_ftl_write_end_rq;
 
-#ifdef PAGE_FTL_USE_CACHE
-	pthread_mutex_lock(&pgftl->mutex);
-	ret = page_ftl_write_to_cache(pgftl, request, lpn);
-	if (ret != 0) {
-		pr_err("write to cache failed (lpn:%zu)\n", lpn);
-		return ret;
-	}
-	pthread_mutex_unlock(&pgftl->mutex);
-#else
 	ret = dev->d_op->write(dev, request);
 	if (ret != (ssize_t)device_get_page_size(dev)) {
 		pr_err("device write failed (ppn: %u)\n", request->paddr.lpn);
 		return ret;
 	}
-#endif
 
 	pthread_mutex_lock(&pgftl->mutex);
 	page_ftl_write_update_metadata(pgftl, paddr, sector);

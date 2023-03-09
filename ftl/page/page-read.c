@@ -57,10 +57,6 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	struct device_request *read_rq;
 	struct device_address paddr;
 
-#ifdef PAGE_FTL_USE_CACHE
-	struct device_request *cached;
-#endif
-
 	char *buffer;
 
 	size_t page_size;
@@ -79,17 +75,6 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 
 	pthread_mutex_lock(&pgftl->mutex);
 	paddr.lpn = pgftl->trans_map[lpn];
-#ifdef PAGE_FTL_USE_CACHE
-	cached = (struct device_request *)lru_get(pgftl->cache, lpn);
-	if (cached) {
-		memcpy(request->data, &((char *)cached->data)[offset],
-		       request->data_len);
-		ret = request->data_len;
-		device_free_request(request);
-		pthread_mutex_unlock(&pgftl->mutex);
-		goto exception;
-	}
-#endif
 	pthread_mutex_unlock(&pgftl->mutex);
 
 	if (paddr.lpn == PADDR_EMPTY) { /**< YOU MUST TAKE CARE OF THIS LINE */
