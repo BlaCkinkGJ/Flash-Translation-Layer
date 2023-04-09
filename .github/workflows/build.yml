@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  LIBCLANG_PATH=/usr/lib/llvm-6.0/lib
+  PATH="/root/.cargo/bin:$PATH"
+
 jobs:
   build-and-test-x86_64:
     runs-on: ubuntu-18.04
@@ -19,6 +23,10 @@ jobs:
         sudo apt-get install --no-install-recommends -y git make gcc g++ libglib2.0-dev libiberty-dev
         sudo apt-get install --no-install-recommends -y cppcheck flawfinder cflow
         sudo apt-get install --no-install-recommends -y python3-pip
+        sudo apt-get install --no-install-recommends -y libclang-dev clang libbz2-dev
+        sudo apt-get install --no-install-recommends -y curl
+        curl https://sh.rustup.rs -sSf | bash -s -- -y
+        echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
         sudo pip3 install lizard==1.17.0
     - name: make check
       run: make check
@@ -28,6 +36,8 @@ jobs:
       run: make
     - name: make test
       run: make clean && make test USE_LOG_SILENT=1
+    - name: make rust-binding-test
+      run: make clean && make rust-binding-test
     - name: make integration-test
       run: make clean && make integration-test
     - name: make benchmark.out
@@ -48,11 +58,16 @@ jobs:
             sudo apt-get install --no-install-recommends -y git make gcc g++ libglib2.0-dev libiberty-dev
             sudo apt-get install --no-install-recommends -y cppcheck flawfinder cflow
             sudo apt-get install --no-install-recommends -y python3-pip
+            sudo apt-get install --no-install-recommends -y libclang-dev clang libbz2-dev
+            sudo apt-get install --no-install-recommends -y curl
+            curl https://sh.rustup.rs -sSf | bash -s -- -y
+            echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
             sudo pip3 install lizard==1.17.0
             make check
             make flow
             make
             make clean && make test USE_LOG_SILENT=1
+            make clean && make rust-binding-test
             make clean && make integration-test
             make clean && make benchmark.out
             make clean && make benchmark.out USE_LEGACY_RANDOM=1

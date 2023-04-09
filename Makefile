@@ -182,7 +182,13 @@ test: $(TEST_TARGET)
 integration-test: $(INTEGRATION_TEST_TARGET)
 	./$(INTEGRATION_TEST_TARGET)
 
-install:
+rust-binding-test: install
+	cd rust/rust-ftl-builder; \
+		LIBCLANG_PATH=$(LIBCLANG_PATH) \
+		FTL_INCLUDE_PATH=$(DESTDIR)$(PREFIX)/include/ftl \
+		cargo test
+
+install: $(LIBRARY_TARGET)
 	install -d $(DESTDIR)$(PREFIX)/lib/
 	install -m 644 $(LIBRARY_TARGET) $(DESTDIR)$(PREFIX)/lib
 	install -d $(DESTDIR)$(PREFIX)/include/ftl

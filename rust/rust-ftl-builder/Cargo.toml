@@ -1,0 +1,11 @@
+[package]
+authors = ["BlaCkinkGJ <ss5kijun@gmail.com>"]
+name = "rust-ftl-builder"
+build = "build.rs"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+bindgen = "0.53.1"
+pkg-config = "0.3.26"
+
