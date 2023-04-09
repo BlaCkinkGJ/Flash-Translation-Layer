@@ -12,6 +12,7 @@ RUN apt-get install --no-install-recommends -y curl
 RUN apt-get install --no-install-recommends -y zsh
 RUN apt-get install --no-install-recommends -y libclang-dev clang libbz2-dev
 RUN apt-get clean
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 RUN echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
 RUN rm -rf /var/lib/apt/lists/*
