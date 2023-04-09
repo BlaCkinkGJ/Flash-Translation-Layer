@@ -8,7 +8,7 @@ on:
 
 env:
   LIBCLANG_PATH: "/usr/lib/llvm-6.0/lib"
-  PATH: "/root/.cargo/bin:$PATH"
+  CARGO_BIN_PATH: "/root/.cargo/bin"
 
 jobs:
   build-and-test-x86_64:
@@ -36,14 +36,14 @@ jobs:
       run: make
     - name: make test
       run: make clean && make test USE_LOG_SILENT=1
-    - name: make rust-binding-test
-      run: make clean && make rust-binding-test
     - name: make integration-test
       run: make clean && make integration-test
     - name: make benchmark.out
       run: make clean && make benchmark.out
     - name: make benchmark.out with legacy random
       run: make clean && make benchmark.out USE_LEGACY_RANDOM=1
+    - name: make rust-binding-test
+      run: make clean && PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
   build-and-test-arm:
     runs-on: ubuntu-latest
     steps:
@@ -67,7 +67,7 @@ jobs:
             make flow
             make
             make clean && make test USE_LOG_SILENT=1
-            make clean && make rust-binding-test
             make clean && make integration-test
             make clean && make benchmark.out
             make clean && make benchmark.out USE_LEGACY_RANDOM=1
+            make clean && PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
