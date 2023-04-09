@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 env:
-  LIBCLANG_PATH=/usr/lib/llvm-6.0/lib
+  LIBCLANG_PATH="/usr/lib/llvm-6.0/lib"
   PATH="/root/.cargo/bin:$PATH"
 
 jobs:
