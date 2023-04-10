@@ -47,6 +47,7 @@ jobs:
   build-and-test-arm:
     runs-on: ubuntu-latest
     steps:
+      - uses: easimon/maximize-build-space@v7
       - uses: actions/checkout@v2
         with:
           submodules: recursive
