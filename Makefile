@@ -126,6 +126,7 @@ INCLUDES := -I./include -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
 BLUEDBM_SRCS =
+CHIP2CHIP_SRCS =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 ZONED_SRCS += device/zone/*.c
@@ -135,10 +136,15 @@ ifeq ($(USE_BLUEDBM_DEVICE), 1)
 BLUEDBM_SRCS += device/bluedbm/*.c
 endif
 
+ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
+CHIP2CHIP_SRCS = device/chip2chip/*.c
+endif
+
 DEVICE_SRCS := $(RAMDISK_SRCS) \
                $(BLUEDBM_SRCS) \
                $(ZONED_SRCS) \
-               device/*.c
+	       $(CHIP2CHIP_SRCS) \
+	       device/*.c
 
 UTIL_SRCS := util/*.c
 

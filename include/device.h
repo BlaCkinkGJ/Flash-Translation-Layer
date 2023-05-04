@@ -42,6 +42,7 @@ enum { DEVICE_WRITE = 0 /**< write flag */,
 enum { RAMDISK_MODULE = 0 /**< select the ramdisk module */,
        BLUEDBM_MODULE /**< select the bluedbm module */,
        ZONE_MODULE /**< select the zone module */,
+       C2C_MODULE /**< select the Chip2Chip module */,
 };
 
 /**
