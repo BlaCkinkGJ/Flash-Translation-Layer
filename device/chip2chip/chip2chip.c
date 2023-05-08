@@ -58,7 +58,7 @@ static void chip2chip_erase_end_request(uint64_t segnum, uint8_t is_bad)
  */ 
 void read_buffer_cpy(u64* read_upper, u64* read_lower, u64* buffer, size_t page_size)
 {
-	for(int i = 0; i < (page_size / (2 * sizeof(u64))); i = i + 1) {
+	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++) {
 		buffer[2*i] = read_upper[i];
 		buffer[2*i+1] = read_lower[i];
 	}
@@ -75,7 +75,7 @@ void read_buffer_cpy(u64* read_upper, u64* read_lower, u64* buffer, size_t page_
  */ 
 void write_buffer_cpy(u64* write_upper, u64* write_lower, u64* buffer, size_t page_size)
 {
-	for(int i = 0; i < (page_size / (2 * sizeof(u64))); i = i + 1) {
+	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++) {
 		write_upper[i] = buffer[2*i];
 		write_lower[i] = buffer[2*i+1];
 	}
@@ -417,8 +417,8 @@ ssize_t chip2chip_write(struct device *dev, struct device_request *request)
 			(u64)request->paddr.format.chip,
 			(u64)request->paddr.format.block,
 			(u64)request->paddr.format.page,
-			writeData_upper_arr,
-			writeData_lower_arr
+			c2c->writeData_upper_arr,
+			c2c->writeData_lower_arr
 			);
 
 	if(result == -1)
@@ -527,8 +527,9 @@ ssize_t chip2chip_read(struct device *dev, struct device_request *request)
 			(u64)request->paddr.format.chip,
 			(u64)request->paddr.format.block,
 			(u64)request->paddr.format.page,
-			readData_upper_arr,
-			readData_lower_arr
+			c2c->readData_upper_arr,
+			c2c->readData_lower_arr,
+			page_size
 			);
 
 	read_buffer_cpy(c2c->readData_upper_arr, c2c->readData_lower_arr,
@@ -576,8 +577,8 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 	size_t erase_size;
 	*/
 	//int result = -1;
-	size_t busnum = dev->info->nr_bus;
-	size_t chipnum = dev->info->nr_chips;
+	size_t busnum = dev->info.nr_bus;
+	size_t chipnum = dev->info.nr_chips;
 	int ret = 0;
 
 	c2c = (struct chip2chip *)dev->d_private;

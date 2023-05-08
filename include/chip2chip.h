@@ -22,11 +22,13 @@
 /**
  * @brief structure for manage the dma
  */
+/*
 typedef struct {
 	uint32_t tag;
 	char *data;
 	void *d_private;
-} bluedbm_dma_t;
+} chip2chip_dma_t;
+*/
 
 /**
  * @brief a structure for managing chip2chip device
