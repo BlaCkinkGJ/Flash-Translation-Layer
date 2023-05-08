@@ -126,7 +126,8 @@ static int chip2chip_clear(struct device *dev)
 			   bluedbm_erase_end_request);
 	}
 	*/
-
+	
+	//clear all segments : (bus * chip) * block
 	for(size_t bus = 0; bus < busnum; bus++) {
 		for(size_t chip = 0; chip < chipnum; chip++) {
 			for(size_t block = 0; block < blocknum; block++) {

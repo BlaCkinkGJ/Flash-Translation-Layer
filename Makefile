@@ -27,6 +27,7 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 # Device Module Setting
 USE_ZONE_DEVICE = 0
 USE_BLUEDBM_DEVICE = 0
+USE_CHIP2CHIP_DEVICE = 0
 # Debug Setting
 USE_DEBUG = 0
 USE_LOG_SILENT = 0
@@ -81,6 +82,19 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 
 DEVICE_LIBS += -lmemio
 DEVICE_INCLUDES += -I/usr/local/include/memio
+else ifeq($(USE_CHIP2CHIP_DEVICE), 1)
+#Chip2chip Device's Setting
+DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
+	       -DDEVICE_NR_CHIPS_BITS=3 \
+	       -DDEVICE_NR_PAGES_BITS=7 \
+	       -DDEVICE_NR_BLOCKS_BITS=19 \
+	       -DUSER_MODE \
+	       -DUSE_PMU \
+	       -DUSE_KTIMER \
+	       -DUSE_NEW_RMW \
+	       -D_LARGEFILE64_SOURCE \
+	       -D_GNU_SOURCE \
+	       -DNOHOST
 else
 # Ramdisk Setting
 DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
