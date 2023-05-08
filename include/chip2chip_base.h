@@ -433,7 +433,7 @@ int write_page(u64 bus, u64 chip, u64 block, u64 page,
 		//Xil_Out64(C2C_WRITE_DATA_UPPER_ADDR, *pWriteBuf_upper);
 		
 		/* write lower buffer에 있는 64-bit값을 보냄*/
-		CTC_Out(rgstr_vptr.write_data_l, *pWriteBuf_lower[i]);
+		CTC_Out(rgstr_vptr.write_data_l, pWriteBuf_lower[i]);
 		//CTC_Out(rgstr_vptr.write_data_l, *pWriteBuf_lower);
 		//Xil_Out64(C2C_WRITE_DATA_LOWER_ADDR, *pWriteBuf_lower);
 		
