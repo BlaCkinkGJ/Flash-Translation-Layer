@@ -382,8 +382,8 @@ int write_page(u64 bus, u64 chip, u64 block, u64 page,
 	/* write data의 tag로 명령의 tag를 사용, 동시에 tag valid bit을 1로 만듦 */
 	u64 writeData_tag =  (VALID<<WR_DATA_TAG_VALID_BIT)|(tag<<WR_DATA_TAG_BIT);
 	u64 status_reg_value;
-	int ack;
-	int ack_tag;
+	u64 ack;
+	u64 ack_tag;
 	/* command 생성*/
 	command = (key << KEY_BIT)					\
 			|(tag << TAG_BIT)					\

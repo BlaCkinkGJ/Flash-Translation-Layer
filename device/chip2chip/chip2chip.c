@@ -418,7 +418,8 @@ ssize_t chip2chip_write(struct device *dev, struct device_request *request)
 			(u64)request->paddr.format.block,
 			(u64)request->paddr.format.page,
 			c2c->writeData_upper_arr,
-			c2c->writeData_lower_arr
+			c2c->writeData_lower_arr,
+			page_size
 			);
 
 	if(result == -1)
