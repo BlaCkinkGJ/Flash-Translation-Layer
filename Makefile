@@ -27,7 +27,7 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 # Device Module Setting
 USE_ZONE_DEVICE = 0
 USE_BLUEDBM_DEVICE = 0
-USE_CHIP2CHIP_DEVICE = 0
+USE_CHIP2CHIP_DEVICE = 1
 # Debug Setting
 USE_DEBUG = 0
 USE_LOG_SILENT = 0

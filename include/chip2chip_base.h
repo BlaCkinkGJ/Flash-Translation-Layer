@@ -164,8 +164,15 @@ struct _rgstr_vptr {
 	u64 *write_data_l;	//Write data lower register
 } rgstr_vptr;
 
+//function declaration for "in this scope" issue
+int wait_cmd_ready(void);
+int wait_flash_operation(u64 op, u64 tag, int* Qnumber, u64* ack,u64* ack_tag);
+int wait_writeData_req(u64* requested_tag);
+int wait_wrData_ready(void);
+int wait_flash_operation(u64 op, u64 tag, int* Qnumber, u64* ack,u64* ack_tag);
+
 void vptr_mmap(u64** vptr, off_t addr) { //Mapping registers to the host's memory
-	return (*vptr = (u64 *)mmap(NULL, REG_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_memory, addr));
+	(*vptr = (u64 *)mmap(NULL, REG_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_memory, addr));
 }
 
 void rgstr_offset_map(u64** vptr, u64 offset) {
