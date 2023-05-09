@@ -82,7 +82,7 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 
 DEVICE_LIBS += -lmemio
 DEVICE_INCLUDES += -I/usr/local/include/memio
-else ifeq($(USE_CHIP2CHIP_DEVICE), 1)
+else ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
 #Chip2chip Device's Setting
 DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 	       -DDEVICE_NR_CHIPS_BITS=3 \
@@ -110,6 +110,10 @@ endif
 
 ifeq ($(USE_BLUEDBM_DEVICE), 1)
 DEVICE_INFO += -DDEVICE_USE_BLUEDBM
+endif
+
+ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
+DEVICE_INFO += -DDEVICE_USE_CHIP2CHIP
 endif
 
 ARFLAGS := rcs

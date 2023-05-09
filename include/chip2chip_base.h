@@ -1,3 +1,6 @@
+#ifndef CHIP2CHIPBASE_H
+#define CHIP2CHIPBASE_H
+
 #include <stdio.h>
 //#include "xil_printf.h"
 //#include "xil_io.h"
@@ -343,7 +346,7 @@ int read_page(u64 bus, u64 chip, u64 block, u64 page,
 			|(page << PAGE_BIT);
 	/* flash controller에서 command를 받을 준비가 될 때 까지 기다림 */
 	if(wait_cmd_ready() < 0){
-		printf("Error: wait command ready signal time out\r\n");
+		pr_err("Error: wait command ready signal time out\r\n");
 		return -1;
 	}
 	/* command 입력 */
@@ -353,7 +356,7 @@ int read_page(u64 bus, u64 chip, u64 block, u64 page,
 	/* read 동작이 flahs controller에 제대로 입력되어 read queue에 데이터가 쌓일 때 까지 기다림*/
 	/* 동시에 명령에 대한 데이터가 몇 번째 queue에 있는지를 readQ_number 변수에 가져옴 */
 	if(wait_flash_operation(op, tag, &readyQ_number, 0, 0) !=0){
-		printf("Error: wait read data Q ready time out\r\n");
+		pr_err("Error: wait read data Q ready time out\r\n");
 		return -1;
 	}
 	/* 8KB 용량 (==1page) 만큼 읽어 올 때 까지 반복*/
@@ -367,7 +370,7 @@ int read_page(u64 bus, u64 chip, u64 block, u64 page,
 		//pReadBuf_lower[i] = Xil_In64(C2C_READ_DATA0_LOWER_ADDR + readyQ_number*READQ_ADDR_INTERVAL);
 	}
 
-	printf("read page operation was finished\r\n");
+	pr_info("read page operation was finished\r\n");
 	return 0;
 }
 
@@ -394,7 +397,7 @@ int write_page(u64 bus, u64 chip, u64 block, u64 page,
 			|(page << PAGE_BIT);
 	/* flash controller에서 command를 받을 준비가 될 때 까지 기다림 */
 	if(wait_cmd_ready() < 0){
-		printf("Error: wait command ready signal time out\r\n");
+		pr_err("Error: wait command ready signal time out\r\n");
 		return -1;
 	}
 	/* 명령 입력*/
@@ -403,18 +406,18 @@ int write_page(u64 bus, u64 chip, u64 block, u64 page,
 	
 	/* write data request가 나올 때 까지 기다리고 나오면 tag를 가져옴*/
 	if(wait_writeData_req(&requested_tag)!=0){
-		printf("Error: write data request time out\r\n");
+		pr_err("Error: write data request time out\r\n");
 		return -1;
 	}
 	/* 가져온 tag가 명령의 tag와 일치하지 않으면 에러*/
 	if(requested_tag != tag){
-		printf("Error: the tag of the current command and the requested tag are different.\r\n");
+		pr_err("Error: the tag of the current command and the requested tag are different.\r\n");
 		return -1;
 	}
-	printf("write data requested\r\n");
+	pr_info("write data requested\r\n");
 	/* flash controller에서 write data를 받을 준비가 될 때 까지 대기*/
 	if(wait_wrData_ready() < 0){
-		printf("Error: wait write data ready signal time out\r\n");
+		pr_err("Error: wait write data ready signal time out\r\n");
 		return -1;
 	}
 	/* write & erase status 레지스터의 64-bit를 읽어옴*/
@@ -447,15 +450,15 @@ int write_page(u64 bus, u64 chip, u64 block, u64 page,
 	
 	/* ack 신호가 나올 때 까지 기다리고 나오면 ack 값을 받아옴*/
 	if(wait_flash_operation(op, tag, 0, &ack, &ack_tag)!=0){
-		printf("Error: wait ack time out\r\n");
+		pr_err("Error: wait ack time out\r\n");
 		return -1;
 	}
 	/* ack 값을 확인했을 때 write가 정상 종료 되지 않았다면*/
 	if(ack != ACK_WRITE_DONE){
-		printf("Error: ack is not ACK_WRITE_DONE\r\n");
+		pr_err("Error: ack is not ACK_WRITE_DONE\r\n");
 		return -1;
 	}
-	printf("write page operation was finished\r\n");
+	pr_info("write page operation was finished\r\n");
 
 	return 0;
 }
@@ -476,7 +479,7 @@ int erase_block(u64 bus, u64 chip, u64 block){
 			|(block << BLOCK_BIT);
 	/* flash controller에서 command를 받을 준비가 될 때 까지 기다림 */
 	if(wait_cmd_ready() < 0){
-		printf("Error: wait command ready signal time out\r\n");
+		pr_err("Error: wait command ready signal time out\r\n");
 		return -1;
 	}
 	/* command 입력*/
@@ -485,15 +488,15 @@ int erase_block(u64 bus, u64 chip, u64 block){
 	
 	/* ack 신호가 나올 때 까지 기다리고 나오면 ack 값을 받아옴*/
 	if(wait_flash_operation(op, tag, 0, &ack, &ack_tag)!=0){
-		printf("Error: wait ack time out\r\n");
+		pr_err("Error: wait ack time out\r\n");
 		return -1;
 	}
 	/* ack 값을 확인했을 때 erase가 정상 종료 되지 않았다면*/
 	if(ack != ACK_ERASE_DONE){
-		printf("Error: ack is not ACK_ERASE_DONE\r\n");
+		pr_err("Error: ack is not ACK_ERASE_DONE\r\n");
 		return -1;
 	}
-	printf("erase block operation was finished\r\n");
+	pr_info("erase block operation was finished\r\n");
 
 	return 0;
 }
@@ -661,3 +664,5 @@ int wait_flash_operation(u64 op, u64 tag, int* Qnumber, u64* ack,u64* ack_tag){
 	else
 		return 0;
 }
+
+#endif
