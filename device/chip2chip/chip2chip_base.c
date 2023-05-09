@@ -498,4 +498,3 @@ int wait_flash_operation(u64 op, u64 tag, int* Qnumber, u64* ack,u64* ack_tag){
 		return 0;
 }
 
-#endif

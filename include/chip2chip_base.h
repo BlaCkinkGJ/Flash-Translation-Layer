@@ -138,7 +138,6 @@
 
 #define REG_SIZE			0xA8
 
-int fd_memory;		//File descriptor of the memory device
 
 typedef unsigned long long u64;
 

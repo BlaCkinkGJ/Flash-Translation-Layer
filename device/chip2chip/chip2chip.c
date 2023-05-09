@@ -582,6 +582,8 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 	size_t chipnum = dev->info.nr_chips;
 	int ret = 0;
 
+	pthread_mutex_t *mutex;
+
 	c2c = (struct chip2chip *)dev->d_private;
 
 	//mio = bdbm->mio;
@@ -620,11 +622,15 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 	//memio_trim(mio, addr.lpn, erase_size, bluedbm_erase_end_request);
 	//bluedbm_wait_erase_finish(dev, segnum, 1);
 	
+	mutex = c2c->iomutex;
+
 	for(size_t bus = 0; bus < busnum; bus++) {
 		for(size_t chip = 0; chip < chipnum; chip++) {
+			pthread_mutex_lock(mutex);
 			ret = erase_block((u64)bus, (u64)chip,
 				(u64)request->paddr.format.block
 				);
+			pthread_mutex_unlock(mutex);
 			if(ret == -1)
 				goto exception;
 		}
@@ -733,6 +739,8 @@ int chip2chip_device_init(struct device *dev, uint64_t flags)
 	c2c->readData_lower_arr = (u64*)malloc(page_size/2);
 	c2c->writeData_upper_arr = (u64*)malloc(page_size/2);
 	c2c->writeData_lower_arr = (u64*)malloc(page_size/2);
+
+	pthread_mutex_init(&(c2c->iomutex), NULL);
 
 	dev->d_op = &__chip2chip_dops;
 	dev->d_private = (void *)c2c;
