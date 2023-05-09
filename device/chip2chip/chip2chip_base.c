@@ -1,6 +1,9 @@
 #include "chip2chip_base.h"
 
 
+int fd_memory; //File descriptor of the memory device
+
+struct _rgstr_vptr rgstr_vptr;
 
 void vptr_mmap(u64** vptr, off_t addr) { //Mapping registers to the host's memory
 	(*vptr = (u64 *)mmap(NULL, REG_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_memory, addr));
