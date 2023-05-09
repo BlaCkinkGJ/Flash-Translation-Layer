@@ -1,5 +1,7 @@
 #include "chip2chip_base.h"
-
+#include "device.h"
+#include "log.h"
+#include "bits.h"
 
 int fd_memory; //File descriptor of the memory device
 
