@@ -622,7 +622,7 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 	//memio_trim(mio, addr.lpn, erase_size, bluedbm_erase_end_request);
 	//bluedbm_wait_erase_finish(dev, segnum, 1);
 	
-	mutex = c2c->iomutex;
+	mutex = &c2c->iomutex;
 
 	for(size_t bus = 0; bus < busnum; bus++) {
 		for(size_t chip = 0; chip < chipnum; chip++) {

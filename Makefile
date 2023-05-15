@@ -222,6 +222,11 @@ zone-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/zone-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 endif
 
+ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
+chip2chip-test.out : $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/chip2chip-test.c
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+endif
+
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
 	cppcheck --quiet --enable=all --inconclusive -I include/ $(SRCS) *.c
