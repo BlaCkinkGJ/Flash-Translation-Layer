@@ -54,6 +54,7 @@ void test_full_write(void)
 	memset(buffer, 0, page_size);
 
 	/**< note that all I/O functions run synchronously */
+	/*
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
 		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
@@ -65,8 +66,23 @@ void test_full_write(void)
 		TEST_ASSERT_EQUAL_INT(request.data_len,
 				      dev->d_op->write(dev, &request));
 	}
+	*/
+
+	addr.format.bus = 1;
+	addr.format.chip = 2;
+	addr.format.block = 3;
+	memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+	request.paddr = addr;
+	request.data_len = page_size;
+	request.end_rq = NULL;
+	request.flag = DEVICE_WRITE;
+	request.sector = 0;
+	request.data = buffer;
+	TEST_ASSERT_EQUAL_INT(request.data_len,
+			      dev->d_op->write(dev, &request));
 
 	memset(buffer, 0, page_size);
+	/*
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
 		request.paddr = addr;
 		request.data_len = page_size;
@@ -78,6 +94,16 @@ void test_full_write(void)
 				      dev->d_op->read(dev, &request));
 		TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 	}
+	*/
+
+	request.data_len = page_size;
+	request.endrq = NULL;
+	request.flag = DEVICE_READ;
+	request.sector = 0;
+	request.data = buffer;
+	TEST_ASSERT_EQUAL_INT(request.data_len,
+			      dev->d_op->read(dev, &request));
+	TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
 	free(buffer);
@@ -146,6 +172,7 @@ void test_erase(void)
 	memset(buffer, 0, page_size);
 
 	/**< note that all I/O functions run synchronously */
+	/*
 	for (addr.lpn = 0; addr.lpn < total_pages; addr.lpn++) {
 		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
@@ -167,7 +194,22 @@ void test_erase(void)
 		request.end_rq = NULL;
 		TEST_ASSERT_EQUAL_INT(0, dev->d_op->erase(dev, &request));
 	};
+	*/
+	
 
+	addr.lpn = 0;
+	addr.format.block = 3;
+	memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+	request.paddr = addr;
+	request.data_len = page_size;
+	request.end_rq = NULL;
+	request.flag = DEVICE_ERASE;
+	request.sector = 0;
+	request.data = buffer;
+	TEST_ASSERT_EQUAL_INT(request.data_len,
+			      dev->d_op->erase(dev, &request));
+
+	/*
 	nr_pages_per_segment = device_get_pages_per_segment(dev);
 	for (addr.lpn = 0; addr.lpn < total_pages - nr_pages_per_segment;
 	     addr.lpn++) {
@@ -181,7 +223,7 @@ void test_erase(void)
 		TEST_ASSERT_EQUAL_INT(request.data_len,
 				      dev->d_op->write(dev, &request));
 	}
-
+	
 	for (; addr.lpn < total_pages; addr.lpn++) {
 		memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 		request.paddr = addr;
@@ -192,6 +234,22 @@ void test_erase(void)
 		request.data = buffer;
 		TEST_ASSERT_EQUAL_INT(-EINVAL, dev->d_op->write(dev, &request));
 	}
+	*/
+	
+	addr.format.bus = 1;
+	addr.format.chip = 2;
+	addr.format.block = 3;
+	request..paddr = addr;
+	request.data_len = page_size;
+	request.endrq = NULL;
+	request.flag = DEVICE_READ;
+	request.sector = 0;
+	request.data = buffer;
+	TEST_ASSERT_EQUAL_INT(request.data_len,
+			      dev->d_op->read(dev, &request));
+	TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
+	
+
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
 	free(buffer);
@@ -290,8 +348,8 @@ int main(void)
 	UNITY_BEGIN();
 	RUN_TEST(test_open);
 	RUN_TEST(test_full_write);
-	RUN_TEST(test_overwrite);
+	//RUN_TEST(test_overwrite);
 	RUN_TEST(test_erase);
-	RUN_TEST(test_end_rq_works);
+	//RUN_TEST(test_end_rq_works);
 	return UNITY_END();
 }

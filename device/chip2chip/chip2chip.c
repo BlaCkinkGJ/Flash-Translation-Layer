@@ -261,9 +261,9 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 	}
 
 	if (c2c->o_flags & O_CREAT) {
-		chip2chip_clear(dev);
+		//chip2chip_clear(dev);
 		sleep(1);
-		chip2chip_wait_erase_finish(dev, 0, nr_segments);
+		//chip2chip_wait_erase_finish(dev, 0, nr_segments);
 	}
 
 	return 0;
