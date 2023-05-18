@@ -97,7 +97,7 @@ void test_full_write(void)
 	*/
 
 	request.data_len = page_size;
-	request.endrq = NULL;
+	request.end_rq = NULL;
 	request.flag = DEVICE_READ;
 	request.sector = 0;
 	request.data = buffer;
@@ -239,9 +239,9 @@ void test_erase(void)
 	addr.format.bus = 1;
 	addr.format.chip = 2;
 	addr.format.block = 3;
-	request..paddr = addr;
+	request.paddr = addr;
 	request.data_len = page_size;
-	request.endrq = NULL;
+	request.end_rq = NULL;
 	request.flag = DEVICE_READ;
 	request.sector = 0;
 	request.data = buffer;
