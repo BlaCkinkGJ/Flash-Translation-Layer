@@ -347,9 +347,9 @@ int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_open);
+	RUN_TEST(test_erase);
 	RUN_TEST(test_full_write);
 	//RUN_TEST(test_overwrite);
-	RUN_TEST(test_erase);
 	//RUN_TEST(test_end_rq_works);
 	return UNITY_END();
 }
