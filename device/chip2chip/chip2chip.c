@@ -636,7 +636,7 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 		}
 	}
 	chip2chip_wait_erase_finish(dev, segnum, 1); //may need to be removed if FTL doesn't function
-		
+	ret = busnum * chipnum;		
 	return ret;
 exception:
 	return ret;

@@ -29,7 +29,7 @@ USE_ZONE_DEVICE = 0
 USE_BLUEDBM_DEVICE = 0
 USE_CHIP2CHIP_DEVICE = 1
 # Debug Setting
-USE_DEBUG = 0
+USE_DEBUG = 1
 USE_LOG_SILENT = 0
 
 ifeq ($(USE_DEBUG), 1)
@@ -227,6 +227,24 @@ ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
 chip2chip-test.out : $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/chip2chip-test.c
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 endif
+
+unity.o: $(UNITY_ROOT)/src/unity.c
+	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -c $^ $(LIBS)
+
+docker-builder:
+	docker build -t $(DOCKER_TAG_ROOT)/ftl-builder \
+		-f docker/Dockerfile ./docker
+
+docker-make-%:
+	docker run --rm -v $(PWD):/ftl \
+		$(DOCKER_TAG_ROOT)/ftl-builder /bin/bash -c "make clean && make $*"
+
+docker-console:
+	docker run --rm -it -v $(PWD):/ftl \
+		-v ${HOME}/.zshrc:/root/.zshrc \
+		-v ${HOME}/.vim:/root/.vim \
+		-v ${HOME}/.vimrc:/root/.vimrc \
+		$(DOCKER_TAG_ROOT)/ftl-builder /bin/bash
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
