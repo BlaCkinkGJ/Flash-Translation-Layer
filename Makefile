@@ -3,6 +3,8 @@
 # `bear make all -j$(nproc)`
 # `compdb -p ./ list > ../compile_commands.json`
 # `cp ../compile_commands.json ./
+# or
+# `make compiledb`
 #
 # You can get `bear` from [link](https://github.com/rizsotto/Bear)
 # You can get `compdb` from [link](https://github.com/Sarcasm/compdb)
@@ -15,7 +17,7 @@
 CC = gcc
 AR = ar
 CXX = g++
-TARGET = a.out
+INTEGRATION_TEST_TARGET = integration-test.out
 BENCHMARK_TARGET = benchmark.out
 LIBRARY_TARGET = libftl.a
 
@@ -23,6 +25,7 @@ GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
 DEVICE_INCLUDES = 
 
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
+DOCKER_TAG_ROOT = ftl
 
 # Device Module Setting
 USE_ZONE_DEVICE = 0
@@ -31,6 +34,8 @@ USE_CHIP2CHIP_DEVICE = 1
 # Debug Setting
 USE_DEBUG = 1
 USE_LOG_SILENT = 0
+# Random Generator Setting
+USE_LEGACY_RANDOM = 0
 
 ifeq ($(USE_DEBUG), 1)
 DEBUG_FLAGS = -g -pg \
@@ -49,6 +54,10 @@ endif
 
 ifeq ($(USE_LOG_SILENT), 1)
 DEBUG_FLAGS += -DENABLE_LOG_SILENT
+endif
+
+ifeq ($(USE_LEGACY_RANDOM), 1)
+MACROS += -DUSE_LEGACY_RANDOM
 endif
 
 TEST_TARGET := lru-test.out \
@@ -97,9 +106,9 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 	       -D_GNU_SOURCE \
 	       -DNOHOST
 else
-# Ramdisk Setting
-DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
-               -DDEVICE_NR_CHIPS_BITS=3 \
+# Ramdisk Setting (1GiB)
+DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
+               -DDEVICE_NR_CHIPS_BITS=2 \
                -DDEVICE_NR_PAGES_BITS=7 \
                -DDEVICE_NR_BLOCKS_BITS=19
 endif
@@ -129,6 +138,8 @@ CFLAGS := -Wall \
           -Wmissing-field-initializers \
           -Wno-unknown-pragmas \
           -Wundef \
+          -Wconversion \
+          -Werror \
           $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
           $(MEMORY_CHECK_CFLAGS) \
@@ -182,12 +193,19 @@ ifeq ($(PREFIX),)
 PREFIX := /usr/local
 endif
 
-all: $(TARGET) $(BENCHMARK_TARGET)
+all: $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 
 test: $(TEST_TARGET)
 	@for target in $(TEST_TARGET) ; do \
 		./$$target ; \
 	done
+	# show coverage 
+	@for target in $(TEST_TARGET) ; do \
+		gcov ./$$target ; \
+	done
+
+integration-test: $(INTEGRATION_TEST_TARGET)
+	./$(INTEGRATION_TEST_TARGET)
 
 install:
 	install -d $(DESTDIR)$(PREFIX)/lib/
@@ -195,13 +213,13 @@ install:
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
-$(TARGET): main.c $(LIBRARY_TARGET)
-	$(CXX) $(MACROS) $(CXXFLAGS) -c main.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ main.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
+$(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET)
+	$(CXX) $(MACROS) $(CXXFLAGS) -c integration-test.c $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.c -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
@@ -209,18 +227,18 @@ $(LIBRARY_TARGET): $(OBJS)
 $(OBJS): $(SRCS)
 	$(CXX) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
 
-lru-test.out: $(UNITY_ROOT)/src/unity.c ./util/lru.c ./test/lru-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+lru-test.out: unity.o ./util/lru.c ./test/lru-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
-bits-test.out: $(UNITY_ROOT)/src/unity.c ./test/bits-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+bits-test.out: unity.o ./test/bits-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
-ramdisk-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/ramdisk-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
-zone-test.out: $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/zone-test.c
-	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+zone-test.out: $(OBJS) ./test/zone-test.c
+	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 endif
 
 ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
@@ -248,7 +266,7 @@ docker-console:
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
-	cppcheck --quiet --enable=all --inconclusive -I include/ $(SRCS) *.c
+	cppcheck --quiet --error-exitcode=0 --enable=all --inconclusive -I include/ $(SRCS) *.c
 	@echo "[[ FLAWFINDER ROUTINE ]]"
 	flawfinder $(SRCS) include/*.h
 	@echo "[[ STATIC ANALYSIS ROUTINE ]]"
@@ -260,8 +278,14 @@ documents:
 flow:
 	find . -type f -name '*.[ch]' ! -path "./unity/*" ! -path "./test/*" | xargs -i cflow {}
 
-clean:
-	find . -name '*.o'  | xargs -i rm -f {}
-	rm -f $(TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
-	rm -rf doxygen/
+compiledb:
+	bear $(MAKE) all
+	compdb -p ./ list > ../compile_commands.json
+	mv ../compile_commands.json ./
 
+clean:
+	find . -name '*.o' -exec rm -f {} +
+	find . -name '*.gcov' -exec rm -f {} +
+	find . -name '*.gcda' -exec rm -f {} +
+	find . -name '*.gcno' -exec rm -f {} +
+	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)

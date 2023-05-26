@@ -127,7 +127,7 @@ void test_erase(void)
 	size_t total_pages;
 	size_t nr_segments;
 	size_t nr_pages_per_segment;
-	size_t segnum;
+	uint16_t segnum;
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL, O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
@@ -203,7 +203,7 @@ void test_end_rq_works(void)
 	uint8_t *is_check;
 	size_t page_size;
 	size_t total_pages;
-	size_t segnum;
+	uint16_t segnum;
 	size_t nr_segments;
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, NULL, O_CREAT | O_RDWR));

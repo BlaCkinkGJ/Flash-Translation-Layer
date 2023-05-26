@@ -32,7 +32,7 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 {
 	int ret = 0;
 	char *buffer;
-	uint64_t bitmap_size;
+	size_t bitmap_size;
 	uint64_t *is_used;
 	struct ramdisk *ramdisk;
 
@@ -67,8 +67,8 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 	memset(buffer, 0, ramdisk->size);
 	ramdisk->buffer = buffer;
 
-	bitmap_size = BITS_TO_UINT64_ALIGN(ramdisk->size / page->size);
-	is_used = (uint64_t *)malloc(bitmap_size);
+	bitmap_size = (size_t)BITS_TO_UINT64_ALIGN(ramdisk->size / page->size);
+	is_used = (uint64_t *)malloc((size_t)bitmap_size);
 	if (is_used == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
@@ -80,16 +80,14 @@ int ramdisk_open(struct device *dev, const char *name, int flags)
 
 	nr_segments = device_get_nr_segments(dev);
 	dev->badseg_bitmap =
-		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
+		(uint64_t *)malloc((size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 	if (dev->badseg_bitmap == NULL) {
 		pr_err("memory allocation failed\n");
 		ret = -ENOMEM;
 		goto exception;
 	}
-	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
-	for (uint64_t i = 0; i < 10; i++) {
-		set_bit(dev->badseg_bitmap, i);
-	}
+	memset(dev->badseg_bitmap, 0,
+	       (size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 	return ret;
 exception:
 	ramdisk_close(dev);
@@ -147,7 +145,7 @@ ssize_t ramdisk_write(struct device *dev, struct device_request *request)
 	set_bit(ramdisk->is_used, addr.lpn);
 	memcpy(&ramdisk->buffer[addr.lpn * page_size], request->data,
 	       request->data_len);
-	ret = request->data_len;
+	ret = (ssize_t)request->data_len;
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
@@ -201,7 +199,7 @@ ssize_t ramdisk_read(struct device *dev, struct device_request *request)
 
 	memcpy(request->data, &ramdisk->buffer[addr.lpn * page_size],
 	       request->data_len);
-	ret = request->data_len;
+	ret = (ssize_t)request->data_len;
 	pr_debug("request->end_rq %p %p\n", request->end_rq,
 		 &((struct device_request *)request->rq_private)->mutex);
 	if (request->end_rq) {
@@ -222,13 +220,14 @@ exit:
 int ramdisk_erase(struct device *dev, struct device_request *request)
 {
 	struct ramdisk *ramdisk = (struct ramdisk *)dev->d_private;
-	struct device_address addr = request->paddr;
+	struct device_address addr;
 	size_t page_size;
-	size_t segnum;
 	uint32_t nr_pages_per_segment;
 	uint32_t lpn;
+	uint16_t segnum;
 	int ret;
 
+	addr.lpn = 0;
 	ret = 0;
 
 	if (request->flag != DEVICE_ERASE) {
@@ -237,11 +236,9 @@ int ramdisk_erase(struct device *dev, struct device_request *request)
 		ret = -EINVAL;
 		goto exit;
 	}
-
+	segnum = (uint16_t)request->paddr.format.block;
 	page_size = device_get_page_size(dev);
 	nr_pages_per_segment = (uint32_t)device_get_pages_per_segment(dev);
-	segnum = addr.format.block;
-	addr.lpn = 0;
 	addr.format.block = segnum;
 	for (lpn = addr.lpn; lpn < addr.lpn + nr_pages_per_segment; lpn++) {
 		memset(&ramdisk->buffer[lpn * page_size], 0, page_size);
@@ -321,6 +318,11 @@ int ramdisk_device_init(struct device *dev, uint64_t flags)
 	dev->d_op = &__ramdisk_dops;
 	dev->d_private = (void *)ramdisk;
 	dev->d_submodule_exit = ramdisk_device_exit;
+
+	if (dev->d_private == NULL) {
+		goto exception;
+	}
+
 	return ret;
 exception:
 	ramdisk_device_exit(dev);

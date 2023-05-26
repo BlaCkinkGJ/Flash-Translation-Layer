@@ -8,6 +8,7 @@
 
 #include <stdlib.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <assert.h>
 
 #include "log.h"
@@ -42,7 +43,7 @@ struct lru_cache *lru_init(const size_t capacity, lru_dealloc_fn deallocate)
 
 	cache->nil.next = &cache->nil;
 	cache->nil.prev = &cache->nil;
-	cache->nil.key = -1;
+	cache->nil.key = (uint64_t)-1;
 	cache->nil.value = (uintptr_t)NULL;
 
 	return cache;
@@ -274,7 +275,8 @@ int lru_free(struct lru_cache *cache)
 		if (cache->deallocate) {
 			ret = cache->deallocate(node->key, node->value);
 			if (ret) {
-				pr_err("deallocate failed (key: %lu, value: %lu)\n",
+				pr_err("deallocate failed (key: %" PRIu64
+				       ", value: %" PRIuPTR ")\n",
 				       node->key, node->value);
 				return ret;
 			}

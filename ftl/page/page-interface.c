@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <string.h>
 #include <fcntl.h>
+#include <inttypes.h>
 
 #include "log.h"
 #include "page.h"
@@ -56,6 +57,7 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 	struct device_request *request = NULL;
 	char *ptr;
 	size_t page_size;
+	ssize_t remain;
 
 	/** check the pointer validity */
 	if (flash == NULL) {
@@ -82,16 +84,17 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 	ptr = (char *)buffer;
 	page_size = device_get_page_size(pgftl->dev);
 	size = 0;
-	while (count != 0) {
+	remain = (ssize_t)count;
+	while (remain > 0) {
 		size_t pos;
 		ssize_t write_size;
 		ssize_t submit_size;
 
-		pos = page_ftl_get_page_offset(pgftl, offset);
-		if (pos + count < page_size) {
-			submit_size = count;
+		pos = page_ftl_get_page_offset(pgftl, (size_t)offset);
+		if (pos + (size_t)remain < page_size) {
+			submit_size = (ssize_t)remain;
 		} else {
-			submit_size = page_size - pos;
+			submit_size = (ssize_t)(page_size - pos);
 		}
 
 		/** allocate the request */
@@ -103,18 +106,18 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		}
 
 		request->flag = DEVICE_WRITE;
-		request->data_len = submit_size;
-		request->sector = offset;
+		request->data_len = (size_t)submit_size;
+		request->sector = (size_t)offset;
 		request->data = ptr;
 
-		pr_debug("%zu (length: %zu, buffer: %lu, count: %lu)\n",
+		pr_debug("%zu (length: %zu, buffer: %lu, remain:%zu)\n",
 			 request->sector, request->data_len,
-			 (uintptr_t)request->data - (uintptr_t)buffer, count);
+			 (uintptr_t)request->data - (uintptr_t)buffer, remain);
 
 		/** submit the request */
 		write_size = page_ftl_submit_request(pgftl, request);
 		if (write_size != submit_size) {
-			pr_err("page FTL submit request failed (write size: %zu)\n",
+			pr_err("page FTL submit request failed (write size: %zd)\n",
 			       write_size);
 			if (write_size > 0) {
 				request = NULL;
@@ -123,9 +126,14 @@ static ssize_t page_ftl_write_interface(struct flash_device *flash,
 		}
 
 		offset += write_size;
-		count -= write_size;
+		remain -= (ssize_t)write_size;
 		ptr += write_size;
 		size += write_size;
+	}
+	if (remain != 0) {
+		pr_err("write failed; remain size must be zero, but %zd\n",
+		       remain);
+		goto exception;
 	}
 	return size;
 
@@ -155,6 +163,7 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 	char *temp = NULL;
 
 	ssize_t size = -1;
+	ssize_t remain;
 	size_t page_size;
 
 	char *ptr;
@@ -196,16 +205,17 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 	}
 
 	size = 0;
-	while (count != 0) {
+	remain = (ssize_t)count;
+	while (remain != 0) {
 		size_t pos;
 		ssize_t read_size;
 		ssize_t submit_size;
 
-		pos = page_ftl_get_page_offset(pgftl, offset);
-		if (pos + count < page_size) {
-			submit_size = count;
+		pos = page_ftl_get_page_offset(pgftl, (size_t)offset);
+		if (pos + (size_t)remain < page_size) {
+			submit_size = remain;
 		} else {
-			submit_size = page_size - pos;
+			submit_size = (ssize_t)(page_size - pos);
 		}
 
 		/** allocate the request */
@@ -217,8 +227,8 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 		}
 
 		request->flag = DEVICE_READ;
-		request->data_len = submit_size;
-		request->sector = offset;
+		request->data_len = (size_t)submit_size;
+		request->sector = (size_t)offset;
 		request->data = temp;
 
 		/** submit the request */
@@ -228,9 +238,9 @@ static ssize_t page_ftl_read_interface(struct flash_device *flash, void *buffer,
 			size = -EINVAL;
 			goto exception;
 		}
-		memcpy(ptr, temp, read_size);
+		memcpy(ptr, temp, (size_t)read_size);
 		offset += read_size;
-		count -= read_size;
+		remain -= read_size;
 		ptr += read_size;
 		size += read_size;
 	}
@@ -304,7 +314,8 @@ static int page_ftl_ioctl_interface(struct flash_device *flash,
 	switch (request) {
 	case PAGE_FTL_IOCTL_TRIM:
 		device_rq->flag = DEVICE_ERASE;
-		ret = (int)page_ftl_submit_request(pgftl, device_rq);
+		ret = (int)page_ftl_gc_from_list(pgftl, device_rq,
+						 PAGE_FTL_GC_ALL);
 		break;
 	default:
 		pr_err("invalid command requested(commands: %u)\n", request);
@@ -336,7 +347,7 @@ const struct flash_operations __page_fops = {
 int page_ftl_module_init(struct flash_device *flash, uint64_t flags)
 {
 	int err = 0;
-	int modnum = flags;
+	uint64_t modnum = flags;
 	struct page_ftl *pgftl;
 
 	(void)flags;

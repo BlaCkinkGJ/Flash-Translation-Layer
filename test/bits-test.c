@@ -29,11 +29,11 @@ void test_bits(void)
 		set_bit(bits, i);
 		one = find_first_one_bit(bits, nr_bits, 0);
 		zero = find_first_zero_bit(bits, nr_bits, 0);
-		TEST_ASSERT_EQUAL_UINT64(0, one);
+		TEST_ASSERT_EQUAL_UINT(0, (uint)one);
 		if (i + 1 < nr_bits) {
-			TEST_ASSERT_EQUAL_UINT64(i + 1, zero);
+			TEST_ASSERT_EQUAL_UINT(i + 1, (uint)zero);
 		} else {
-			TEST_ASSERT_EQUAL_INT64(-1, (int64_t)zero);
+			TEST_ASSERT_EQUAL_INT(-1, (int)zero);
 		}
 	}
 	for (uint64_t i = 0; i < nr_bits; i++) {
@@ -41,12 +41,17 @@ void test_bits(void)
 		one = find_first_one_bit(bits, nr_bits, 0);
 		zero = find_first_zero_bit(bits, nr_bits, 0);
 		if (i + 1 < nr_bits) {
-			TEST_ASSERT_EQUAL_UINT64(i + 1, one);
+			TEST_ASSERT_EQUAL_UINT(i + 1, (uint)one);
 		} else {
-			TEST_ASSERT_EQUAL_INT64(-1, (int64_t)one);
+			TEST_ASSERT_EQUAL_INT(-1, (int)one);
 		}
-		TEST_ASSERT_EQUAL_UINT64(0, zero);
+		TEST_ASSERT_EQUAL_UINT(0, (uint)zero);
 	}
+
+	// For arm machine
+	(void)zero;
+	(void)one;
+
 	free(bits);
 }
 
@@ -58,13 +63,14 @@ void test_get_bits(void)
 		uint64_t i;
 		char *setbit;
 		uint64_t *bits;
-		setbit = (char *)malloc(nr_bits);
-		memset(setbit, 0, nr_bits);
-		bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_bits));
-		memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_bits));
-		srand(time(NULL) + (counter * rand()) % INT_MAX);
+		setbit = (char *)malloc((size_t)nr_bits);
+		memset(setbit, 0, (size_t)nr_bits);
+		bits = (uint64_t *)malloc(
+			(size_t)BITS_TO_UINT64_ALIGN(nr_bits));
+		memset(bits, 0, (size_t)BITS_TO_UINT64_ALIGN(nr_bits));
+		srand((unsigned int)time(NULL) + (counter * rand()) % INT_MAX);
 		for (i = 0; i < nr_bits; i++) {
-			setbit[i] = (rand() % 2);
+			setbit[i] = (char)(rand() % 2);
 		}
 		for (i = 0; i < nr_bits; i++) {
 			if (setbit[i] == 0) {

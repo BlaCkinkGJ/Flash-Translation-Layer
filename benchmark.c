@@ -20,10 +20,12 @@
 #include "module.h"
 #include "device.h"
 
-// #define USE_LEGACY_RANDOM
 #ifdef USE_LEGACY_RANDOM
+#pragma message "Disable linux kernel supported random generator"
 #include <linux/random.h>
 #include <syscall.h>
+#else
+#pragma message "Enable linux kernel supported random generator"
 #endif
 
 #define DO_WARM_UP (1) /**< Do not erase */
@@ -89,7 +91,7 @@ struct benchmark_parameter {
 	uint32_t *crc32_list;
 	bool *crc32_is_match;
 
-	size_t *sector_sequence;
+	off_t *offset_sequence;
 	gint thread_id_allocator;
 	size_t *wp;
 	size_t *total_time;
@@ -97,7 +99,7 @@ struct benchmark_parameter {
 };
 
 static void make_sequence(struct benchmark_parameter *);
-static void shuffling(size_t *sequence, size_t nr_blocks);
+static void shuffling(off_t *sequence, size_t nr_blocks);
 
 static struct benchmark_parameter *init_parameters(int argc, char **argv);
 static void free_parameters(struct benchmark_parameter *);
@@ -132,7 +134,7 @@ int main(int argc, char **argv)
 	device = device_list[parm->device_idx];
 	path = parm->device_path;
 
-	g_assert(module_init(module, &flash, device) == 0);
+	g_assert(module_init(module, &flash, (uint64_t)device) == 0);
 	g_assert(flash->f_op->open(flash, path, O_CREAT | O_RDWR) == 0);
 	parm->flash = flash;
 
@@ -155,7 +157,7 @@ int main(int argc, char **argv)
 
 	if (parm->workload_idx == RAND_WRITE ||
 	    parm->workload_idx == RAND_READ) {
-		shuffling(parm->sector_sequence, parm->nr_blocks);
+		shuffling(parm->offset_sequence, parm->nr_blocks);
 	}
 
 	if (parm->workload_idx == RAND_WRITE || parm->workload_idx == WRITE) {
@@ -185,8 +187,8 @@ int main(int argc, char **argv)
 			total_time = parm->total_time[idx];
 		}
 		printf("\rProcessing: %.2lf%% [%.2lf MiB/s]",
-		       ((double)wp / (parm->nr_blocks - 1)) * 100.0,
-		       ((double)wp * parm->block_sz) /
+		       ((double)wp / (double)(parm->nr_blocks - 1)) * 100.0,
+		       ((double)wp * (double)parm->block_sz) /
 			       (((double)total_time / (NS_PER_MS * 1000L)) *
 				(0x1 << 20)));
 		sleep(1);
@@ -303,15 +305,15 @@ static void make_sequence(struct benchmark_parameter *parm)
 {
 	size_t idx;
 	for (idx = 0; idx < parm->nr_blocks; idx++) {
-		parm->sector_sequence[idx] = idx * parm->block_sz;
+		parm->offset_sequence[idx] = (off_t)(idx * parm->block_sz);
 	}
 }
 
-static void shuffling(size_t *sequence, size_t nr_blocks)
+static void shuffling(off_t *sequence, size_t nr_blocks)
 {
 	size_t idx;
 	for (idx = 0; idx < nr_blocks; idx++) {
-		size_t temp;
+		off_t temp;
 		size_t swap_pos;
 #ifdef USE_LEGACY_RANDOM
 		struct timespec tv;
@@ -319,7 +321,7 @@ static void shuffling(size_t *sequence, size_t nr_blocks)
 		clock_gettime(CLOCK_MONOTONIC, &tv);
 
 		seed = (uint64_t)(tv.tv_sec * SEC_TO_NS) + tv.tv_nsec;
-		srand(seed);
+		srand((unsigned int)seed);
 		swap_pos = (size_t)rand();
 #else
 		g_assert(getentropy(&swap_pos, sizeof(size_t)) == 0);
@@ -354,8 +356,8 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 	memset(parm, 0, sizeof(struct benchmark_parameter));
 
 	device_path = parm->device_path;
-	memset(device_path, 0, DEVICE_PATH_SIZE - 1);
-	nr_jobs = g_get_num_processors();
+	memset(device_path, 0, (size_t)(DEVICE_PATH_SIZE - 1));
+	nr_jobs = (int)g_get_num_processors();
 
 	while ((c = getopt(argc, argv, "m:d:t:j:b:n:p:h")) != -1) {
 		switch (c) {
@@ -393,11 +395,11 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 			nr_jobs = atoi(optarg);
 			break;
 		case 'b':
-			block_sz = atoi(optarg);
+			block_sz = (size_t)atoi(optarg);
 			block_sz = block_sz * get_size_from_character(optarg);
 			break;
 		case 'n':
-			nr_blocks = atoi(optarg);
+			nr_blocks = (size_t)atoi(optarg);
 			nr_blocks = nr_blocks * get_size_from_character(optarg);
 			break;
 		case 'p':
@@ -408,7 +410,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 			exit(0);
 			break;
 		case '?':
-			processing_parameters_error(optopt);
+			processing_parameters_error((char)optopt);
 			help_message(parm, argv);
 			exit(1);
 			break;
@@ -435,16 +437,18 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 	g_assert(parm->crc32_is_match != NULL);
 	memset(parm->crc32_is_match, true, parm->nr_blocks * sizeof(bool));
 
-	parm->sector_sequence =
-		(size_t *)malloc(parm->nr_blocks * sizeof(size_t));
-	g_assert(parm->sector_sequence != NULL);
+	parm->offset_sequence =
+		(off_t *)malloc(parm->nr_blocks * sizeof(size_t));
+	g_assert(parm->offset_sequence != NULL);
 	make_sequence(parm);
 
-	parm->threads = (pthread_t *)malloc(parm->nr_jobs * sizeof(pthread_t));
+	parm->threads =
+		(pthread_t *)malloc((size_t)parm->nr_jobs * sizeof(pthread_t));
 	g_assert(parm->threads != NULL);
-	memset(parm->threads, 0, parm->nr_jobs * sizeof(pthread_t));
+	memset(parm->threads, 0, (size_t)parm->nr_jobs * sizeof(pthread_t));
 
-	parm->timer_list = (GList **)malloc(parm->nr_jobs * sizeof(GList *));
+	parm->timer_list =
+		(GList **)malloc((size_t)parm->nr_jobs * sizeof(GList *));
 	g_assert(parm->timer_list != NULL);
 	for (i = 0; i < parm->nr_jobs; i++) {
 		parm->timer_list[i] = NULL;
@@ -452,13 +456,14 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 
 	g_atomic_int_set(&parm->thread_id_allocator, 0);
 
-	parm->wp = (size_t *)malloc(parm->nr_jobs * sizeof(size_t));
+	parm->wp = (size_t *)malloc((size_t)parm->nr_jobs * sizeof(size_t));
 	g_assert(parm->wp != NULL);
-	memset(parm->wp, 0, parm->nr_jobs * sizeof(size_t));
+	memset(parm->wp, 0, (size_t)parm->nr_jobs * sizeof(size_t));
 
-	parm->total_time = (size_t *)malloc(parm->nr_jobs * sizeof(size_t));
+	parm->total_time =
+		(size_t *)malloc((size_t)parm->nr_jobs * sizeof(size_t));
 	g_assert(parm->total_time != NULL);
-	memset(parm->total_time, 0, parm->nr_jobs * sizeof(size_t));
+	memset(parm->total_time, 0, (size_t)parm->nr_jobs * sizeof(size_t));
 
 	return parm;
 }
@@ -490,8 +495,8 @@ static void free_parameters(struct benchmark_parameter *parm)
 	if (parm->crc32_is_match) {
 		free(parm->crc32_is_match);
 	}
-	if (parm->sector_sequence) {
-		free(parm->sector_sequence);
+	if (parm->offset_sequence) {
+		free(parm->offset_sequence);
 	}
 	if (parm->threads) {
 		free(parm->threads);
@@ -581,23 +586,23 @@ static void *write_data(void *data)
 	g_assert(buffer != NULL);
 
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
-		size_t sector = parm->sector_sequence[i];
+		off_t offset = parm->offset_sequence[i];
 #ifdef USE_CRC
 		fill_buffer_random((char *)buffer, parm->block_sz);
-		parm->crc32_list[sector / parm->block_sz] =
-			xcrc32(buffer, parm->block_sz, CRC32_INIT);
+		parm->crc32_list[(size_t)offset / parm->block_sz] =
+			xcrc32(buffer, (int)parm->block_sz, CRC32_INIT);
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &start);
-		ret = flash->f_op->write(flash, buffer, parm->block_sz, sector);
+		ret = flash->f_op->write(flash, buffer, parm->block_sz, offset);
 		clock_gettime(CLOCK_MONOTONIC, &end);
 		g_assert(ret == (ssize_t)parm->block_sz);
 		interval = (gsize)((end.tv_sec - start.tv_sec) * SEC_TO_NS) +
-			   (end.tv_nsec - start.tv_nsec);
+			   (unsigned long)(end.tv_nsec - start.tv_nsec);
 		parm->total_time[thread_id] += interval;
 		parm->timer_list[thread_id] =
 			g_list_prepend(parm->timer_list[thread_id],
 				       GSIZE_TO_POINTER(interval));
-		parm->wp[thread_id] = i;
+		parm->wp[thread_id] = (size_t)i;
 	}
 	free_buffer(buffer);
 	return NULL;
@@ -630,29 +635,29 @@ static void *read_data(void *data)
 	g_assert(ret >= 0);
 #endif
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
-		size_t sector = parm->sector_sequence[i];
+		off_t offset = parm->offset_sequence[i];
 #ifdef USE_CRC
 		memset(buffer, 0, parm->block_sz);
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &start);
-		ret = flash->f_op->read(flash, buffer, parm->block_sz, sector);
+		ret = flash->f_op->read(flash, buffer, parm->block_sz, offset);
 		clock_gettime(CLOCK_MONOTONIC, &end);
 		g_assert(ret == (ssize_t)parm->block_sz);
 		interval = (gsize)((end.tv_sec - start.tv_sec) * SEC_TO_NS) +
-			   (end.tv_nsec - start.tv_nsec);
+			   (unsigned long)(end.tv_nsec - start.tv_nsec);
 		parm->total_time[thread_id] += interval;
 		parm->timer_list[thread_id] =
 			g_list_prepend(parm->timer_list[thread_id],
 				       GSIZE_TO_POINTER(interval));
-		parm->wp[thread_id] = i;
+		parm->wp[thread_id] = (size_t)i;
 #ifdef USE_CRC
 		{
 			uint32_t crc32 =
-				xcrc32(buffer, parm->block_sz, CRC32_INIT);
+				xcrc32(buffer, (int)parm->block_sz, CRC32_INIT);
 			if (crc32 !=
-			    parm->crc32_list[sector / parm->block_sz]) {
-				parm->crc32_is_match[sector / parm->block_sz] =
-					false;
+			    parm->crc32_list[(size_t)offset / parm->block_sz]) {
+				parm->crc32_is_match[(size_t)offset /
+						     parm->block_sz] = false;
 			}
 		}
 #endif
@@ -700,7 +705,7 @@ static void report_result(struct benchmark_parameter *parm)
 		       (double)(write_size) /
 			       (((double)total_time / (NS_PER_MS * 1000L)) *
 				(0x1 << 20)),
-		       iops, ((double)total_time / NS_PER_MS) / iops,
+		       iops, ((double)total_time / NS_PER_MS) / (double)iops,
 		       (double)max_latency / NS_PER_MS,
 		       (double)min_latency / NS_PER_MS);
 	}

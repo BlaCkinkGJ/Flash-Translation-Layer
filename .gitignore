@@ -86,3 +86,7 @@ doxygen/
 
 # compile commands
 compile_commands.json
+
+# coverage results
+*.gcov
+*.gcda

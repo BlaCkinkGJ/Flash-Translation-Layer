@@ -29,9 +29,11 @@ gint page_ftl_gc_list_cmp(gconstpointer a, gconstpointer b)
 	uint64_t nr_valid_pages[2];
 	segment[0] = (struct page_ftl_segment *)a;
 	segment[1] = (struct page_ftl_segment *)b;
-	nr_valid_pages[0] = g_atomic_int_get(&segment[0]->nr_valid_pages);
-	nr_valid_pages[1] = g_atomic_int_get(&segment[1]->nr_valid_pages);
-	return nr_valid_pages[0] - nr_valid_pages[1];
+	nr_valid_pages[0] =
+		(uint64_t)g_atomic_int_get(&segment[0]->nr_valid_pages);
+	nr_valid_pages[1] =
+		(uint64_t)g_atomic_int_get(&segment[1]->nr_valid_pages);
+	return (gint)(nr_valid_pages[0] - nr_valid_pages[1]);
 }
 
 /**
@@ -59,7 +61,7 @@ static struct page_ftl_segment *page_ftl_pick_gc_target(struct page_ftl *pgftl)
 	}
 	pgftl->gc_list = g_list_sort(pgftl->gc_list, page_ftl_gc_list_cmp);
 	segment = (struct page_ftl_segment *)pgftl->gc_list->data;
-	pr_debug("gc target: %zd (valid: %u) => %p\n",
+	pr_debug("gc target: %zu (valid: %d) => %p\n",
 		 page_ftl_get_segment_number(pgftl, (uintptr_t)segment),
 		 g_atomic_int_get(&segment->nr_valid_pages), segment);
 	pgftl->gc_list = g_list_remove(pgftl->gc_list, segment);
@@ -116,7 +118,7 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 	struct device *dev;
 	struct device_request *request;
 	char *buffer;
-	ssize_t page_size;
+	size_t page_size;
 	ssize_t ret;
 
 	dev = pgftl->dev;
@@ -144,7 +146,7 @@ static ssize_t page_ftl_read_valid_page(struct page_ftl *pgftl, size_t lpn,
 	request->data = buffer;
 
 	ret = page_ftl_read(pgftl, request);
-	if (ret != page_size) {
+	if (ret != (ssize_t)page_size) {
 		pr_err("invalid read size detected (expected: %zd, acutal: %zd)\n",
 		       page_size, ret);
 		return -EFAULT;
@@ -176,7 +178,7 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 {
 	struct device *dev;
 	struct device_request *request;
-	ssize_t page_size;
+	size_t page_size;
 	ssize_t ret;
 
 	dev = pgftl->dev;
@@ -194,7 +196,7 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
 	request->data = buffer;
 
 	ret = page_ftl_write(pgftl, request);
-	if (ret != page_size) {
+	if (ret != (ssize_t)page_size) {
 		pr_err("invalid write size detected (expected: %zd, acutal: %zd)\n",
 		       page_size, ret);
 		return -EFAULT;
@@ -211,10 +213,10 @@ static ssize_t page_ftl_write_valid_page(struct page_ftl *pgftl, size_t lpn,
  *
  * @return 0 for success, negative number for fail
  */
-static int page_ftl_valid_page_copy(struct page_ftl *pgftl,
-				    struct page_ftl_segment *segment)
+static ssize_t page_ftl_valid_page_copy(struct page_ftl *pgftl,
+					struct page_ftl_segment *segment)
 {
-	int ret = 0;
+	ssize_t ret = 0;
 	GList *list;
 
 	(void)pgftl;
@@ -248,11 +250,11 @@ static int page_ftl_valid_page_copy(struct page_ftl *pgftl,
  *
  * @return 0 for success, negative number for fail
  */
-int page_ftl_do_gc(struct page_ftl *pgftl)
+ssize_t page_ftl_do_gc(struct page_ftl *pgftl)
 {
 	struct device_address paddr;
 	struct page_ftl_segment *segment;
-	int ret;
+	ssize_t ret;
 	size_t segnum;
 
 	pthread_mutex_lock(&pgftl->mutex);
@@ -272,7 +274,7 @@ int page_ftl_do_gc(struct page_ftl *pgftl)
 	}
 
 	paddr.lpn = 0;
-	paddr.format.block = segnum;
+	paddr.format.block = (uint16_t)segnum;
 	ret = page_ftl_segment_erase(pgftl, paddr);
 	if (ret) {
 		pr_err("do erase failed\n");
@@ -289,4 +291,34 @@ int page_ftl_do_gc(struct page_ftl *pgftl)
 	pthread_mutex_unlock(&pgftl->mutex);
 
 	return 0;
+}
+
+/**
+ * @brief do garbage collection from the gc list
+ *
+ * @param pgftl pointer of the page ftl
+ * @param request pointer of the request
+ * @param gc_ratio ratio for garbage collecting targets
+ *
+ * @return number of erased segments
+ */
+ssize_t page_ftl_gc_from_list(struct page_ftl *pgftl,
+			      struct device_request *request, double gc_ratio)
+{
+	ssize_t ret = 0;
+	size_t nr_segments, nr_gc_segments, idx;
+	nr_segments = device_get_nr_segments(pgftl->dev);
+	nr_gc_segments = (size_t)((double)nr_segments * gc_ratio);
+	for (idx = 0; (ssize_t)idx >= 0 && idx < nr_gc_segments; idx++) {
+		ret = page_ftl_submit_request(pgftl, request);
+		if (ret) {
+			pr_err("garbage collection from list failed\n");
+			return ret;
+		}
+		if (pgftl->gc_list == NULL) {
+			break;
+		}
+	}
+	ret = (ssize_t)idx;
+	return ret;
 }

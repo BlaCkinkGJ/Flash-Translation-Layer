@@ -22,6 +22,7 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <pthread.h>
 
 /**
@@ -125,7 +126,8 @@ int device_module_init(const uint64_t modnum, struct device **__dev,
 	(void)flags;
 	ret = submodule_init[modnum](dev, flags);
 	if (ret) {
-		pr_err("initialize the submodule failed(modnum:%lu)\n", modnum);
+		pr_err("initialize the submodule failed(modnum:%" PRIu64 ")\n",
+		       modnum);
 		goto exception;
 	}
 

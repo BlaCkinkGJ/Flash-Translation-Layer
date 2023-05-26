@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <glib.h>
+#include <inttypes.h>
 
 #include "page.h"
 #include "log.h"
@@ -22,59 +23,6 @@
 #include <time.h>
 
 static int is_gc_thread_exit;
-
-/**
- * @brief get number of invalid pages in the ftl
- *
- * @param pgftl pointer of the page ftl structure
- *
- * @return number of the invalid pages
- */
-static size_t page_ftl_get_free_pages(struct page_ftl *pgftl)
-{
-	size_t free_pages;
-	size_t nr_segments, segnum;
-	struct page_ftl_segment *segment;
-
-	nr_segments = device_get_nr_segments(pgftl->dev);
-
-	free_pages = 0;
-	for (segnum = 0; segnum < nr_segments; segnum++) {
-		segment = &pgftl->segments[segnum];
-		assert(NULL != segment);
-		free_pages += (size_t)g_atomic_int_get(&segment->nr_free_pages);
-	}
-	return free_pages;
-}
-
-/**
- * @brief do garbage collection from the gc list
- *
- * @param pgftl pointer of the page ftl
- * @param request pointer of the request
- *
- * @return number of erased segments
- */
-static ssize_t page_ftl_gc_from_list(struct page_ftl *pgftl,
-				     struct device_request *request)
-{
-	ssize_t ret = 0;
-	size_t nr_segments, nr_gc_segments, idx;
-	nr_segments = device_get_nr_segments(pgftl->dev);
-	nr_gc_segments = nr_segments * PAGE_FTL_GC_RATIO;
-	for (idx = 0; idx < nr_gc_segments; idx++) {
-		ret = page_ftl_submit_request(pgftl, request);
-		if (ret) {
-			pr_err("garbage collection from list failed\n");
-			return ret;
-		}
-		if (pgftl->gc_list == NULL) {
-			break;
-		}
-	}
-	ret = idx;
-	return ret;
-}
 
 /**
  * @brief do garbage collection thread
@@ -110,17 +58,18 @@ static void *page_ftl_gc_thread(void *data)
 			break;
 		}
 		free_pages = page_ftl_get_free_pages(pgftl);
-		if ((double)free_pages > total_pages * PAGE_FTL_GC_THRESHOLD) {
+		if ((double)free_pages >
+		    (double)total_pages * PAGE_FTL_GC_THRESHOLD) {
 			continue;
 		}
-		ret = page_ftl_gc_from_list(pgftl, &request);
+		ret = page_ftl_gc_from_list(pgftl, &request, PAGE_FTL_GC_RATIO);
 		if (ret < 0) {
 			pr_err("critical garbage collection error detected (errno: %zd)\n",
 			       ret);
 			break;
 		}
 #ifdef USE_GC_MESSAGE
-		pr_info("gc triggered (nr_erase: %lu)\n", ret);
+		pr_info("gc triggered (nr_erase: %zd)\n", ret);
 #endif
 	}
 	return NULL;
@@ -140,12 +89,13 @@ static int page_ftl_alloc_bitmap(struct page_ftl *pgftl, uint64_t **bitmap)
 	uint64_t *bits;
 
 	nr_pages_per_segment = device_get_pages_per_segment(pgftl->dev);
-	bits = (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
+	bits = (uint64_t *)malloc(
+		(size_t)BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
 	if (bits == NULL) {
 		pr_err("bitmap allocation failed\n");
 		return -ENOMEM;
 	}
-	memset(bits, 0, BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
+	memset(bits, 0, (size_t)BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
 	*bitmap = bits;
 	return 0;
 }
@@ -161,13 +111,13 @@ static int page_ftl_alloc_bitmap(struct page_ftl *pgftl, uint64_t **bitmap)
 int page_ftl_segment_data_init(struct page_ftl *pgftl,
 			       struct page_ftl_segment *segment)
 {
-	size_t nr_pages_per_segment;
-	nr_pages_per_segment = device_get_pages_per_segment(pgftl->dev);
+	gint nr_pages_per_segment;
+	nr_pages_per_segment = (gint)device_get_pages_per_segment(pgftl->dev);
 	g_atomic_int_set(&segment->nr_free_pages, nr_pages_per_segment);
 	g_atomic_int_set(&segment->nr_valid_pages, 0);
 
 	memset(segment->use_bits, 0,
-	       BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
+	       (size_t)BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
 	if (segment->lpn_list) {
 		g_list_free(segment->lpn_list);
 	}
@@ -223,30 +173,6 @@ static int page_ftl_init_segment(struct page_ftl *pgftl)
 	pgftl->segments = segments;
 	return 0;
 }
-
-#ifdef PAGE_FTL_USE_CACHE
-static int page_ftl_lru_dealloc_fn(const uint64_t key, uintptr_t value)
-{
-	struct device_request *request;
-	struct page_ftl *pgftl;
-	struct device *dev;
-
-	int ret = 0;
-
-	(void)key;
-
-	request = (struct device_request *)value;
-	pgftl = (struct page_ftl *)request->rq_private;
-	dev = pgftl->dev;
-
-	ret = dev->d_op->write(dev, request);
-	if (ret != (ssize_t)device_get_page_size(dev)) {
-		pr_err("device write failed (ppn: %u)\n", request->paddr.lpn);
-		return ret;
-	}
-	return 0;
-}
-#endif
 
 /**
  * @brief initialize the page-ftl's each bus rwlock
@@ -338,14 +264,6 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 		goto exception;
 	}
 
-#ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
-	err = pthread_rwlock_init(&pgftl->rwlock, NULL);
-	if (err) {
-		pr_err("global rwlock initialize failed\n");
-		goto exception;
-	}
-#endif
-
 	dev = pgftl->dev;
 	err = dev->d_op->open(dev, name, flags);
 	if (err) {
@@ -372,23 +290,15 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 
 	nr_segments = device_get_nr_segments(dev);
 	pgftl->gc_seg_bits =
-		(uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
+		(uint64_t *)malloc((size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 	if (pgftl->gc_seg_bits == NULL) {
 		pr_err("memory allocation failed\n");
 		goto exception;
 	}
-	memset(pgftl->gc_seg_bits, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+	memset(pgftl->gc_seg_bits, 0,
+	       (size_t)BITS_TO_UINT64_ALIGN(nr_segments));
 
 	pgftl->o_flags = flags;
-
-#ifdef PAGE_FTL_USE_CACHE
-	pgftl->cache = lru_init(PAGE_FTL_CACHE_SIZE, page_ftl_lru_dealloc_fn);
-	if (pgftl->cache == NULL) {
-		pr_err("cannot allocate cache failed\n");
-		err = -ENOMEM;
-		goto exception;
-	}
-#endif
 
 	g_atomic_int_set(&is_gc_thread_exit, 0);
 	gc_thread_status = pthread_create(&pgftl->gc_thread, NULL,
@@ -517,12 +427,6 @@ int page_ftl_close(struct page_ftl *pgftl)
 	pthread_mutex_destroy(&pgftl->gc_mutex);
 #ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
 	pthread_rwlock_destroy(&pgftl->rwlock);
-#endif
-#ifdef PAGE_FTL_USE_CACHE
-	if (pgftl->cache) {
-		lru_free(pgftl->cache);
-		pgftl->cache = NULL;
-	}
 #endif
 
 	if (pgftl->segments) {
