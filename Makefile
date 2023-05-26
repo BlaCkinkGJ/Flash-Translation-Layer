@@ -53,7 +53,8 @@ endif
 
 TEST_TARGET := lru-test.out \
               bits-test.out \
-              ramdisk-test.out
+              ramdisk-test.out \
+	      chip2chip-test.out
 
 DEVICE_LIBS =
 
@@ -88,7 +89,7 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 	       -DDEVICE_NR_CHIPS_BITS=3 \
 	       -DDEVICE_NR_PAGES_BITS=7 \
 	       -DDEVICE_NR_BLOCKS_BITS=19 \
-	       -DUSER_MODE \
+	       #-DUSER_MODE \
 	       -DUSE_PMU \
 	       -DUSE_KTIMER \
 	       -DUSE_NEW_RMW \
@@ -131,7 +132,7 @@ CFLAGS := -Wall \
           $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
           $(MEMORY_CHECK_CFLAGS) \
-          -O3
+          -O0
 
 CXXFLAGS := $(CFLAGS) \
             -std=c++11
