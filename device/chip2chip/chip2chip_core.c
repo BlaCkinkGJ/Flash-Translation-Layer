@@ -21,28 +21,6 @@ int c2c_init(void) {	//opening memory device as a file descriptor to use them wi
 		//assign vptr with mmap function
 		
 		vptr_mmap(&rgstr_vptr.cmd, C2C_CMD_ADDR);
-		/*
-		vptr_mmap(&rgstr_vptr.read_stat, C2C_READ_STATUS_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_0u, C2C_READ_DATA0_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_0l, C2C_READ_DATA0_LOWER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_1u, C2C_READ_DATA1_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_1l, C2C_READ_DATA1_LOWER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_2u, C2C_READ_DATA2_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_2l, C2C_READ_DATA2_LOWER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_3u, C2C_READ_DATA3_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_3l, C2C_READ_DATA3_LOWER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_4u, C2C_READ_DATA4_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_4l, C2C_READ_DATA4_LOWER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_5u, C2C_READ_DATA5_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_5l, C2C_READ_DATA5_LOWER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_6u, C2C_READ_DATA6_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_6l, C2C_READ_DATA6_LOWER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_7u, C2C_READ_DATA7_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.read_data_7l, C2C_READ_DATA7_LOWER_ADDR);
-		vptr_mmap(&rgstr_vptr.wne_stat, C2C_WRITE_ERASE_STATUS_ADDR);
-		vptr_mmap(&rgstr_vptr.write_data_u, C2C_WRITE_DATA_UPPER_ADDR);
-		vptr_mmap(&rgstr_vptr.write_data_l, C2C_WRITE_DATA_LOWER_ADDR);
-		*/
 		
 		rgstr_offset_map(&rgstr_vptr.read_stat, READ_STATUS_OFFSET);
 		rgstr_offset_map(&rgstr_vptr.read_data_0u, READ_DATA0_UPPER_OFFSET);
@@ -65,38 +43,6 @@ int c2c_init(void) {	//opening memory device as a file descriptor to use them wi
 		rgstr_offset_map(&rgstr_vptr.write_data_u, WRITE_DATA_UPPER_OFFSET);
 		rgstr_offset_map(&rgstr_vptr.write_data_l, WRITE_DATA_LOWER_OFFSET);
 
-		/*
-		 rgstr_vptr.read_stat = rgstr_vptr.cmd + READ_STATUS_OFFSET;
-		 rgstr_vptr.read_data_0u = rgstr_vptr.cmd + READ_DATA0_UPPER_OFFSET;
-		 rgstr_vptr.read_data_0l = rgstr_vptr.cmd + READ_DATA0_LOWER_OFFSET;
-		 rgstr_vptr.read_data_1u = rgstr_vptr.cmd + READ_DATA1_UPPER_OFFSET;
-		 rgstr_vptr.read_data_1l = rgstr_vptr.cmd + READ_DATA1_LOWER_OFFSET;
-		 rgstr_vptr.read_data_2u = rgstr_vptr.cmd + READ_DATA2_UPPER_OFFSET;
-		 rgstr_vptr.read_data_2l = rgstr_vptr.cmd + READ_DATA2_LOWER_OFFSET;
-		 rgstr_vptr.read_data_3u = rgstr_vptr.cmd + READ_DATA3_UPPER_OFFSET;
-		 rgstr_vptr.read_data_3l = rgstr_vptr.cmd + READ_DATA3_LOWER_OFFSET;
-		 rgstr_vptr.read_data_4u = rgstr_vptr.cmd + READ_DATA4_UPPER_OFFSET;
-		 rgstr_vptr.read_data_4l = rgstr_vptr.cmd + READ_DATA4_LOWER_OFFSET;
-		 rgstr_vptr.read_data_5u = rgstr_vptr.cmd + READ_DATA5_UPPER_OFFSET;
-		 rgstr_vptr.read_data_5l = rgstr_vptr.cmd + READ_DATA5_LOWER_OFFSET;
-		 rgstr_vptr.read_data_6u = rgstr_vptr.cmd + READ_DATA6_UPPER_OFFSET;
-		 rgstr_vptr.read_data_6l = rgstr_vptr.cmd + READ_DATA6_LOWER_OFFSET;
-		 rgstr_vptr.read_data_7u = rgstr_vptr.cmd + READ_DATA7_UPPER_OFFSET;
-		 rgstr_vptr.read_data_7l = rgstr_vptr.cmd + READ_DATA7_LOWER_OFFSET;
-		 rgstr_vptr.wne_stat = rgstr_vptr.cmd + WRITE_ERASE_STATUS_OFFSET;
-		 rgstr_vptr.write_data_u = rgstr_vptr.cmd + WRITE_DATA_UPPER_OFFSET;
-		 rgstr_vptr.write_data_l = rgstr_vptr.cmd + WRITE_DATA_LOWER_OFFSET;
-		*/
-
-		/*for(int i = 0; i < sizeof(rgstr_vptr) - 2; i++) {
-			if(vptr_mmap( ((&rgstr_vptr) + sizeof(u64*) * i), C2C_BASE_ADDR + (0x08 * i)) == -1)
-				return -1;
-		}
-		if(vptr_mmap( ((&rgstr_vptr) + sizeof(u64*) * 19), C2C_WRITE_DATA_UPPER_ADDR) == -1)
-			return -1;
-		if(vptr_mmap( ((&rgstr_vptr) + sizeof(u64*) * 20), C2C_WRITE_DATA_LOWER_ADDR) == -1)
-			return -1;
-		*/
 		return 0;
 		
 	} else {
@@ -273,8 +219,6 @@ int write_page(u64 bus, u64 chip, u64 block, u64 page,
 		//CTC_Out(rgstr_vptr.write_data_l, *pWriteBuf_lower);
 		//Xil_Out64(C2C_WRITE_DATA_LOWER_ADDR, *pWriteBuf_lower);
 		
-		//(*pWriteBuf_upper) += 1;//making write data for test
-		//(*pWriteBuf_lower) += 1;//making write data for test
 	}
 	/* write 데이터를 다 보내고 나면*/
 	/* write & erase status 레지스터의 write tag 값만 0으로 바꿈*/

@@ -18,16 +18,6 @@
 			using same value of BLUEDBM_NR_BLOCKS
 		 	may need to be changed afterwards */
 
-/**
- * @brief structure for manage the dma
- */
-/*
-typedef struct {
-	uint32_t tag;
-	char *data;
-	void *d_private;
-} chip2chip_dma_t;
-*/
 
 /**
  * @brief A structure for managing chip2chip device

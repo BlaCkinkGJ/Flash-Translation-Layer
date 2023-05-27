@@ -7,7 +7,6 @@
  */
 #include <stdlib.h>
 #include <errno.h>
-//#include <libmemio.h>
 #include <pthread.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -19,8 +18,8 @@
 #include "log.h"
 #include "bits.h"
 
-gint *g_badseg_counter = NULL; /**< counter for bad segemnt detection */
-gint *g_erase_counter = NULL; /**< counter for # of erase in the segment*/
+volatile gint *g_badseg_counter = NULL; /**< counter for bad segemnt detection */
+volatile gint *g_erase_counter = NULL; /**< counter for # of erase in the segment*/
 
 /**
  * @brief end request for the erase
@@ -105,27 +104,8 @@ static int chip2chip_clear(struct device *dev)
 	size_t blocknum = package->nr_blocks;
 
 	int result = 0;	
-	//size_t pages_per_segment;
-	//size_t erase_size;
-	//uint32_t segnum;
 
 	c2c = (struct chip2chip *)dev->d_private;
-	/*
-	if (bdbm->mio == NULL) {
-		pr_err("mio must be specified.\n");
-		return -EINVAL;
-	}
-	*/
-	//pages_per_segment = device_get_pages_per_segment(dev);
-	//erase_size = pages_per_segment * page->size;
-	/*
-	for (segnum = 0; segnum < package->nr_blocks; segnum++) {
-		addr.lpn = 0;
-		addr.format.block = segnum;
-		memio_trim(bdbm->mio, addr.lpn, erase_size,
-			   bluedbm_erase_end_request);
-	}
-	*/
 	
 	//clear all segments : (bus * chip) * block
 	for(size_t bus = 0; bus < busnum; bus++) {
@@ -195,7 +175,6 @@ static void chip2chip_wait_erase_finish(struct device *dev, size_t segnum,
  */
 int chip2chip_open(struct device *dev, const char *name, int flags)
 {
-	//struct bluedbm *bdbm;
 	struct chip2chip *c2c;
 
 	struct device_info *info = &dev->info;
@@ -205,8 +184,6 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 
 	int ret;
 	size_t nr_segments;
-
-	//memio_t *mio;
 
 	(void)name;
 
@@ -219,19 +196,6 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 
 	nr_segments = device_get_nr_segments(dev);
 	
-	/*
-	bdbm = (struct bluedbm *)dev->d_private;
-	mio = memio_open();
-	if (mio == NULL) {
-		pr_err("memio open failed\n");
-		ret = -EFAULT;
-		goto exception;
-	}
-	bdbm->size = device_get_total_size(dev);
-	bdbm->o_flags = flags;
-	bdbm->mio = mio;
-	*/
-
 	c2c = (struct chip2chip *)dev->d_private;
 	c2c->size = device_get_total_size(dev);
 	c2c->o_flags = flags;
@@ -279,7 +243,6 @@ exception:
  */
 static void chip2chip_end_rw_request(struct device_request *request)
 {
-	//bluedbm_dma_t *dma;
 	struct device_request *user_rq;
 
 	if (request == NULL) {
@@ -287,33 +250,9 @@ static void chip2chip_end_rw_request(struct device_request *request)
 		return;
 	}
 
-	/*dma = (bluedbm_dma_t *)rw_req->private_data;
-	if (dma == NULL) {
-		pr_warn("NULL request detected (rw_req: %p)\n", rw_req);
-		free(rw_req);
-		return;
-	}
-	*/
 	user_rq = (struct device_request *)request;
 	assert(NULL != user_rq);
 
-	/*
-	switch (rw_req->type) {
-	case REQTYPE_IO_WRITE:
-		memio_free_dma(DMA_WRITE_BUF, dma->tag);
-		break;
-	case REQTYPE_IO_READ:
-		memcpy(user_rq->data, dma->data, user_rq->data_len);
-		memio_free_dma(DMA_READ_BUF, dma->tag);
-		break;
-	default:
-		pr_warn("unknown request type detected (flag: %u)",
-			rw_req->type);
-		break;
-	}
-	free(dma);
-	free(rw_req);
-	*/
 	if (user_rq && user_rq->end_rq) {
 		user_rq->end_rq(user_rq);
 	}
@@ -329,11 +268,6 @@ static void chip2chip_end_rw_request(struct device_request *request)
  */
 ssize_t chip2chip_write(struct device *dev, struct device_request *request)
 {
-	//bluedbm_dma_t *dma = NULL;
-	//async_bdbm_req *write_rq = NULL;
-	//memio_t *mio;
-
-	//struct bluedbm *bdbm;
 	struct chip2chip *c2c;
 
 	size_t page_size;
@@ -344,15 +278,6 @@ ssize_t chip2chip_write(struct device *dev, struct device_request *request)
 
 	page_size = device_get_page_size(dev);
 	c2c = (struct chip2chip *)dev->d_private;
-	//mio = bdbm->mio;
-
-	/*
-	if (mio == NULL) {
-		pr_err("memio global structure doesn't exist\n");
-		ret = -EFAULT;
-		goto exception;
-	}
-	*/
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
@@ -382,34 +307,6 @@ ssize_t chip2chip_write(struct device *dev, struct device_request *request)
 
 	lpn = request->paddr.lpn;
 
-	/*
-	dma = (bluedbm_dma_t *)malloc(sizeof(bluedbm_dma_t));
-	if (dma == NULL) {
-		pr_err("dma cannot be allocated\n");
-		ret = -errno;
-		goto exception;
-	}
-	dma->tag = memio_alloc_dma(DMA_WRITE_BUF, &dma->data);
-	dma->d_private = (void *)request;
-	memcpy(dma->data, request->data, page_size);
-	*/
-
-	/*
-	write_rq = (async_bdbm_req *)malloc(sizeof(async_bdbm_req));
-	if (write_rq == NULL) {
-		pr_err("memory allocation failed\n");
-		ret = -ENOMEM;
-		goto exception;
-	}
-	write_rq->type = REQTYPE_IO_WRITE;
-	write_rq->private_data = (void *)dma;
-	write_rq->end_req = bluedbm_end_rw_request;
-	write_rq->end_req = chip2chip_end_rw_request;
-
-	ret = memio_write(mio, lpn, page_size, (uint8_t *)dma->data, false,
-			  (void *)write_rq, dma->tag);
-	*/
-
 	write_buffer_cpy(c2c->writeData_upper_arr, c2c->writeData_lower_arr,
 			(u64*)request->data, page_size);
 
@@ -433,9 +330,6 @@ exception:
 	if (write_rq) {
 		free(write_rq);
 	}
-	if (dma) {
-		free(dma);
-	}
 	*/
 	return ret;
 }
@@ -450,10 +344,6 @@ exception:
  */
 ssize_t chip2chip_read(struct device *dev, struct device_request *request)
 {
-	//bluedbm_dma_t *dma = NULL;
-	//async_bdbm_req *read_rq = NULL;
-	//memio_t *mio;
-
 	struct chip2chip *c2c;
 
 	size_t page_size;
@@ -464,15 +354,6 @@ ssize_t chip2chip_read(struct device *dev, struct device_request *request)
 
 	page_size = device_get_page_size(dev);
 	c2c = (struct chip2chip *)dev->d_private;
-	//mio = bdbm->mio;
-
-	/*
-	if (mio == NULL) {
-		pr_err("memio global structure doesn't exist\n");
-		ret = -EFAULT;
-		goto exception;
-	}
-	*/
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
@@ -500,30 +381,6 @@ ssize_t chip2chip_read(struct device *dev, struct device_request *request)
 
 	lpn = request->paddr.lpn;
 	
-	/*
-	dma = (bluedbm_dma_t *)malloc(sizeof(bluedbm_dma_t));
-	if (dma == NULL) {
-		pr_err("memory allocation failed\n");
-		ret = -ENOMEM;
-		goto exception;
-	}
-	dma->tag = memio_alloc_dma(DMA_READ_BUF, &dma->data);
-	dma->d_private = (void *)request;
-
-	read_rq = (async_bdbm_req *)malloc(sizeof(async_bdbm_req));
-	if (read_rq == NULL) {
-		pr_err("memory allocation failed\n");
-		ret = -ENOMEM;
-		goto exception;
-	}
-	read_rq->type = REQTYPE_IO_READ;
-	read_rq->private_data = (void *)dma;
-	read_rq->end_req = bluedbm_end_rw_request;
-
-	ret = memio_read(mio, lpn, page_size, (uint8_t *)dma->data, false,
-			 (void *)read_rq, dma->tag);
-	*/
-
 	result = read_page((u64)request->paddr.format.bus,
 			(u64)request->paddr.format.chip,
 			(u64)request->paddr.format.block,
@@ -548,9 +405,6 @@ exception:
 	if (read_rq) {
 		free(read_rq);
 	}
-	if (dma) {
-		free(dma);
-	}
 	*/
 	return ret;
 }
@@ -565,9 +419,7 @@ exception:
  */
 int chip2chip_erase(struct device *dev, struct device_request *request)
 {
-	//struct bluedbm *bdbm;
 	struct chip2chip *c2c;
-	//memio_t *mio;
 	
 	struct device_address addr = request->paddr;
 	//size_t page_size;
@@ -586,15 +438,6 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 
 	c2c = (struct chip2chip *)dev->d_private;
 
-	//mio = bdbm->mio;
-	/*
-	if (mio == NULL) {
-		pr_err("memio global structure doesn't exist\n");
-		ret = -EFAULT;
-		goto exception;
-	}
-	*/
-
 	if (request->flag != DEVICE_ERASE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
 		       (unsigned int)DEVICE_ERASE, request->flag);
@@ -607,20 +450,11 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 		ret = -EINVAL;
 		goto exception;
 	}
-	/*
-	page_size = device_get_page_size(dev);
-	pages_per_segment = (uint32_t)device_get_pages_per_segment(dev);
-	*/
 	segnum = addr.format.block;
-	//addr.lpn = 0;
-	//addr.format.block = segnum;
 	
 	if (request->end_rq) {
 		request->end_rq(request);
 	}
-	//erase_size = pages_per_segment * page_size;
-	//memio_trim(mio, addr.lpn, erase_size, bluedbm_erase_end_request);
-	//bluedbm_wait_erase_finish(dev, segnum, 1);
 	
 	mutex = &c2c->iomutex;
 
@@ -714,7 +548,6 @@ const struct device_operations __chip2chip_dops = {
 int chip2chip_device_init(struct device *dev, uint64_t flags)
 {
 	int ret = 0;
-	//struct bluedbm *bdbm;
 	struct chip2chip *c2c;
 	size_t page_size;
 	int base_init;
@@ -760,7 +593,6 @@ exception:
  */
 int chip2chip_device_exit(struct device *dev)
 {
-	//struct bluedbm *bdbm;
 	struct chip2chip *c2c;
 	int base_terminate;	
 	//termination from chip2chip_core.h
