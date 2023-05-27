@@ -9,10 +9,9 @@
 #define CHIP2CHIP_H
 
 #include <stdint.h>
-//#include <libmemio.h>
 
 #include "device.h"
-#include "chip2chip_base.h"
+#include "chip2chip_core.h"
 
 #define CHIP2CHIP_NR_BLOCKS                                                      \
 	(4096) /**< number of blocks(segments) in the flash board 
@@ -31,11 +30,10 @@ typedef struct {
 */
 
 /**
- * @brief a structure for managing chip2chip device
+ * @brief A structure for managing chip2chip device
  */
 struct chip2chip {
 	size_t size;	//total flash size, initialized in chip2chip_open 
-	//memio_t *mio;
 	int o_flags;
 	pthread_mutex_t iomutex; //mutex for accessing the chip2chip registers
 	u64 *readData_upper_arr; //buffers for chip2chip RW interface

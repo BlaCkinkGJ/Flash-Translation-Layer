@@ -98,13 +98,7 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 	       -DDEVICE_NR_CHIPS_BITS=3 \
 	       -DDEVICE_NR_PAGES_BITS=7 \
 	       -DDEVICE_NR_BLOCKS_BITS=19 \
-	       #-DUSER_MODE \
-	       -DUSE_PMU \
-	       -DUSE_KTIMER \
-	       -DUSE_NEW_RMW \
-	       -D_LARGEFILE64_SOURCE \
-	       -D_GNU_SOURCE \
-	       -DNOHOST
+
 else
 # Ramdisk Setting (1GiB)
 DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
@@ -143,7 +137,11 @@ CFLAGS := -Wall \
           $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
           $(MEMORY_CHECK_CFLAGS) \
-          -O0
+          -O0	#This option for optimization is for preventing variables that
+		#store register values from being "optimized out".
+		#Might significantly degrade the FTL's performance,
+		#and shall return to -O3 after fixing the up-mentioned problems
+		#with "volatile", etc..
 
 CXXFLAGS := $(CFLAGS) \
             -std=c++11

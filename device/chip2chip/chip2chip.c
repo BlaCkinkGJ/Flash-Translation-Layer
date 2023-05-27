@@ -729,7 +729,7 @@ int chip2chip_device_init(struct device *dev, uint64_t flags)
 	page_size = device_get_page_size(dev);
 	memset(c2c, 0, sizeof(struct chip2chip));
 
-	//initialization from chip2chip_base.h
+	//initialization from chip2chip_core.h
 	base_init = c2c_init();
 	if(base_init == -1)
 		goto exception;
@@ -763,7 +763,7 @@ int chip2chip_device_exit(struct device *dev)
 	//struct bluedbm *bdbm;
 	struct chip2chip *c2c;
 	int base_terminate;	
-	//termination from chip2chip_base.h
+	//termination from chip2chip_core.h
 	//has return value but not in use currently.
 	base_terminate = c2c_terminate();
 
