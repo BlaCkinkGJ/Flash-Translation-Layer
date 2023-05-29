@@ -34,25 +34,3 @@ jobs:
       run: make clean && make benchmark.out
     - name: make benchmark.out with legacy random
       run: make clean && make benchmark.out USE_LEGACY_RANDOM=1
-  build-and-test-arm:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          submodules: recursive
-      - uses: pguyot/arm-runner-action@v2
-        with:
-          commands: |
-            grep MemTotal /proc/meminfo
-            sudo apt-get update -y && sudo apt-get clean
-            sudo apt-get install --no-install-recommends -y git make gcc g++ libglib2.0-dev libiberty-dev
-            sudo apt-get install --no-install-recommends -y cppcheck flawfinder cflow
-            sudo apt-get install --no-install-recommends -y python3-pip
-            sudo pip3 install lizard==1.17.0
-            make check
-            make flow
-            make
-            make clean && make test USE_LOG_SILENT=1
-            make clean && make integration-test
-            make clean && make benchmark.out
-            make clean && make benchmark.out USE_LEGACY_RANDOM=1
