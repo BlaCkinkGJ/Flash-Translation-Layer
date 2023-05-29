@@ -16,7 +16,8 @@ extern "C" {
 
 #include "flash.h"
 
-enum { PAGE_FTL_MODULE = 0 /**< page FTL number*/,
+enum {
+	PAGE_FTL_MODULE = 0 /**< page FTL number*/,
 };
 
 int module_init(const int modnum, struct flash_device **, uint64_t flags);
