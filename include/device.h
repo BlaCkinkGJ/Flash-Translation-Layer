@@ -47,6 +47,7 @@ enum {
 	RAMDISK_MODULE = 0 /**< select the ramdisk module */,
 	BLUEDBM_MODULE /**< select the bluedbm module */,
 	ZONE_MODULE /**< select the zone module */,
+	RASPBERRY_MODULE /**< select the raspberry module */,
 };
 
 /**
@@ -105,6 +106,20 @@ struct device_address {
 			uint32_t page : DEVICE_NR_PAGES_BITS;
 			uint32_t block : DEVICE_NR_BLOCKS_BITS;
 		} format;
+		struct {
+			uint32_t bus : DEVICE_NR_BUS_BITS;
+			uint32_t chip : DEVICE_NR_CHIPS_BITS;
+			uint32_t page : DEVICE_NR_PAGES_BITS;
+			uint32_t block : DEVICE_NR_BLOCKS_BITS;
+		} raspberry_converter;
+		struct {
+			uint32_t page
+				: (DEVICE_NR_PAGES_BITS + DEVICE_NR_CHIPS_BITS +
+				   DEVICE_NR_BUS_BITS);
+			uint32_t block : 32 -
+				(DEVICE_NR_PAGES_BITS + DEVICE_NR_CHIPS_BITS +
+				 DEVICE_NR_BUS_BITS);
+		} raspberry;
 		uint32_t lpn;
 	};
 };

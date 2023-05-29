@@ -14,6 +14,9 @@
 #ifdef DEVICE_USE_ZONED
 #include "zone.h"
 #endif
+#ifdef DEVICE_USE_RASPBERRY
+#include "raspberry.h"
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -39,6 +42,11 @@ static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [ZONE_MODULE] = */ zone_device_init,
 #else
 	/* [ZONE_MODULE] = */ NULL,
+#endif
+#ifdef DEVICE_USE_RASPBERRY
+	/* [RASPBERRY_MODULE] = */ raspberry_device_init,
+#else
+	/* [RASPBERRY_MODULE] = */ NULL,
 #endif
 };
 

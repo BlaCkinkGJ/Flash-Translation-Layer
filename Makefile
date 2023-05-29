@@ -30,6 +30,7 @@ DOCKER_TAG_ROOT = ftl
 # Device Module Setting
 USE_ZONE_DEVICE = 0
 USE_BLUEDBM_DEVICE = 0
+USE_RASPBERRY_DEVICE = 1
 # Debug Setting
 USE_DEBUG = 0
 USE_LOG_SILENT = 0
@@ -90,6 +91,24 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 
 DEVICE_LIBS += -lmemio
 DEVICE_INCLUDES += -I/usr/local/include/memio
+else ifeq ($(USE_RASPBERRY_DEVICE), 1)
+# Configuration for RaspberryPi Device
+# https://www.waveshare.com/wiki/File:K9F1G08U0D.pdf
+#
+# RaspberryPi does not support the multiple chips and pages.
+# For this reason, it does not match with conventional physical address format.
+#
+# Therefore, I translated conventional physical address format to RaspberryPi compatible format.
+#               +----------------+--------------+--------------+-------------+
+# Compatible => | Block(24 bits) | Page(4 bits) | Chip(1 bits) | Bus(1 bits) |
+#               +----------------+-------------------------------------------+
+# Actual     => | Block(24 bits) |                Page(6 bits)               |
+#               +----------------+-------------------------------------------+
+DEVICE_INFO := -DDEVICE_NR_BUS_BITS=1 \
+               -DDEVICE_NR_CHIPS_BITS=1 \
+               -DDEVICE_NR_PAGES_BITS=4 \
+               -DDEVICE_NR_BLOCKS_BITS=24 \
+               -DDEVICE_PAGE_SIZE=2048
 else
 # Ramdisk Setting (1GiB)
 DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
@@ -105,6 +124,10 @@ endif
 
 ifeq ($(USE_BLUEDBM_DEVICE), 1)
 DEVICE_INFO += -DDEVICE_USE_BLUEDBM
+endif
+
+ifeq ($(USE_RASPBERRY_DEVICE), 1)
+DEVICE_INFO += -DDEVICE_USE_RASPBERRY
 endif
 
 ARFLAGS := rcs
@@ -137,6 +160,7 @@ INCLUDES := -I./include -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
 BLUEDBM_SRCS =
+RASPBERRY_SRCS =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 ZONED_SRCS += device/zone/*.c
@@ -146,9 +170,14 @@ ifeq ($(USE_BLUEDBM_DEVICE), 1)
 BLUEDBM_SRCS += device/bluedbm/*.c
 endif
 
+ifeq ($(USE_RASPBERRY_DEVICE), 1)
+RASPBERRY_SRCS += device/raspberry/*.c
+endif
+
 DEVICE_SRCS := $(RAMDISK_SRCS) \
                $(BLUEDBM_SRCS) \
                $(ZONED_SRCS) \
+               $(RASPBERRY_SRCS) \
                device/*.c
 
 UTIL_SRCS := util/*.c
