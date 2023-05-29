@@ -252,7 +252,7 @@ format:
 	find . -type f -name '*.[ch]' ! -path "./unity/*" ! -path "./test/*" | xargs -i clang-format -i {}
 
 compiledb:
-	bear $(MAKE) all
+	bear -- $(MAKE) all
 	compdb -p ./ list > ../compile_commands.json
 	mv ../compile_commands.json ./
 
