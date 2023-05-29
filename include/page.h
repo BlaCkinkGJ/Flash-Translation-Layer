@@ -56,9 +56,6 @@ struct page_ftl {
 	uint64_t alloc_segnum; /**< last allocated segment number */
 	struct page_ftl_segment *segments;
 	struct device *dev;
-#ifdef PAGE_FTL_USE_CACHE
-	struct lru_cache *cache;
-#endif
 	pthread_mutex_t mutex;
 	pthread_mutex_t gc_mutex;
 	pthread_rwlock_t *bus_rwlock;
