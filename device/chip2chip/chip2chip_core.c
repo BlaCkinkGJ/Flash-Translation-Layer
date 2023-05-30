@@ -8,10 +8,10 @@ int fd_memory; //File descriptor of the memory device
 struct _rgstr_vptr rgstr_vptr;
 
 void vptr_mmap(u64** vptr, off_t addr) { //Mapping registers to the host's memory
-	(*vptr = (u64 *)mmap(NULL, REG_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_memory, addr));
+	(*vptr = (volatile u64 *)mmap(NULL, REG_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_memory, addr));
 }
 
-void rgstr_offset_map(u64** vptr, u64 offset) {
+void rgstr_offset_map(volatile u64** vptr, u64 offset) {
 	*vptr = rgstr_vptr.cmd + offset/sizeof(u64*);
 }
 
@@ -343,10 +343,10 @@ int wait_writeData_req(u64* requested_tag){
 }
 
 int wait_flash_operation(u64 op, u64 tag, int* Qnumber, u64* ack,u64* ack_tag){
-	u64 readQ_ready;
-	u64 readQ_tag;
-	u64 wr_er_status;
-	u64 ack_ready;
+	volatile u64 readQ_ready;
+	volatile u64 readQ_tag;
+	volatile u64 wr_er_status;
+	volatile u64 ack_ready;
 	int time_cnt;		//limit wait time
 
 	if(op == READ){

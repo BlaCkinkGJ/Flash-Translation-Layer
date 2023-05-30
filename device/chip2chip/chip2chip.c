@@ -74,6 +74,7 @@ void read_buffer_cpy(u64* read_upper, u64* read_lower, u64* buffer, size_t page_
  */ 
 void write_buffer_cpy(u64* write_upper, u64* write_lower, u64* buffer, size_t page_size)
 {
+	pr_info("size of buffer : %d\n", (page_size / (2 * sizeof(u64))));
 	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++) {
 		write_upper[i] = buffer[2*i];
 		write_lower[i] = buffer[2*i+1];
@@ -225,8 +226,8 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 	}
 
 	if (c2c->o_flags & O_CREAT) {
-		//chip2chip_clear(dev);
-		sleep(1);
+		chip2chip_clear(dev);
+		//sleep(1);
 		//chip2chip_wait_erase_finish(dev, 0, nr_segments);
 	}
 
@@ -572,6 +573,10 @@ int chip2chip_device_init(struct device *dev, uint64_t flags)
 	c2c->readData_lower_arr = (u64*)malloc(page_size/2);
 	c2c->writeData_upper_arr = (u64*)malloc(page_size/2);
 	c2c->writeData_lower_arr = (u64*)malloc(page_size/2);
+
+	pr_info("writeData_upper_arr size : %d\n", sizeof(*(c2c->writeData_upper_arr)));
+	pr_info("writeData_lower_arr size : %d\n", sizeof(*(c2c->writeData_lower_arr)));
+	
 
 	pthread_mutex_init(&(c2c->iomutex), NULL);
 
