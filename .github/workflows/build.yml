@@ -54,11 +54,12 @@ jobs:
         sudo apt-get install --no-install-recommends -y python3-pip
         sudo apt-get install --no-install-recommends -y libclang-dev clang libbz2-dev
         sudo apt-get install --no-install-recommends -y curl
-        curl https://sh.rustup.rs -sSf | bash -s -- -y
     - name: make rust-binding-test
       run: |
         make clean
-        sudo rustup install stable
-        sudo rustup default stable
-        sudo source "$HOME/.cargo/env"
-        sudo PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
+        sudo -s
+        curl https://sh.rustup.rs -sSf | bash -s -- -y
+        rustup install stable
+        rustup default stable
+        source "$HOME/.cargo/env"
+        PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
