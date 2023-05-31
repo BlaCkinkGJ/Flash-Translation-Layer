@@ -60,4 +60,5 @@ jobs:
       run: |
         make clean
         sudo make install
-        LIBCLANG_PATH= ${LIBCLANG_PATH} PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
+        export PATH="${CARGO_BIN_PATH}:${PATH}"
+        make rust-binding-test
