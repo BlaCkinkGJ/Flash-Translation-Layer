@@ -43,4 +43,6 @@ jobs:
     - name: make benchmark.out with legacy random
       run: make clean && make benchmark.out USE_LEGACY_RANDOM=1
     - name: make rust-binding-test
-      run: make clean && PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
+      run: |
+        make clean
+        sudo PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
