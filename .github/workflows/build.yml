@@ -56,7 +56,7 @@ jobs:
         sudo apt-get install --no-install-recommends -y curl llvm
         curl https://sh.rustup.rs -sSf | bash -s -- -y
         source "$HOME/.cargo/env"
-    - name: make rust-binding-test
+    - name: make rust-binding-test-only
       run: |
         make clean
         sudo make install
