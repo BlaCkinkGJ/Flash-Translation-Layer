@@ -57,9 +57,7 @@ jobs:
     - name: make rust-binding-test
       run: |
         make clean
-        sudo -s
-        curl https://sh.rustup.rs -sSf | bash -s -- -y
-        rustup install stable
-        rustup default stable
-        source "$HOME/.cargo/env"
-        PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
+        sudo curl https://sh.rustup.rs -sSf | sudo bash -s -- -y
+        sudo rustup install stable
+        sudo rustup default stable
+        sudo source "$HOME/.cargo/env" && sudo PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
