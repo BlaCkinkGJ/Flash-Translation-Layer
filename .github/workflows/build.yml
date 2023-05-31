@@ -55,11 +55,10 @@ jobs:
         sudo apt-get install --no-install-recommends -y libclang-dev clang libbz2-dev
         sudo apt-get install --no-install-recommends -y curl
         curl https://sh.rustup.rs -sSf | bash -s -- -y
-        source "$HOME/.cargo/env"
-        sudo pip3 install lizard==1.17.0
     - name: make rust-binding-test
       run: |
         make clean
-        rustup install stable
-        rustup default stable
+        sudo rustup install stable
+        sudo rustup default stable
+        sudo source "$HOME/.cargo/env"
         sudo PATH="${CARGO_BIN_PATH}:${PATH}" make rust-binding-test
