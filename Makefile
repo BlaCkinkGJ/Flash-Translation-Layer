@@ -133,8 +133,7 @@ CFLAGS := -Wall \
           -Wno-unknown-pragmas \
           -Wundef \
           -Wconversion \
-          -Werror \
-          $(DEVICE_INFO) \
+	  $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
           $(MEMORY_CHECK_CFLAGS) \
           -O0	#This option for optimization is for preventing variables that

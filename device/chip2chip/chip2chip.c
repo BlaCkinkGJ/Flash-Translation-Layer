@@ -13,13 +13,15 @@
 #include <assert.h>
 #include <string.h>
 
+#include <malloc.h>
+
 #include "chip2chip.h"
 #include "device.h"
 #include "log.h"
 #include "bits.h"
 
-volatile gint *g_badseg_counter = NULL; /**< counter for bad segemnt detection */
-volatile gint *g_erase_counter = NULL; /**< counter for # of erase in the segment*/
+gint *g_badseg_counter = NULL; /**< counter for bad segemnt detection */
+gint *g_erase_counter = NULL; /**< counter for # of erase in the segment*/
 
 /**
  * @brief end request for the erase
@@ -74,7 +76,7 @@ void read_buffer_cpy(u64* read_upper, u64* read_lower, u64* buffer, size_t page_
  */ 
 void write_buffer_cpy(u64* write_upper, u64* write_lower, u64* buffer, size_t page_size)
 {
-	pr_info("size of buffer : %d\n", (page_size / (2 * sizeof(u64))));
+	pr_info("size of buffer : %d\n", 2 * sizeof(u64) * (page_size / (2 * sizeof(u64))));
 	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++) {
 		write_upper[i] = buffer[2*i];
 		write_lower[i] = buffer[2*i+1];
@@ -187,7 +189,6 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 	size_t nr_segments;
 
 	(void)name;
-
 	info->nr_bus = (1 << DEVICE_NR_BUS_BITS);
 	info->nr_chips = (1 << DEVICE_NR_CHIPS_BITS);
 	block->nr_pages = (1 << DEVICE_NR_PAGES_BITS);
@@ -226,7 +227,7 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 	}
 
 	if (c2c->o_flags & O_CREAT) {
-		chip2chip_clear(dev);
+		//chip2chip_clear(dev);
 		//sleep(1);
 		//chip2chip_wait_erase_finish(dev, 0, nr_segments);
 	}
@@ -272,7 +273,7 @@ ssize_t chip2chip_write(struct device *dev, struct device_request *request)
 	struct chip2chip *c2c;
 
 	size_t page_size;
-	int result = -1; // result of the base write function(write_page)
+	int result = -1; // result of the core write function(write_page)
 	ssize_t ret = 0;
 
 	uint32_t lpn;
@@ -348,7 +349,7 @@ ssize_t chip2chip_read(struct device *dev, struct device_request *request)
 	struct chip2chip *c2c;
 
 	size_t page_size;
-	int result = -1;//result of the base read function(read_page)
+	int result = -1;//result of the core read function(read_page)
 	ssize_t ret = 0;
 
 	uint32_t lpn;
@@ -433,6 +434,7 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 	//int result = -1;
 	size_t busnum = dev->info.nr_bus;
 	size_t chipnum = dev->info.nr_chips;
+	size_t page_size = device_get_page_size(dev); 
 	int ret = 0;
 
 	pthread_mutex_t *mutex;
@@ -471,7 +473,7 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 		}
 	}
 	chip2chip_wait_erase_finish(dev, segnum, 1); //may need to be removed if FTL doesn't function
-	ret = busnum * chipnum;		
+	ret = busnum * chipnum * page_size;		
 	return ret;
 exception:
 	return ret;
@@ -551,8 +553,8 @@ int chip2chip_device_init(struct device *dev, uint64_t flags)
 	int ret = 0;
 	struct chip2chip *c2c;
 	size_t page_size;
-	int base_init;
-
+	int core_init;
+	pr_info("chip2chip_device_init\n");
 	(void)flags;
 	c2c = (struct chip2chip *)malloc(sizeof(struct chip2chip));
 	if (c2c == NULL) {
@@ -564,19 +566,17 @@ int chip2chip_device_init(struct device *dev, uint64_t flags)
 	memset(c2c, 0, sizeof(struct chip2chip));
 
 	//initialization from chip2chip_core.h
-	base_init = c2c_init();
-	if(base_init == -1)
+	core_init = c2c_init();
+	if(core_init == -1)
 		goto exception;
 
-	//set R/W upper/lower buffers for chip2chip RW interface
-	c2c->readData_upper_arr = (u64*)malloc(page_size/2);
-	c2c->readData_lower_arr = (u64*)malloc(page_size/2);
-	c2c->writeData_upper_arr = (u64*)malloc(page_size/2);
-	c2c->writeData_lower_arr = (u64*)malloc(page_size/2);
-
-	pr_info("writeData_upper_arr size : %d\n", sizeof(*(c2c->writeData_upper_arr)));
-	pr_info("writeData_lower_arr size : %d\n", sizeof(*(c2c->writeData_lower_arr)));
-	
+	//set R/W upper/lower buffers for chip2chip RW interface.
+	//size of the buffer shall be changed with "page_size/2".
+	//buffer allocation may need to be moved to "chip2chip_open()" function.
+	c2c->readData_upper_arr = (u64*)malloc(8192/2);
+	c2c->readData_lower_arr = (u64*)malloc(8192/2);
+	c2c->writeData_upper_arr = (u64*)malloc(8192/2);
+	c2c->writeData_lower_arr = (u64*)malloc(8192/2);
 
 	pthread_mutex_init(&(c2c->iomutex), NULL);
 
@@ -599,10 +599,10 @@ exception:
 int chip2chip_device_exit(struct device *dev)
 {
 	struct chip2chip *c2c;
-	int base_terminate;	
+	int core_terminate;	
 	//termination from chip2chip_core.h
 	//has return value but not in use currently.
-	base_terminate = c2c_terminate();
+	core_terminate = c2c_terminate();
 
 	c2c = (struct chip2chip *)dev->d_private;
 	if (c2c) {
