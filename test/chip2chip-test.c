@@ -1,7 +1,6 @@
 #include <fcntl.h>
 
 #include "device.h"
-//#include "zone.h"
 #include "chip2chip.h"
 #include "unity.h"
 
@@ -16,7 +15,6 @@ struct device *dev;
 void setUp(void)
 {
 	int ret;
-	//ret = device_module_init(ZONE_MODULE, &dev, 0);
 	ret = device_module_init(CHIP2CHIP_MODULE, &dev, 0);
 	TEST_ASSERT_EQUAL_INT(0, ret);
 }
@@ -105,6 +103,10 @@ void test_full_write(void)
 	TEST_ASSERT_EQUAL_INT(request.data_len,
 			      dev->d_op->read(dev, &request));
 	//TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
+
+	for(int i = 0; i < page_size/sizeof(u64); i++) {
+		pr_info("buffer data[%d] : %016llx\n", i, (u64)buffer[i]);
+	}
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
 	free(buffer);
