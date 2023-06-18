@@ -19,8 +19,6 @@
  */
 struct raspberry {
 	size_t size;
-	char *buffer;
-	uint64_t *is_used;
 	int o_flags;
 };
 

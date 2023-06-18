@@ -18,6 +18,7 @@
 #include "device.h"
 #include "log.h"
 #include "bits.h"
+#include "nand.h"
 
 /**
  * @brief open the raspberry (allocate the device resources)
@@ -30,10 +31,7 @@
  */
 int raspberry_open(struct device *dev, const char *name, int flags)
 {
-	int ret = 0;
-	char *buffer;
-	size_t bitmap_size;
-	uint64_t *is_used;
+	int ret = 0, i;
 	struct raspberry *raspberry;
 
 	struct device_info *info = &dev->info;
@@ -58,26 +56,6 @@ int raspberry_open(struct device *dev, const char *name, int flags)
 	raspberry->o_flags = flags;
 
 	pr_info("raspberry generated (size: %zu bytes)\n", raspberry->size);
-	buffer = (char *)malloc(raspberry->size);
-	if (buffer == NULL) {
-		pr_err("memory allocation failed\n");
-		ret = -ENOMEM;
-		goto exception;
-	}
-	memset(buffer, 0, raspberry->size);
-	raspberry->buffer = buffer;
-
-	bitmap_size =
-		(size_t)BITS_TO_UINT64_ALIGN(raspberry->size / page->size);
-	is_used = (uint64_t *)malloc((size_t)bitmap_size);
-	if (is_used == NULL) {
-		pr_err("memory allocation failed\n");
-		ret = -ENOMEM;
-		goto exception;
-	}
-	pr_info("bitmap generated (size: %zu bytes)\n", bitmap_size);
-	memset(is_used, 0, bitmap_size);
-	raspberry->is_used = is_used;
 
 	nr_segments = device_get_nr_segments(dev);
 	dev->badseg_bitmap =
@@ -89,6 +67,16 @@ int raspberry_open(struct device *dev, const char *name, int flags)
 	}
 	memset(dev->badseg_bitmap, 0,
 	       (size_t)BITS_TO_UINT64_ALIGN(nr_segments));
+
+	// TODO: this part will be removed after implmenting recovery routine
+	for (i = 0; (size_t)i < package->nr_blocks; i++) {
+		int status;
+		status = nand_erase(i);
+		if (status) {
+			set_bit(dev->badseg_bitmap, (uint64_t)i);
+		}
+	}
+
 	return ret;
 exception:
 	raspberry_close(dev);
@@ -105,11 +93,9 @@ exception:
  */
 ssize_t raspberry_write(struct device *dev, struct device_request *request)
 {
-	struct raspberry *raspberry = (struct raspberry *)dev->d_private;
 	struct device_address addr;
 	size_t page_size = device_get_page_size(dev);
 	ssize_t ret = 0;
-	int is_used;
 
 	addr.lpn = 0;
 	addr.raspberry_converter.bus = request->paddr.format.bus;
@@ -143,16 +129,12 @@ ssize_t raspberry_write(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 
-	is_used = get_bit(raspberry->is_used, addr.lpn);
-	if (is_used == 1) {
-		pr_err("you overwrite the already written page\n");
-		ret = -EINVAL;
+	ret = nand_write((char *)request->data, addr.raspberry.block,
+			 addr.raspberry.page);
+	if (ret) {
+		pr_err("write error detected %zu\n", ret);
 		goto exit;
 	}
-	fflush(stdout);
-	set_bit(raspberry->is_used, addr.lpn);
-	memcpy(&raspberry->buffer[addr.lpn * page_size], request->data,
-	       request->data_len);
 	ret = (ssize_t)request->data_len;
 	if (request->end_rq) {
 		request->end_rq(request);
@@ -171,7 +153,6 @@ exit:
  */
 ssize_t raspberry_read(struct device *dev, struct device_request *request)
 {
-	struct raspberry *raspberry = (struct raspberry *)dev->d_private;
 	struct device_address addr;
 	size_t page_size;
 	ssize_t ret;
@@ -211,8 +192,13 @@ ssize_t raspberry_read(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 
-	memcpy(request->data, &raspberry->buffer[addr.lpn * page_size],
-	       request->data_len);
+	ret = nand_read((char *)request->data, addr.raspberry.block,
+			addr.raspberry.page);
+	if (ret) {
+		pr_warn("read error detected %s\n",
+			nand_get_read_error_msg((int)ret));
+		goto exit;
+	}
 	ret = (ssize_t)request->data_len;
 	pr_debug("request->end_rq %p %p\n", request->end_rq,
 		 &((struct device_request *)request->rq_private)->mutex);
@@ -233,15 +219,9 @@ exit:
  */
 int raspberry_erase(struct device *dev, struct device_request *request)
 {
-	struct raspberry *raspberry = (struct raspberry *)dev->d_private;
-	struct device_address addr;
-	size_t page_size;
-	uint32_t nr_pages_per_segment;
-	uint32_t lpn;
 	uint16_t segnum;
 	int ret;
 
-	addr.lpn = 0;
 	ret = 0;
 
 	if (request->flag != DEVICE_ERASE) {
@@ -251,12 +231,12 @@ int raspberry_erase(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 	segnum = (uint16_t)request->paddr.format.block;
-	page_size = device_get_page_size(dev);
-	nr_pages_per_segment = (uint32_t)device_get_pages_per_segment(dev);
-	addr.format.block = segnum;
-	for (lpn = addr.lpn; lpn < addr.lpn + nr_pages_per_segment; lpn++) {
-		memset(&raspberry->buffer[lpn * page_size], 0, page_size);
-		reset_bit(raspberry->is_used, lpn);
+
+	ret = nand_erase(segnum);
+	if (ret) {
+		pr_warn("erase fail detected %d\n", ret);
+		set_bit(dev->badseg_bitmap, segnum);
+		goto exit;
 	}
 
 	if (request->end_rq) {
@@ -283,14 +263,6 @@ int raspberry_close(struct device *dev)
 	raspberry = (struct raspberry *)dev->d_private;
 	if (raspberry == NULL) {
 		return 0;
-	}
-	if (raspberry->buffer != NULL) {
-		free(raspberry->buffer);
-		raspberry->buffer = NULL;
-	}
-	if (raspberry->is_used != NULL) {
-		free(raspberry->is_used);
-		raspberry->is_used = NULL;
 	}
 	raspberry->size = 0;
 	return 0;
@@ -327,13 +299,17 @@ int raspberry_device_init(struct device *dev, uint64_t flags)
 		ret = -ENOMEM;
 		goto exception;
 	}
-	raspberry->buffer = NULL;
 	raspberry->size = 0;
 	dev->d_op = &__raspberry_dops;
 	dev->d_private = (void *)raspberry;
 	dev->d_submodule_exit = raspberry_device_exit;
 
 	if (dev->d_private == NULL) {
+		goto exception;
+	}
+
+	ret = nand_init();
+	if (ret) {
 		goto exception;
 	}
 
@@ -359,5 +335,6 @@ int raspberry_device_exit(struct device *dev)
 		free(raspberry);
 		dev->d_private = NULL;
 	}
+	nand_free();
 	return 0;
 }

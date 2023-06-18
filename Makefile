@@ -171,7 +171,10 @@ BLUEDBM_SRCS += device/bluedbm/*.c
 endif
 
 ifeq ($(USE_RASPBERRY_DEVICE), 1)
-RASPBERRY_SRCS += device/raspberry/*.c
+RASPBERRY_SRCS += device/raspberry/*.c \
+                  device/raspberry/nand/*.c
+INCLUDES += -I./device/raspberry/nand
+LIBS += -lwiringPi
 endif
 
 DEVICE_SRCS := $(RAMDISK_SRCS) \
