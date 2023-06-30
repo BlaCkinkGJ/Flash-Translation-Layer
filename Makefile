@@ -182,7 +182,7 @@ test: $(TEST_TARGET)
 integration-test: $(INTEGRATION_TEST_TARGET)
 	./$(INTEGRATION_TEST_TARGET)
 
-install:
+install: $(LIBRARY_TARGET)
 	install -d $(DESTDIR)$(PREFIX)/lib/
 	install -m 644 $(LIBRARY_TARGET) $(DESTDIR)$(PREFIX)/lib
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
