@@ -61,8 +61,8 @@ MACROS += -DUSE_LEGACY_RANDOM
 endif
 
 TEST_TARGET := lru-test.out \
-              bits-test.out \
-              ramdisk-test.out
+               bits-test.out \
+               ramdisk-test.out
 
 DEVICE_LIBS =
 
@@ -109,6 +109,8 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=1 \
                -DDEVICE_NR_PAGES_BITS=4 \
                -DDEVICE_NR_BLOCKS_BITS=24 \
                -DDEVICE_PAGE_SIZE=2048
+DEVICE_LIBS += -lnand -lwiringPi
+DEVICE_INCLUDES += -I/usr/local/include/nand
 else
 # Ramdisk Setting (1GiB)
 DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
@@ -171,10 +173,7 @@ BLUEDBM_SRCS += device/bluedbm/*.c
 endif
 
 ifeq ($(USE_RASPBERRY_DEVICE), 1)
-RASPBERRY_SRCS += device/raspberry/*.c \
-                  device/raspberry/nand/*.c
-INCLUDES += -I./device/raspberry/nand
-LIBS += -lwiringPi
+RASPBERRY_SRCS += device/raspberry/*.c
 endif
 
 DEVICE_SRCS := $(RAMDISK_SRCS) \

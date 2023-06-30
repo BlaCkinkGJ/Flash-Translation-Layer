@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <glib.h>
 #include <sys/time.h>
+#include <pthread.h>
 
 #include "device.h"
 
@@ -20,6 +21,7 @@
 struct raspberry {
 	size_t size;
 	int o_flags;
+	pthread_spinlock_t lock;
 };
 
 int raspberry_open(struct device *, const char *name, int flags);

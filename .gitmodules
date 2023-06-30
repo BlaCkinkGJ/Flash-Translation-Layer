@@ -1,6 +1,3 @@
 [submodule "unity"]
 	path = unity
 	url = https://github.com/ThrowTheSwitch/Unity.git
-[submodule "device/raspberry/nand"]
-	path = device/raspberry/nand
-	url = git@github.com:BlaCkinkGJ/raspberry-pi-nand-tester.git

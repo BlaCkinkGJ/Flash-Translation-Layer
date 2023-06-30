@@ -71,7 +71,9 @@ int raspberry_open(struct device *dev, const char *name, int flags)
 	// TODO: this part will be removed after implmenting recovery routine
 	for (i = 0; (size_t)i < package->nr_blocks; i++) {
 		int status;
+		pthread_spin_lock(&raspberry->lock);
 		status = nand_erase(i);
+		pthread_spin_unlock(&raspberry->lock);
 		if (status) {
 			set_bit(dev->badseg_bitmap, (uint64_t)i);
 		}
@@ -95,13 +97,18 @@ ssize_t raspberry_write(struct device *dev, struct device_request *request)
 {
 	struct device_address addr;
 	size_t page_size = device_get_page_size(dev);
-	ssize_t ret = 0;
+	ssize_t ret;
+	struct raspberry *raspberry;
 
 	addr.lpn = 0;
 	addr.raspberry_converter.bus = request->paddr.format.bus;
 	addr.raspberry_converter.chip = request->paddr.format.chip;
 	addr.raspberry_converter.block = request->paddr.format.block;
 	addr.raspberry_converter.page = request->paddr.format.page;
+
+	ret = 0;
+
+	raspberry = (struct raspberry *)dev->d_private;
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
@@ -129,8 +136,10 @@ ssize_t raspberry_write(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 
+	pthread_spin_lock(&raspberry->lock);
 	ret = nand_write((char *)request->data, addr.raspberry.block,
 			 addr.raspberry.page);
+	pthread_spin_unlock(&raspberry->lock);
 	if (ret) {
 		pr_err("write error detected %zu\n", ret);
 		goto exit;
@@ -156,6 +165,7 @@ ssize_t raspberry_read(struct device *dev, struct device_request *request)
 	struct device_address addr;
 	size_t page_size;
 	ssize_t ret;
+	struct raspberry *raspberry;
 
 	addr.lpn = 0;
 	addr.raspberry_converter.bus = request->paddr.format.bus;
@@ -164,6 +174,8 @@ ssize_t raspberry_read(struct device *dev, struct device_request *request)
 	addr.raspberry_converter.page = request->paddr.format.page;
 
 	ret = 0;
+
+	raspberry = (struct raspberry *)dev->d_private;
 
 	if (request->data == NULL) {
 		pr_err("you do not pass the data pointer to NULL\n");
@@ -192,8 +204,10 @@ ssize_t raspberry_read(struct device *dev, struct device_request *request)
 		goto exit;
 	}
 
+	pthread_spin_lock(&raspberry->lock);
 	ret = nand_read((char *)request->data, addr.raspberry.block,
 			addr.raspberry.page);
+	pthread_spin_unlock(&raspberry->lock);
 	if (ret) {
 		pr_warn("read error detected %s\n",
 			nand_get_read_error_msg((int)ret));
@@ -221,8 +235,10 @@ int raspberry_erase(struct device *dev, struct device_request *request)
 {
 	uint16_t segnum;
 	int ret;
+	struct raspberry *raspberry;
 
 	ret = 0;
+	raspberry = (struct raspberry *)dev->d_private;
 
 	if (request->flag != DEVICE_ERASE) {
 		pr_err("request type is not matched (expected: %u, current: %u)\n",
@@ -232,7 +248,9 @@ int raspberry_erase(struct device *dev, struct device_request *request)
 	}
 	segnum = (uint16_t)request->paddr.format.block;
 
+	pthread_spin_lock(&raspberry->lock);
 	ret = nand_erase(segnum);
+	pthread_spin_unlock(&raspberry->lock);
 	if (ret) {
 		pr_warn("erase fail detected %d\n", ret);
 		set_bit(dev->badseg_bitmap, segnum);
