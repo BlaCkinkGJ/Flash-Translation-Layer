@@ -109,7 +109,7 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=1 \
                -DDEVICE_NR_PAGES_BITS=4 \
                -DDEVICE_NR_BLOCKS_BITS=24 \
                -DDEVICE_PAGE_SIZE=2048
-DEVICE_LIBS += -lwiringPi -lnand
+DEVICE_LIBS += -lnand -lwiringPi 
 DEVICE_INCLUDES += -I/usr/local/include/nand
 else
 # Ramdisk Setting (1GiB)
