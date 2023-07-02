@@ -28,7 +28,11 @@
 #define BLOCKSIZE_4KB
 
 #define DEVICE_PATH "/dev/nvme0n2"
+#ifdef DEVICE_USE_RASPBERRY
+#define WRITE_SIZE ((size_t)64 * (size_t)(1 << 20)) // 64 MiB
+#else
 #define WRITE_SIZE ((size_t)128 * (size_t)(1 << 20)) // 128 MiB
+#endif
 #define NR_ERASE (10)
 #if defined(BLOCKSIZE_4KB)
 #define BLOCK_SIZE ((size_t)4 * (size_t)(1 << 10)) // 4 KiB
@@ -181,6 +185,8 @@ int main(void)
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, ZONE_MODULE));
 #elif defined(DEVICE_USE_BLUEDBM)
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, BLUEDBM_MODULE));
+#elif defined(DEVICE_USE_RASPBERRY)
+	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RASPBERRY_MODULE));
 #else
 	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
 #endif

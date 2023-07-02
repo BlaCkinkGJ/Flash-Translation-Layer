@@ -51,10 +51,7 @@ static const char *module_str[] = {
 };
 
 static const char *device_str[] = {
-	"ramdisk",
-	"bluedbm",
-	"zone",
-	NULL,
+	"ramdisk", "bluedbm", "zone", "raspberry", NULL,
 };
 
 static const char *workload_str[] = {
@@ -69,6 +66,7 @@ static const int device_list[] = {
 	RAMDISK_MODULE,
 	BLUEDBM_MODULE,
 	ZONE_MODULE,
+	RASPBERRY_MODULE,
 };
 
 struct benchmark_parameter {
