@@ -59,6 +59,6 @@ jobs:
     - name: make rust-binding-test-only
       run: |
         make clean
-        sudo make install
+        make libftl.a
         export PATH="${CARGO_BIN_PATH}:${PATH}"
         make rust-binding-test
