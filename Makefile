@@ -213,7 +213,7 @@ test: $(TEST_TARGET)
 integration-test: $(INTEGRATION_TEST_TARGET)
 	./$(INTEGRATION_TEST_TARGET)
 
-rust-binding-test: install rust-binding-test-only
+rust-binding-test: rust-binding-test-only
 
 rust-binding-test-only:
 	cd rust/rust-ftl-builder; \
