@@ -60,4 +60,5 @@ jobs:
       run: |
         make clean
         export PATH="${CARGO_BIN_PATH}:${PATH}"
-        sudo make rust-binding-test
+        sudo make install
+        make rust-binding-test
