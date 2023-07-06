@@ -1,6 +1,10 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#[allow(non_upper_case_globals)]
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+#[allow(dead_code)]
+#[allow(improper_ctypes)]
+#[allow(deref_nullptr)]
+mod bindings;
 
 #[cfg(test)]
 mod tests {
@@ -8,7 +12,8 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+        unsafe {
+            let _ = bindings::device_alloc_request(10 as u64);
+        }
     }
 }
