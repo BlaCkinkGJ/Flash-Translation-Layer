@@ -56,9 +56,8 @@ jobs:
         sudo apt-get install --no-install-recommends -y curl llvm
         curl https://sh.rustup.rs -sSf | bash -s -- -y
         source "$HOME/.cargo/env"
-    - name: make rust-binding-test-only
+    - name: make rust-binding-test
       run: |
         make clean
-        make libftl.a
         export PATH="${CARGO_BIN_PATH}:${PATH}"
-        make rust-binding-test
+        sudo make rust-binding-test

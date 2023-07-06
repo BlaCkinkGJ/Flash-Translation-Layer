@@ -213,9 +213,7 @@ test: $(TEST_TARGET)
 integration-test: $(INTEGRATION_TEST_TARGET)
 	./$(INTEGRATION_TEST_TARGET)
 
-rust-binding-test: rust-binding-test-only
-
-rust-binding-test-only:
+rust-binding-test: install
 	cd rust/rust-ftl-builder; \
 		LIBCLANG_PATH=$(LIBCLANG_PATH) \
 		FTL_INCLUDE_PATH=$(DESTDIR)$(PREFIX)/include/ftl \
