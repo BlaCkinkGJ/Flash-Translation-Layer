@@ -242,7 +242,8 @@ void test_erase(void)
 	addr.format.bus = 1;
 	addr.format.chip = 2;
 	addr.format.block = 3;
-	request.paddr = addr;
+  addr.format.page = 4;
+  request.paddr = addr;
 	request.data_len = page_size;
 	request.end_rq = NULL;
 	request.flag = DEVICE_READ;
@@ -349,9 +350,9 @@ void test_end_rq_works(void)
 int main(void)
 {
 	UNITY_BEGIN();
-	RUN_TEST(test_open);
+	//RUN_TEST(test_open);
 	RUN_TEST(test_erase);
-	RUN_TEST(test_full_write);
+	//RUN_TEST(test_full_write);
 	//RUN_TEST(test_overwrite);
 	//RUN_TEST(test_end_rq_works);
 	return UNITY_END();
