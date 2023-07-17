@@ -254,6 +254,10 @@ void test_erase(void)
 	//TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 	
 
+	for(int i = 0; i < page_size/sizeof(u64); i++) {
+		pr_info("buffer data[%d] : %016llx\n", i, (u64)buffer[i]);
+	}
+
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
 	free(buffer);
