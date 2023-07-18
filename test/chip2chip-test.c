@@ -70,7 +70,8 @@ void test_full_write(void)
 	addr.format.bus = 1;
 	addr.format.chip = 2;
 	addr.format.block = 3;
-	memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+  addr.format.page = 4;
+	//memcpy(buffer, &addr.lpn, sizeof(uint32_t));
 	request.paddr = addr;
 	request.data_len = page_size;
 	request.end_rq = NULL;
