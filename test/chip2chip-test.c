@@ -106,6 +106,10 @@ void test_full_write(void)
 	}
 	*/
 
+  for(size_t i = 0; i < page_size/sizeof(u64); i++) {
+    buffer[i] = i;
+  }
+
 	addr.format.bus = 1;
 	addr.format.chip = 2;
 	addr.format.block = 3;
@@ -135,6 +139,7 @@ void test_full_write(void)
 	}
 	*/
 
+  memset(buffer, 0, page_size);
 	request.data_len = page_size;
 	request.end_rq = NULL;
 	request.flag = DEVICE_READ;
@@ -396,8 +401,8 @@ int main(void)
 	UNITY_BEGIN();
 	//RUN_TEST(test_open);
 	RUN_TEST(test_erase);
-	RUN_TEST(test_read);
-  //RUN_TEST(test_full_write);
+	//RUN_TEST(test_read);
+  RUN_TEST(test_full_write);
 	//RUN_TEST(test_overwrite);
 	//RUN_TEST(test_end_rq_works);
 	return UNITY_END();
