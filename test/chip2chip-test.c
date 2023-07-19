@@ -38,7 +38,7 @@ void test_read(void)
 {
   struct device_request request;
   struct device_address addr;
-	char *buffer;
+	u64 *buffer;
 	size_t page_size;
 	size_t total_pages;
 	
@@ -48,7 +48,7 @@ void test_read(void)
 	pr_info("page_size : %d\n", page_size);
 	total_pages = WRITE_PAGE_SIZE(dev);
 
-	buffer = (char *)malloc(page_size);
+	buffer = (u64 *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
 	memset(buffer, 0, page_size);
 	addr.format.bus = 1;
@@ -65,7 +65,7 @@ void test_read(void)
 			      dev->d_op->read(dev, &request));
 	//TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 
-	for(int i = 0; i < page_size/sizeof(u64); i++) {
+	for(size_t i = 0; i < page_size/sizeof(u64); i++) {
 		pr_info("buffer data[%d] : %016llx\n", i, (u64)buffer[i]);
 	}
 
@@ -77,7 +77,7 @@ void test_full_write(void)
 {
 	struct device_request request;
 	struct device_address addr;
-	char *buffer;
+	u64 *buffer;
 	size_t page_size;
 	size_t total_pages;
 
@@ -87,7 +87,7 @@ void test_full_write(void)
 	pr_info("page_size : %d\n", page_size);
 	total_pages = WRITE_PAGE_SIZE(dev);
 
-	buffer = (char *)malloc(page_size);
+	buffer = (u64 *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
 	memset(buffer, 0, page_size);
 
@@ -111,7 +111,7 @@ void test_full_write(void)
 	addr.format.block = 3;
   addr.format.page = 4;
 	//memcpy(buffer, &addr.lpn, sizeof(uint32_t));
-	request.paddr = addr;
+  request.paddr = addr;
 	request.data_len = page_size;
 	request.end_rq = NULL;
 	request.flag = DEVICE_WRITE;
@@ -144,7 +144,7 @@ void test_full_write(void)
 			      dev->d_op->read(dev, &request));
 	//TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 
-	for(int i = 0; i < page_size/sizeof(u64); i++) {
+	for(size_t i = 0; i < page_size/sizeof(u64); i++) {
 		pr_info("buffer data[%d] : %016llx\n", i, (u64)buffer[i]);
 	}
 
@@ -199,7 +199,7 @@ void test_erase(void)
 {
 	struct device_request request;
 	struct device_address addr;
-	char *buffer;
+	u64 *buffer;
 	size_t page_size;
 	size_t total_pages;
 	size_t nr_segments;
@@ -210,7 +210,7 @@ void test_erase(void)
 						 O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
 	total_pages = WRITE_PAGE_SIZE(dev);
-	buffer = (char *)malloc(page_size);
+	buffer = (u64 *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
 	memset(buffer, 0, page_size);
 
@@ -294,7 +294,7 @@ void test_erase(void)
 	//TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 	
 
-	for(int i = 0; i < page_size/sizeof(u64); i++) {
+	for(size_t i = 0; i < page_size/sizeof(u64); i++) {
 		pr_info("buffer data[%d] : %016llx\n", i, (u64)buffer[i]);
 	}
 

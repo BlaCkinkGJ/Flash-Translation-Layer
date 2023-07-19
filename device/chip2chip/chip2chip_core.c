@@ -139,7 +139,7 @@ int read_page(u64 bus, u64 chip, u64 block, u64 page,
 		return -1;
 	}
 	/* 8KB 용량 (==1page) 만큼 읽어 올 때 까지 반복*/
-	for(size_t i; i < (page_size / (2 * sizeof(u64))); i++){
+	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++){
 		/*read queue upper에 저장된 값을 변수에 저장*/
 		pReadBuf_upper[i] = CTC_Readq_In_Upper(readyQ_number);
 		//pReadBuf_upper[i] = Xil_In64(C2C_READ_DATA0_UPPER_ADDR + readyQ_number*READQ_ADDR_INTERVAL);
@@ -208,7 +208,7 @@ int write_page(u64 bus, u64 chip, u64 block, u64 page,
 	//Xil_Out64(C2C_WRITE_ERASE_STATUS_ADDR, status_reg_value | writeData_tag);
 	
 	/* 8KB용량(==1page) 만큼 write data를 보낼 때 까지 반복*/
-	for(size_t i; i < (page_size / (2 * sizeof(u64))); i++){
+	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++){
 		/* write upper buffer에 있는 64-bit값을 보냄*/
 		CTC_Out(rgstr_vptr.write_data_u, pWriteBuf_upper[i]);
 		//CTC_Out(rgstr_vptr.write_data_u, *pWriteBuf_upper);
