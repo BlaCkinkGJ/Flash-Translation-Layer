@@ -34,6 +34,45 @@ void test_open(void)
 	TEST_ASSERT_EQUAL_INT(0, ret);
 }
 
+void test_read(void)
+{
+  struct device_request request;
+  struct device_address addr;
+	char *buffer;
+	size_t page_size;
+	size_t total_pages;
+	
+  TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, C2C_FILE_NAME,
+						 O_CREAT | O_RDWR));
+	page_size = device_get_page_size(dev);
+	pr_info("page_size : %d\n", page_size);
+	total_pages = WRITE_PAGE_SIZE(dev);
+
+	buffer = (char *)malloc(page_size);
+	TEST_ASSERT_NOT_NULL(buffer);
+	memset(buffer, 0, page_size);
+	addr.format.bus = 1;
+	addr.format.chip = 2;
+	addr.format.block = 3;
+  addr.format.page = 4;
+  request.paddr = addr;
+  request.data_len = page_size;
+	request.end_rq = NULL;
+	request.flag = DEVICE_READ;
+	request.sector = 0;
+	request.data = buffer;
+	TEST_ASSERT_EQUAL_INT(request.data_len,
+			      dev->d_op->read(dev, &request));
+	//TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
+
+	for(int i = 0; i < page_size/sizeof(u64); i++) {
+		pr_info("buffer data[%d] : %016llx\n", i, (u64)buffer[i]);
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
+	free(buffer);
+}
+
 void test_full_write(void)
 {
 	struct device_request request;
@@ -357,7 +396,8 @@ int main(void)
 	UNITY_BEGIN();
 	//RUN_TEST(test_open);
 	RUN_TEST(test_erase);
-	//RUN_TEST(test_full_write);
+	RUN_TEST(test_read);
+  //RUN_TEST(test_full_write);
 	//RUN_TEST(test_overwrite);
 	//RUN_TEST(test_end_rq_works);
 	return UNITY_END();
