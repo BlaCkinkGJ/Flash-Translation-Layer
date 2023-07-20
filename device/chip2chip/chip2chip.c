@@ -573,10 +573,10 @@ int chip2chip_device_init(struct device *dev, uint64_t flags)
 	//set R/W upper/lower buffers for chip2chip RW interface.
 	//size of the buffer shall be changed with "page_size/2".
 	//buffer allocation may need to be moved to "chip2chip_open()" function.
-	c2c->readData_upper_arr = (u64*)malloc(8192/2);
-	c2c->readData_lower_arr = (u64*)malloc(8192/2);
-	c2c->writeData_upper_arr = (u64*)malloc(8192/2);
-	c2c->writeData_lower_arr = (u64*)malloc(8192/2);
+	c2c->readData_upper_arr = (u64*)malloc(8224/2);
+	c2c->readData_lower_arr = (u64*)malloc(8224/2);
+	c2c->writeData_upper_arr = (u64*)malloc(8224/2);
+	c2c->writeData_lower_arr = (u64*)malloc(8224/2);
 
 	pthread_mutex_init(&(c2c->iomutex), NULL);
 

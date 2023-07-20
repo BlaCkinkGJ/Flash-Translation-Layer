@@ -20,7 +20,7 @@
 struct device_request;
 struct device_operations;
 
-#define DEVICE_PAGE_SIZE (8192)
+#define DEVICE_PAGE_SIZE (8224)
 
 /**
  * @brief request allocation flags
