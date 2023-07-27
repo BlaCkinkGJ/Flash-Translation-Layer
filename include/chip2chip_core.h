@@ -1,5 +1,5 @@
-#ifndef CHIP2CHIPBASE_H
-#define CHIP2CHIPBASE_H
+#ifndef CHIP2CHIPCORE_H
+#define CHIP2CHIPCORE_H
 
 #include <stdio.h>
 //#include "xil_printf.h"
