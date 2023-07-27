@@ -136,11 +136,7 @@ CFLAGS := -Wall \
 	  $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
           $(MEMORY_CHECK_CFLAGS) \
-          -O0	#This option for optimization is for preventing variables that
-		#store register values from being "optimized out".
-		#Might significantly degrade the FTL's performance,
-		#and shall return to -O3 after fixing the up-mentioned problems
-		#with "volatile", etc..
+          -O3
 
 CXXFLAGS := $(CFLAGS) \
             -std=c++11
@@ -165,6 +161,12 @@ endif
 
 ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
 CHIP2CHIP_SRCS = device/chip2chip/*.c
+CFLAGS += -O0
+	#This option for optimization is for preventing variables that
+	#store register values from being "optimized out".
+	#Might significantly degrade the FTL's performance,
+	#and shall return to -O3 after fixing the up-mentioned problems
+	#with "volatile", etc..
 endif
 
 DEVICE_SRCS := $(RAMDISK_SRCS) \
