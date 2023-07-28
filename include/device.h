@@ -20,7 +20,11 @@
 struct device_request;
 struct device_operations;
 
+#ifdef DEVICE_USE_CHIP2CHIP 
 #define DEVICE_PAGE_SIZE (8224)
+#else
+#define DEVICE_PAGE_SIZE (8192)
+#endif
 
 /**
  * @brief request allocation flags
