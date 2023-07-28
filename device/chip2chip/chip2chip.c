@@ -57,7 +57,7 @@ static void chip2chip_erase_end_request(uint64_t segnum, uint8_t is_bad)
  * @param page_size FTL page size
  *
  */ 
-void read_buffer_cpy(u64* read_upper, u64* read_lower, u64* buffer, size_t page_size)
+static void read_buffer_cpy(u64* read_upper, u64* read_lower, u64* buffer, size_t page_size)
 {
 	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++) {
 		buffer[2*i] = read_upper[i];
@@ -74,7 +74,7 @@ void read_buffer_cpy(u64* read_upper, u64* read_lower, u64* buffer, size_t page_
  * @param page_size FTL page size
  *
  */ 
-void write_buffer_cpy(u64* write_upper, u64* write_lower, u64* buffer, size_t page_size)
+static void write_buffer_cpy(u64* write_upper, u64* write_lower, u64* buffer, size_t page_size)
 {
 	pr_info("size of buffer : %d\n", 2 * sizeof(u64) * (page_size / (2 * sizeof(u64))));
 	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++) {
