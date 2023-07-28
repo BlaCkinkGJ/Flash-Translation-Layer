@@ -54,13 +54,14 @@ int c2c_terminate(void) { //Closing the file descriptor
 	return close(fd_memory);
 }
 
-void CTC_Out(u64* vptr, u64 command) { //Replacement for "Xil_Out64()" function
-	*vptr = command;
-	msync(vptr, REG_SIZE, MS_SYNC);
+void CTC_Out(u64* vptr, u64 value) { //Replacement for "Xil_Out64()" function
+	volatile u64 *localAddr = (volatile u64 *)vptr;
+  *localAddr = value;
+  msync(vptr, REG_SIZE, MS_SYNC);
 }
 
 u64 CTC_In(u64* vptr) { //Replacement for "Xil_In64()" function
-	return *vptr;
+	return *(volatile u64 *)vptr;
 }
 
 u64 CTC_Readq_In_Upper(u64 Qnumber) {

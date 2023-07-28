@@ -175,7 +175,7 @@ int c2c_init(void);	//opening memory device as a file descriptor to use them wit
 
 int c2c_terminate(void); //Closing the file descriptor
 
-void CTC_Out(u64* vptr, u64 command); //Replacement for "Xil_Out64()" function
+void CTC_Out(u64* vptr, u64 value); //Replacement for "Xil_Out64()" function
 
 u64 CTC_In(u64* vptr); //Replacement for "Xil_In64()" function
 
