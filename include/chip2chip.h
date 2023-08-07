@@ -13,10 +13,7 @@
 #include "device.h"
 #include "chip2chip_core.h"
 
-#define CHIP2CHIP_NR_BLOCKS                                                      \
-	(4096) /**< number of blocks(segments) in the flash board 
-			using same value of BLUEDBM_NR_BLOCKS
-		 	may need to be changed afterwards */
+#define CHIP2CHIP_NR_BLOCKS   (8192)
 
 
 /**
