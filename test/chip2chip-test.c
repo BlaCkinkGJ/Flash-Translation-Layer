@@ -84,9 +84,7 @@ void test_full_write(void)
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->open(dev, C2C_FILE_NAME,
 						 O_CREAT | O_RDWR));
 	page_size = device_get_page_size(dev);
-	pr_info("page_size : %d\n", page_size);
 	total_pages = WRITE_PAGE_SIZE(dev);
-
 	buffer = (u64 *)malloc(page_size);
 	TEST_ASSERT_NOT_NULL(buffer);
 	memset(buffer, 0, page_size);
@@ -105,24 +103,24 @@ void test_full_write(void)
 				      dev->d_op->write(dev, &request));
 	}
 	*/
-
-  for(size_t i = 0; i < page_size/sizeof(u64); i++) {
-    buffer[i] = i;
+  for(size_t i = 0; i < 128; i++) {
+    for(size_t j = 0; j < page_size/sizeof(u64); j++) {
+      buffer[j] = i;
+    }
+    addr.format.bus = 1;
+    addr.format.chip = 2;
+    addr.format.block = 3;
+    addr.format.page = i;
+    //memcpy(buffer, &addr.lpn, sizeof(uint32_t));
+    request.paddr = addr;
+    request.data_len = page_size;
+    request.end_rq = NULL;
+    request.flag = DEVICE_WRITE;
+    request.sector = 0;
+    request.data = buffer;
+    TEST_ASSERT_EQUAL_INT(request.data_len,
+              dev->d_op->write(dev, &request));
   }
-
-	addr.format.bus = 1;
-	addr.format.chip = 2;
-	addr.format.block = 3;
-  addr.format.page = 4;
-	//memcpy(buffer, &addr.lpn, sizeof(uint32_t));
-  request.paddr = addr;
-	request.data_len = page_size;
-	request.end_rq = NULL;
-	request.flag = DEVICE_WRITE;
-	request.sector = 0;
-	request.data = buffer;
-	TEST_ASSERT_EQUAL_INT(request.data_len,
-			      dev->d_op->write(dev, &request));
 
 	memset(buffer, 0, page_size);
 	/*
@@ -138,20 +136,24 @@ void test_full_write(void)
 		TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
 	}
 	*/
-
-  memset(buffer, 0, page_size);
-	request.data_len = page_size;
-	request.end_rq = NULL;
-	request.flag = DEVICE_READ;
-	request.sector = 0;
-	request.data = buffer;
-	TEST_ASSERT_EQUAL_INT(request.data_len,
-			      dev->d_op->read(dev, &request));
-	//TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
-
-	for(size_t i = 0; i < page_size/sizeof(u64); i++) {
-		pr_info("buffer data[%d] : %016llx\n", i, (u64)buffer[i]);
-	}
+  for(size_t i = 0; i < 128; i++) {
+    addr.format.bus = 1;
+    addr.format.chip = 2;
+    addr.format.block = 3;
+    addr.format.page = i;
+    memset(buffer, 0, page_size);
+    request.paddr = addr;
+    request.data_len = page_size;
+    request.end_rq = NULL;
+    request.flag = DEVICE_READ;
+    request.sector = 0;
+    request.data = buffer;
+    TEST_ASSERT_EQUAL_INT(request.data_len,
+              dev->d_op->read(dev, &request));
+    //TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
+    pr_info("buffer data[0000] of page %d : %016llx\n", i, (u64)buffer[0]);
+    pr_info("buffer data[1027] of page %d : %016llx\n", i, (u64)buffer[1027]);
+  }
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
 	free(buffer);
@@ -283,26 +285,25 @@ void test_erase(void)
 		TEST_ASSERT_EQUAL_INT(-EINVAL, dev->d_op->write(dev, &request));
 	}
 	*/
-	
-	addr.format.bus = 1;
-	addr.format.chip = 2;
-	addr.format.block = 3;
-  addr.format.page = 4;
-  request.paddr = addr;
-	request.data_len = page_size;
-	request.end_rq = NULL;
-	request.flag = DEVICE_READ;
-	request.sector = 0;
-	request.data = buffer;
-	TEST_ASSERT_EQUAL_INT(request.data_len,
-			      dev->d_op->read(dev, &request));
-	//TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
-	
 
-	for(size_t i = 0; i < page_size/sizeof(u64); i++) {
-		pr_info("buffer data[%d] : %016llx\n", i, (u64)buffer[i]);
-	}
-
+  for(size_t i = 0; i < 128; i++) { 
+    addr.format.bus = 1;
+    addr.format.chip = 2;
+    addr.format.block = 3;
+    addr.format.page = i;
+    memset(buffer, 0, page_size);
+    request.paddr = addr;
+    request.data_len = page_size;
+    request.end_rq = NULL;
+    request.flag = DEVICE_READ;
+    request.sector = 0;
+    request.data = buffer;
+    TEST_ASSERT_EQUAL_INT(request.data_len,
+              dev->d_op->read(dev, &request));
+    //TEST_ASSERT_EQUAL_UINT32(addr.lpn, *(uint32_t *)request.data);
+    pr_info("buffer data[0000] of page %d : %016llx\n", i, (u64)buffer[0]);
+    pr_info("buffer data[1027] of page %d : %016llx\n", i, (u64)buffer[1027]);
+  }   
 
 	TEST_ASSERT_EQUAL_INT(0, dev->d_op->close(dev));
 	free(buffer);

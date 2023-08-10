@@ -76,7 +76,6 @@ static void read_buffer_cpy(u64* read_upper, u64* read_lower, u64* buffer, size_
  */ 
 static void write_buffer_cpy(u64* write_upper, u64* write_lower, u64* buffer, size_t page_size)
 {
-	pr_info("size of buffer : %d\n", 2 * sizeof(u64) * (page_size / (2 * sizeof(u64))));
 	for(size_t i = 0; i < (page_size / (2 * sizeof(u64))); i++) {
 		write_upper[i] = buffer[2*i];
 		write_lower[i] = buffer[2*i+1];
