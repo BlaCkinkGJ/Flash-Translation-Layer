@@ -114,8 +114,7 @@ static int chip2chip_clear(struct device *dev)
 		for(size_t chip = 0; chip < chipnum; chip++) {
 			for(size_t block = 0; block < blocknum; block++) {
 				result = erase_block((u64)bus, (u64)chip, (u64)block);
-				if(result == -1)
-					return -1;
+				if(result == -1);
 			}
 		}
 	}
