@@ -110,11 +110,13 @@ static int chip2chip_clear(struct device *dev)
 	c2c = (struct chip2chip *)dev->d_private;
 	
 	//clear all segments : (bus * chip) * block
-	for(size_t bus = 0; bus < busnum; bus++) {
-		for(size_t chip = 0; chip < chipnum; chip++) {
-			for(size_t block = 0; block < blocknum; block++) {
+	for(size_t block = 0; block < blocknum; block++) {
+		for(size_t bus = 0; bus < busnum; bus++) {
+			for(size_t chip = 0; chip < chipnum; chip++) {
 				result = erase_block((u64)bus, (u64)chip, (u64)block);
-				if(result == -1);
+				if(result == -1) {
+          set_bit(dev->badseg_bitmap, blocknum); 
+        }
 			}
 		}
 	}
