@@ -53,6 +53,7 @@ retry:
 	idx += 1;
 
 	if (dev->badseg_bitmap && get_bit(dev->badseg_bitmap, segnum)) {
+    //pr_info("\n\tbadseg : %d\n\tbadseg_bitmap : %d\n", segnum, dev->badseg_bitmap[segnum]);
 		goto retry;
 	}
 

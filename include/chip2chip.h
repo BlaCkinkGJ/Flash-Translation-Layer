@@ -27,6 +27,7 @@ struct chip2chip {
 	u64 *readData_lower_arr;
 	u64 *writeData_upper_arr;
 	u64 *writeData_lower_arr;
+  uint64_t *dirtyseg_bitmap;
 };
 
 int chip2chip_open(struct device *, const char *name, int flags);

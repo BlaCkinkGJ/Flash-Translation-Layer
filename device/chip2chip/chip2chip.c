@@ -115,11 +115,16 @@ static int chip2chip_clear(struct device *dev)
 			for(size_t chip = 0; chip < chipnum; chip++) {
 				result = erase_block((u64)bus, (u64)chip, (u64)block);
 				if(result == -1) {
-          set_bit(dev->badseg_bitmap, blocknum); 
+          set_bit(dev->badseg_bitmap, block); 
         }
 			}
 		}
 	}
+
+  for(size_t block = 0; block < blocknum; block++) {
+    if(get_bit(dev->badseg_bitmap, block))
+      pr_info("\n\tbadseg : %d\n\tbadseg_bitmap : %d\n", block, get_bit(dev->badseg_bitmap, block));
+  }
 
 	return 0;
 }
