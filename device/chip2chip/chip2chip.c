@@ -174,6 +174,7 @@ static void chip2chip_wait_erase_finish(struct device *dev, size_t segnum,
 
 /**
  * @brief open the chip2chip based device
+	size_t block_sz = (size_t)PAGE_SIZE;
  *
  * @param dev pointer of the device structure
  * @param name this does not use in this module
@@ -215,6 +216,15 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 		goto exception;
 	}
 	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+
+  c2c->dirtyseg_bitmap = 
+    (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
+  if (c2c->dirtyseg_bitmap == NULL) {
+    pr_err("memory allocation failed\n");
+    ret = -ENOMEM;
+    goto exception;
+  }
+  memset(c2c->dirtyseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
 
 	g_erase_counter = (gint *)malloc(nr_segments * sizeof(gint));
 	if (g_erase_counter == NULL) {
@@ -520,6 +530,11 @@ int chip2chip_close(struct device *dev)
 		free(dev->badseg_bitmap);
 		dev->badseg_bitmap = NULL;
 	}
+
+  if (c2c->dirtyseg_bitmap) {
+    free(c2c->dirtyseg_bitmap);
+    c2c->dirtyseg_bitmap = NULL;
+  }
 
 	if (g_erase_counter) {
 		free(g_erase_counter);
