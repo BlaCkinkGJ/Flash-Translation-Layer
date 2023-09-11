@@ -113,9 +113,14 @@ static int chip2chip_clear(struct device *dev)
 	for(size_t block = 0; block < blocknum; block++) {
 		for(size_t bus = 0; bus < busnum; bus++) {
 			for(size_t chip = 0; chip < chipnum; chip++) {
-				result = erase_block((u64)bus, (u64)chip, (u64)block);
-				if(result == -1) {
-          set_bit(dev->badseg_bitmap, block); 
+				if(get_bit(dev->badseg_bitmap, block) == 0
+            && get_bit(c2c->dirtyseg_bitmap, block) == 1) {
+          result = erase_block((u64)bus, (u64)chip, (u64)block);
+				  if(result == -1) {
+            set_bit(dev->badseg_bitmap, block);
+            continue;
+          }
+          reset_bit(c2c->dirtyseg_bitmap, block);
         }
 			}
 		}
@@ -194,6 +199,9 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 	int ret;
 	size_t nr_segments;
 
+  int fd_badseg_bitmap;
+  int fd_dirtyseg_bitmap;
+
 	(void)name;
 	info->nr_bus = (1 << DEVICE_NR_BUS_BITS);
 	info->nr_chips = (1 << DEVICE_NR_CHIPS_BITS);
@@ -216,8 +224,16 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 		goto exception;
 	}
 	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+  fd_badseg_bitmap = open("badseg_bitmap.dat", O_RDWR | O_CREAT, (mode_t)777);
+  if(read(fd_badseg_bitmap, dev->badseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments)) = -1) {
+    pr_err("badseg_bitmap loading failed\n");
+    close(fd_badseg_bitmap);
+    ret = -ENOMEM;  //Error number should be adjusted
+    goto exception;
+  }
+  close(fd_badseg_bitmap);
 
-  c2c->dirtyseg_bitmap = 
+  c2c->dirtyseg_bitmap =
     (uint64_t *)malloc(BITS_TO_UINT64_ALIGN(nr_segments));
   if (c2c->dirtyseg_bitmap == NULL) {
     pr_err("memory allocation failed\n");
@@ -225,6 +241,14 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
     goto exception;
   }
   memset(c2c->dirtyseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
+  fd_dirtyseg_bitmap = open("dirtyseg_bitmap.dat", O_RDWR | O_CREAT, (mode_t)777);
+  if(read(fd_dirtyseg_bitmap, c2c->dirtyseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments)) = -1) {
+    pr_err("dirtyseg_bitmap loading failed\n");
+    close(fd_dirtyseg_bitmap);
+    ret = -ENOMEM;  //Error number should be adjusted
+    goto exception;
+  }
+  close(fd_dirtyseg_bitmap);
 
 	g_erase_counter = (gint *)malloc(nr_segments * sizeof(gint));
 	if (g_erase_counter == NULL) {
@@ -242,7 +266,7 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 	}
 
 	if (c2c->o_flags & O_CREAT) {
-		//chip2chip_clear(dev);
+		chip2chip_clear(dev);
 		//sleep(1);
 		//chip2chip_wait_erase_finish(dev, 0, nr_segments);
 	}
@@ -338,7 +362,10 @@ ssize_t chip2chip_write(struct device *dev, struct device_request *request)
 
 	if(result == -1)
 		goto exception;
-	chip2chip_end_rw_request(request);	
+	
+  set_bit(c2c->dirtyseg_bitmap, request->paddr.format.block);
+
+  chip2chip_end_rw_request(request);	
 	ret = page_size;
 	
 	return ret;
@@ -487,6 +514,9 @@ int chip2chip_erase(struct device *dev, struct device_request *request)
 				goto exception;
 		}
 	}
+
+  reset_bit(c2c->dirtyseg_bitmap, segnum);
+
 	chip2chip_wait_erase_finish(dev, segnum, 1); //may need to be removed if FTL doesn't function
 	ret = busnum * chipnum * page_size;		
 	return ret;
@@ -504,10 +534,20 @@ exception:
 int chip2chip_close(struct device *dev)
 {
 	struct chip2chip *c2c;
+  int fd_dirtyseg_bitmap;
+  int fd_badseg_bitmap;
 	c2c = (struct chip2chip *)dev->d_private;
 	if (c2c == NULL) {
 		return 0;
 	}
+
+  fd_dirtyseg_bitmap = open("dirtyseg_bitmap.dat", O_RDWR | O_CREAT, (mode_t)777);
+  write(fd_dirtyseg_bitmap, c2c->dirtyseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments));
+  close(fd_dirtyseg_bitmap);
+
+  fd_badseg_bitmap = open("badseg_bitmap.dat", O_RDWR | O_CREAT, (mode_t)777);
+  write(fd_badseg_bitmap, dev->badseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments));
+  close(fd_badseg_bitmap);
 
 	if (c2c->readData_upper_arr) {
 		free(c2c->readData_upper_arr);
@@ -559,7 +599,7 @@ const struct device_operations __chip2chip_dops = {
 	.erase = chip2chip_erase,
 	.close = chip2chip_close,
 };
-
+d(fd_dirtyseg_bitmap, dev->dirtyseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments))d
 /**
  * @brief initialize the device and chip2chip module
  *
