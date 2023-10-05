@@ -20,7 +20,11 @@
 struct device_request;
 struct device_operations;
 
+#ifdef DEVICE_USE_CHIP2CHIP 
+#define DEVICE_PAGE_SIZE (8224)
+#else
 #define DEVICE_PAGE_SIZE (8192)
+#endif
 
 /**
  * @brief request allocation flags
@@ -42,6 +46,7 @@ enum { DEVICE_WRITE = 0 /**< write flag */,
 enum { RAMDISK_MODULE = 0 /**< select the ramdisk module */,
        BLUEDBM_MODULE /**< select the bluedbm module */,
        ZONE_MODULE /**< select the zone module */,
+       CHIP2CHIP_MODULE /**< select the Chip2Chip module */,
 };
 
 /**

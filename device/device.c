@@ -14,6 +14,9 @@
 #ifdef DEVICE_USE_ZONED
 #include "zone.h"
 #endif
+#ifdef DEVICE_USE_CHIP2CHIP
+#include "chip2chip.h"
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -39,6 +42,11 @@ static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [ZONE_MODULE] = */ zone_device_init,
 #else
 	/* [ZONE_MODULE] = */ NULL,
+#endif
+#ifdef DEVICE_USE_CHIP2CHIP
+	/* [CHIP2CHIP_MODULE] = */ chip2chip_device_init,
+#else
+	/* [CHIP2CHIP_MODULE] = */ NULL,
 #endif
 };
 

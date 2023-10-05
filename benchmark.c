@@ -54,6 +54,7 @@ static const char *device_str[] = {
 	"ramdisk",
 	"bluedbm",
 	"zone",
+	"chip2chip",
 	NULL,
 };
 
@@ -69,6 +70,7 @@ static const int device_list[] = {
 	RAMDISK_MODULE,
 	BLUEDBM_MODULE,
 	ZONE_MODULE,
+	CHIP2CHIP_MODULE,
 };
 
 struct benchmark_parameter {

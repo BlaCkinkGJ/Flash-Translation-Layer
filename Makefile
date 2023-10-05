@@ -30,8 +30,9 @@ DOCKER_TAG_ROOT = ftl
 # Device Module Setting
 USE_ZONE_DEVICE = 0
 USE_BLUEDBM_DEVICE = 0
+USE_CHIP2CHIP_DEVICE = 1
 # Debug Setting
-USE_DEBUG = 0
+USE_DEBUG = 1
 USE_LOG_SILENT = 0
 # Random Generator Setting
 USE_LEGACY_RANDOM = 0
@@ -61,7 +62,8 @@ endif
 
 TEST_TARGET := lru-test.out \
               bits-test.out \
-              ramdisk-test.out
+              ramdisk-test.out \
+	      chip2chip-test.out
 
 DEVICE_LIBS =
 
@@ -90,6 +92,13 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
 
 DEVICE_LIBS += -lmemio
 DEVICE_INCLUDES += -I/usr/local/include/memio
+else ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
+#Chip2chip Device's Setting
+DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
+	       -DDEVICE_NR_CHIPS_BITS=3 \
+	       -DDEVICE_NR_PAGES_BITS=7 \
+	       -DDEVICE_NR_BLOCKS_BITS=19 \
+
 else
 # Ramdisk Setting (1GiB)
 DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
@@ -107,6 +116,10 @@ ifeq ($(USE_BLUEDBM_DEVICE), 1)
 DEVICE_INFO += -DDEVICE_USE_BLUEDBM
 endif
 
+ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
+DEVICE_INFO += -DDEVICE_USE_CHIP2CHIP
+endif
+
 ARFLAGS := rcs
 CFLAGS := -Wall \
           -Wextra \
@@ -120,8 +133,7 @@ CFLAGS := -Wall \
           -Wno-unknown-pragmas \
           -Wundef \
           -Wconversion \
-          -Werror \
-          $(DEVICE_INFO) \
+	  $(DEVICE_INFO) \
           $(DEBUG_FLAGS) \
           $(MEMORY_CHECK_CFLAGS) \
           -O3
@@ -137,6 +149,7 @@ INCLUDES := -I./include -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
 BLUEDBM_SRCS =
+CHIP2CHIP_SRCS =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 ZONED_SRCS += device/zone/*.c
@@ -146,10 +159,21 @@ ifeq ($(USE_BLUEDBM_DEVICE), 1)
 BLUEDBM_SRCS += device/bluedbm/*.c
 endif
 
+ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
+CHIP2CHIP_SRCS = device/chip2chip/*.c
+CFLAGS += -O0
+	#This option for optimization is for preventing variables that
+	#store register values from being "optimized out".
+	#Might significantly degrade the FTL's performance,
+	#and shall return to -O3 after fixing the up-mentioned problems
+	#with "volatile", etc..
+endif
+
 DEVICE_SRCS := $(RAMDISK_SRCS) \
                $(BLUEDBM_SRCS) \
                $(ZONED_SRCS) \
-               device/*.c
+	       $(CHIP2CHIP_SRCS) \
+	       device/*.c
 
 UTIL_SRCS := util/*.c
 
@@ -214,6 +238,11 @@ ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
 ifeq ($(USE_ZONE_DEVICE), 1)
 zone-test.out: $(OBJS) ./test/zone-test.c
 	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+endif
+
+ifeq ($(USE_CHIP2CHIP_DEVICE), 1)
+chip2chip-test.out : $(UNITY_ROOT)/src/unity.c $(DEVICE_SRCS) ./test/chip2chip-test.c
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
 endif
 
 unity.o: $(UNITY_ROOT)/src/unity.c
