@@ -134,6 +134,47 @@ static int chip2chip_clear(struct device *dev)
 	return 0;
 }
 
+static int chip2chip_set_badseg_bitmap(struct device *dev)
+{
+	struct chip2chip *c2c;
+
+	struct device_info *info = &dev->info;
+	struct device_package *package = &info->package;
+	struct device_block *block = &package->block;
+	struct device_page *page = &block->page;
+	struct device_address addr;
+
+
+	size_t busnum = info->nr_bus;
+	size_t chipnum = info->nr_chips;
+	size_t blocknum = package->nr_blocks;
+
+	int result = 0;	
+
+	c2c = (struct chip2chip *)dev->d_private;
+	
+	//clear all segments : (bus * chip) * block
+	for(size_t block = 0; block < blocknum; block++) {
+		for(size_t bus = 0; bus < busnum; bus++) {
+			for(size_t chip = 0; chip < chipnum; chip++) {
+        result = erase_block((u64)bus, (u64)chip, (u64)block);
+        if(result == -1) {
+          set_bit(dev->badseg_bitmap, block);
+          continue;
+        }
+        reset_bit(c2c->dirtyseg_bitmap, block);
+			}
+		}
+	}
+  for(size_t block = 0; block < blocknum; block++) {
+    if(get_bit(dev->badseg_bitmap, block))
+      pr_info("\n\tbadseg : %d\n\tbadseg_bitmap : %d\n", block, get_bit(dev->badseg_bitmap, block));
+  }
+
+	return 0;
+}
+
+
 /**
  * @brief wait the erase is finished
  *
@@ -198,6 +239,7 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 
 	int ret;
 	size_t nr_segments;
+  int badseg_bitmap_new = 1;
 
   int fd_badseg_bitmap;
   int fd_dirtyseg_bitmap;
@@ -225,12 +267,17 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
 	}
 	memset(dev->badseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
   fd_badseg_bitmap = open("badseg_bitmap.dat", O_RDWR | O_CREAT, (mode_t)777);
-  if(read(fd_badseg_bitmap, dev->badseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments)) = -1) {
+  if((badseg_bitmap_new = read(fd_badseg_bitmap, dev->badseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments))) == -1) {
     pr_err("badseg_bitmap loading failed\n");
     close(fd_badseg_bitmap);
     ret = -ENOMEM;  //Error number should be adjusted
     goto exception;
   }
+
+  if(badseg_bitmap_new == 0) {
+    chip2chip_set_badseg_bitmap(dev);
+  }
+
   close(fd_badseg_bitmap);
 
   c2c->dirtyseg_bitmap =
@@ -242,7 +289,7 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
   }
   memset(c2c->dirtyseg_bitmap, 0, BITS_TO_UINT64_ALIGN(nr_segments));
   fd_dirtyseg_bitmap = open("dirtyseg_bitmap.dat", O_RDWR | O_CREAT, (mode_t)777);
-  if(read(fd_dirtyseg_bitmap, c2c->dirtyseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments)) = -1) {
+  if(read(fd_dirtyseg_bitmap, c2c->dirtyseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments)) == -1) {
     pr_err("dirtyseg_bitmap loading failed\n");
     close(fd_dirtyseg_bitmap);
     ret = -ENOMEM;  //Error number should be adjusted
@@ -536,10 +583,13 @@ int chip2chip_close(struct device *dev)
 	struct chip2chip *c2c;
   int fd_dirtyseg_bitmap;
   int fd_badseg_bitmap;
+  size_t nr_segments;
 	c2c = (struct chip2chip *)dev->d_private;
 	if (c2c == NULL) {
 		return 0;
 	}
+
+	nr_segments = device_get_nr_segments(dev);
 
   fd_dirtyseg_bitmap = open("dirtyseg_bitmap.dat", O_RDWR | O_CREAT, (mode_t)777);
   write(fd_dirtyseg_bitmap, c2c->dirtyseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments));
@@ -599,7 +649,7 @@ const struct device_operations __chip2chip_dops = {
 	.erase = chip2chip_erase,
 	.close = chip2chip_close,
 };
-d(fd_dirtyseg_bitmap, dev->dirtyseg_bitmap, BITS_TO_UINT64_ALIGN(nr_segments))d
+
 /**
  * @brief initialize the device and chip2chip module
  *
