@@ -273,11 +273,6 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
     ret = -ENOMEM;  //Error number should be adjusted
     goto exception;
   }
-
-  if(badseg_bitmap_new == 0) {
-    chip2chip_set_badseg_bitmap(dev);
-  }
-
   close(fd_badseg_bitmap);
 
   c2c->dirtyseg_bitmap =
@@ -296,6 +291,10 @@ int chip2chip_open(struct device *dev, const char *name, int flags)
     goto exception;
   }
   close(fd_dirtyseg_bitmap);
+
+  if(badseg_bitmap_new == 0) {
+    chip2chip_set_badseg_bitmap(dev);
+  }
 
 	g_erase_counter = (gint *)malloc(nr_segments * sizeof(gint));
 	if (g_erase_counter == NULL) {
