@@ -13,7 +13,6 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
-#include <glib.h>
 #include <unistd.h>
 
 #include "zone.h"

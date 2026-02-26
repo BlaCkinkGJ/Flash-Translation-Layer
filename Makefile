@@ -21,10 +21,7 @@ INTEGRATION_TEST_TARGET = integration-test.out
 BENCHMARK_TARGET = benchmark.out
 LIBRARY_TARGET = libftl.a
 
-GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
 DEVICE_INCLUDES = 
-
-GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 DOCKER_TAG_ROOT = ftl
 
 # Device Module Setting
@@ -155,9 +152,8 @@ CXXFLAGS := $(CFLAGS) \
             -std=c++11
 
 UNITY_ROOT := ./unity
-LIBS := -lm -lpthread $(GLIB_LIBS) $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
-
-INCLUDES := -I./include -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
+INCLUDES := -I./include -I./unity/src $(DEVICE_INCLUDES)
+LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
 
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
@@ -225,7 +221,7 @@ $(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^

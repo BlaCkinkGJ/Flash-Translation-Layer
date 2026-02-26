@@ -15,8 +15,7 @@
 #include <limits.h>
 #include <unistd.h>
 
-#include <glib.h>
-
+#include "list.h"
 #include "flash.h"
 #include "device.h"
 
@@ -40,12 +39,12 @@ enum {
  * Segment number is same as block number
  */
 struct page_ftl_segment {
-	gint nr_free_pages;
-	gint nr_valid_pages;
-	gint is_gc;
+	int nr_free_pages;
+	int nr_valid_pages;
+	int is_gc;
 
 	uint64_t *use_bits; /**< contain the use page information */
-	GList *lpn_list; /**< lba_list which contains the valid data */
+	list_node_t *lpn_list; /**< lba_list which contains the valid data */
 };
 
 /**
@@ -65,7 +64,7 @@ struct page_ftl {
 	pthread_t gc_thread;
 	int o_flags;
 
-	GList *gc_list; /**< garbage collection target list */
+	list_node_t *gc_list; /**< garbage collection target list */
 	uint64_t *gc_seg_bits; /**< to find segnum is in gc list or not */
 };
 
@@ -128,7 +127,7 @@ static inline size_t page_ftl_get_free_pages(struct page_ftl *pgftl)
 	for (segnum = 0; segnum < nr_segments; segnum++) {
 		segment = &pgftl->segments[segnum];
 		assert(NULL != segment);
-		free_pages += (size_t)g_atomic_int_get(&segment->nr_free_pages);
+		free_pages += (size_t)__atomic_load_n(&segment->nr_free_pages, __ATOMIC_SEQ_CST);
 	}
 	return free_pages;
 }

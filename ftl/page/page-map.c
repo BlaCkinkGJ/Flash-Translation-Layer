@@ -63,7 +63,7 @@ retry:
 		paddr.lpn = PADDR_EMPTY;
 		return paddr;
 	}
-	nr_free_pages = (uint64_t)g_atomic_int_get(&segment->nr_free_pages);
+	nr_free_pages = (uint64_t)__atomic_load_n(&segment->nr_free_pages, __ATOMIC_SEQ_CST);
 	if (nr_free_pages == 0) {
 		goto retry;
 	}
@@ -82,10 +82,10 @@ retry:
 	paddr.lpn |= page;
 
 	set_bit(segment->use_bits, page);
-	g_atomic_int_set(&segment->nr_free_pages, (gint)nr_free_pages - 1);
+	__atomic_store_n(&segment->nr_free_pages, (int)nr_free_pages - 1, __ATOMIC_SEQ_CST);
 
-	nr_valid_pages = (uint64_t)g_atomic_int_get(&segment->nr_valid_pages);
-	g_atomic_int_set(&segment->nr_valid_pages, (gint)nr_valid_pages + 1);
+	nr_valid_pages = (uint64_t)__atomic_load_n(&segment->nr_valid_pages, __ATOMIC_SEQ_CST);
+	__atomic_store_n(&segment->nr_valid_pages, (int)nr_valid_pages + 1, __ATOMIC_SEQ_CST);
 
 	return paddr;
 }
