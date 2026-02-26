@@ -30,7 +30,7 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 	struct device_address paddr;
 
 	uint32_t segnum;
-	size_t nr_valid_pages, nr_free_pages;
+	size_t nr_free_pages;
 
 	/**< segment information update */
 	paddr.lpn = pgftl->trans_map[lpn];
@@ -40,10 +40,8 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 	segment->lpn_list =
 		list_remove(segment->lpn_list, (void *)(uintptr_t)lpn);
 
-	nr_valid_pages = (size_t)__atomic_load_n(&segment->nr_valid_pages, __ATOMIC_SEQ_CST);
+	__atomic_fetch_sub(&segment->nr_valid_pages, 1, __ATOMIC_SEQ_CST);
 	nr_free_pages = (size_t)__atomic_load_n(&segment->nr_free_pages, __ATOMIC_SEQ_CST);
-	__atomic_store_n(&segment->nr_valid_pages,
-			 (int)(nr_valid_pages - 1), __ATOMIC_SEQ_CST);
 
 	/**< global information update */
 	pgftl->trans_map[lpn] = PADDR_EMPTY;

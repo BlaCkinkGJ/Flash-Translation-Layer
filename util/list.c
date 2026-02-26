@@ -2,12 +2,14 @@
 // cppcheck-suppress missingIncludeSystem
 #include <stdlib.h>
 // cppcheck-suppress missingIncludeSystem
+// cppcheck-suppress missingIncludeSystem
 #include <assert.h>
 
 list_node_t *list_prepend(list_node_t *list, void *data)
 {
 	list_node_t *node = (list_node_t *)malloc(sizeof(list_node_t));
-	assert(node != NULL);
+	if (!node)
+		return list;
 	node->data = data;
 	node->next = list;
 	node->prev = NULL;
@@ -72,23 +74,51 @@ static list_node_t *merge(list_node_t *first, list_node_t *second,
 	if (!second)
 		return first;
 
-	if (cmp(first->data, second->data) <= 0) {
-		first->next = merge(first->next, second, cmp);
-		if (first->next)
-			first->next->prev = first;
-		first->prev = NULL;
-		return first;
-	} else {
-		second->next = merge(first, second->next, cmp);
-		if (second->next)
-			second->next->prev = second;
-		second->prev = NULL;
-		return second;
+	list_node_t *head = NULL;
+	list_node_t *tail = NULL;
+
+	/* Merge nodes from both lists one by one */
+	while (first && second) {
+		list_node_t *node;
+		if (cmp(first->data, second->data) <= 0) {
+			node = first;
+			first = first->next;
+		} else {
+			node = second;
+			second = second->next;
+		}
+		/* Append selected node to the merged list */
+		node->prev = tail;
+		if (tail)
+			tail->next = node;
+		else
+			head = node;
+		tail = node;
 	}
+
+	/* Append any remaining nodes from either list */
+	{
+		list_node_t *remaining = first ? first : second;
+		if (remaining) {
+			remaining->prev = tail;
+			if (tail)
+				tail->next = remaining;
+			else
+				head = remaining;
+		}
+	}
+
+	/* Ensure head prev pointer is NULL (tail next is already NULL if end) */
+	if (head)
+		head->prev = NULL;
+
+	return head;
 }
 
 static list_node_t *split(list_node_t *head)
 {
+	if (!head || !head->next)
+		return NULL;
 	list_node_t *fast = head, *slow = head;
 	while (fast->next && fast->next->next) {
 		fast = fast->next->next;
