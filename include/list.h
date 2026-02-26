@@ -8,6 +8,7 @@
 extern "C" {
 #endif
 
+// cppcheck-suppress unusedStructMember
 typedef struct list_node {
     void *data;
     struct list_node *next;
