@@ -12,6 +12,13 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Calculate CRC32 checksum
+ * @param buf Data buffer
+ * @param size Data size
+ * @param initial Initial value (usually CRC32_INIT)
+ * @return Calculated CRC32
+ */
 uint32_t crc32(const void *buf, size_t size, uint32_t initial);
 
 #ifdef __cplusplus

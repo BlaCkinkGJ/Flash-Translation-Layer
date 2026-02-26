@@ -2,7 +2,6 @@
 // cppcheck-suppress missingIncludeSystem
 #include <stdlib.h>
 // cppcheck-suppress missingIncludeSystem
-// cppcheck-suppress missingIncludeSystem
 #include <assert.h>
 
 list_node_t *list_prepend(list_node_t *list, void *data)
@@ -126,6 +125,8 @@ static list_node_t *split(list_node_t *head)
 	}
 	list_node_t *temp = slow->next;
 	slow->next = NULL;
+	if (temp)
+		temp->prev = NULL;
 	return temp;
 }
 
