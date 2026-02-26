@@ -6,6 +6,8 @@
 // cppcheck-suppress missingIncludeSystem
 #include <stddef.h>
 
+#define CRC32_INIT (0xFFFFFFFF)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -10,6 +10,7 @@
 #ifdef __cplusplus
 #define HAVE_DECL_BASENAME (1)
 #endif
+#include <unistd.h>
 #include <fcntl.h>
 #include <ctype.h>
 #include <pthread.h>
@@ -34,7 +35,7 @@
 
 #define USE_CRC
 #define USE_PER_CORE
-#define CRC32_INIT (0xffffffff)
+// CRC32_INIT moved to crc32.h
 #define PAGE_SIZE (0x1 << 12)
 #define SEC_TO_NS (1000000000L)
 #define NS_PER_MS (1000000L)
