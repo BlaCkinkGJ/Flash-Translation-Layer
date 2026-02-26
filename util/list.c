@@ -1,11 +1,11 @@
 #include "list.h"
 #include <stdlib.h>
+#include <assert.h>
 
 list_node_t *list_prepend(list_node_t *list, void *data)
 {
 	list_node_t *node = (list_node_t *)malloc(sizeof(list_node_t));
-	if (!node)
-		return list;
+	assert(node != NULL);
 	node->data = data;
 	node->next = list;
 	node->prev = NULL;

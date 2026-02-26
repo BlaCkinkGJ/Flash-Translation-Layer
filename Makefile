@@ -178,7 +178,7 @@ DEVICE_SRCS := $(RAMDISK_SRCS) \
                $(RASPBERRY_SRCS) \
                device/*.c
 
-UTIL_SRCS := util/*.c
+UTIL_SRCS := util/lru.c util/list.c util/crc32.c
 
 FTL_SRCS := ftl/page/*.c
 
