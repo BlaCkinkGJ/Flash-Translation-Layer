@@ -1,5 +1,7 @@
 #include "list.h"
+// cppcheck-suppress missingIncludeSystem
 #include <stdlib.h>
+// cppcheck-suppress missingIncludeSystem
 #include <assert.h>
 
 list_node_t *list_prepend(list_node_t *list, void *data)

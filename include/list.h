@@ -1,6 +1,7 @@
 #ifndef LIST_H
 #define LIST_H
 
+// cppcheck-suppress missingIncludeSystem
 #include <stddef.h>
 
 #ifdef __cplusplus

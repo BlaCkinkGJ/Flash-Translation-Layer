@@ -1,7 +1,9 @@
 #ifndef CRC32_H
 #define CRC32_H
 
+// cppcheck-suppress missingIncludeSystem
 #include <stdint.h>
+// cppcheck-suppress missingIncludeSystem
 #include <stddef.h>
 
 #ifdef __cplusplus

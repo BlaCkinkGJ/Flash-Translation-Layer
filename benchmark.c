@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <pthread.h>
 #include <time.h>
+// cppcheck-suppress missingIncludeSystem
 #include <assert.h>
 
 #include "module.h"
