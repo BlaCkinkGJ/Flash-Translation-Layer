@@ -203,7 +203,7 @@ test: $(TEST_TARGET)
 	done
 	# show coverage 
 	@for target in $(TEST_TARGET) ; do \
-		gcov ./$$target ; \
+		gcov $$target-*.gcda || true ; \
 	done
 
 integration-test: $(INTEGRATION_TEST_TARGET)
