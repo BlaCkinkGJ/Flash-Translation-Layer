@@ -64,6 +64,7 @@ struct page_ftl {
 	pthread_t gc_thread;
 	int o_flags;
 
+	// cppcheck-suppress unusedStructMember
 	list_node_t *gc_list; /**< garbage collection target list */
 	uint64_t *gc_seg_bits; /**< to find segnum is in gc list or not */
 };

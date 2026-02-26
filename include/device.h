@@ -136,6 +136,7 @@ struct device_request {
 	void *data; /**< pointer of the data */
 	device_end_req_fn end_rq; /**< end request function */
 
+	// cppcheck-suppress unusedStructMember
 	int is_finish;
 
 	pthread_mutex_t mutex;
