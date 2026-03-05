@@ -101,6 +101,60 @@ void test_list_sort_duplicates(void)
 	list_free(list);
 }
 
+void test_list_prepend_length_last(void)
+{
+	list_node_t *list = NULL;
+	int v1 = 10, v2 = 20, v3 = 30;
+
+	TEST_ASSERT_EQUAL_UINT32(0, list_length(list));
+	TEST_ASSERT_NULL(list_last(list));
+
+	list = list_prepend(list, &v1);
+	TEST_ASSERT_EQUAL_UINT32(1, list_length(list));
+	TEST_ASSERT_EQUAL_PTR(list, list_last(list));
+
+	list = list_prepend(list, &v2);
+	list = list_prepend(list, &v3);
+	TEST_ASSERT_EQUAL_UINT32(3, list_length(list));
+
+	/* Order should be v3 -> v2 -> v1 */
+	TEST_ASSERT_EQUAL_PTR(&v3, list->data);
+	TEST_ASSERT_EQUAL_PTR(&v1, list_last(list)->data);
+
+	list_free(list);
+}
+
+void test_list_remove(void)
+{
+	list_node_t *list = NULL;
+	int v1 = 10, v2 = 20, v3 = 30, v4 = 40;
+
+	list = list_prepend(list, &v1);
+	list = list_prepend(list, &v2);
+	list = list_prepend(list, &v3);
+
+	/* Remove head */
+	list = list_remove(list, &v3);
+	TEST_ASSERT_EQUAL_UINT32(2, list_length(list));
+	TEST_ASSERT_EQUAL_PTR(&v2, list->data);
+	TEST_ASSERT_NULL(list->prev);
+
+	/* Remove non-existent */
+	list = list_remove(list, &v4);
+	TEST_ASSERT_EQUAL_UINT32(2, list_length(list));
+
+	/* Remove tail */
+	list = list_remove(list, &v1);
+	TEST_ASSERT_EQUAL_UINT32(1, list_length(list));
+	TEST_ASSERT_EQUAL_PTR(&v2, list_last(list)->data);
+
+	/* Remove last element */
+	list = list_remove(list, &v2);
+	TEST_ASSERT_NULL(list);
+
+	list_free(list);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -109,5 +163,7 @@ int main(void)
 	RUN_TEST(test_list_sort_already_sorted);
 	RUN_TEST(test_list_sort_reverse_sorted);
 	RUN_TEST(test_list_sort_duplicates);
+	RUN_TEST(test_list_prepend_length_last);
+	RUN_TEST(test_list_remove);
 	return UNITY_END();
 }

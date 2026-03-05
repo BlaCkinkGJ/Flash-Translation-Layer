@@ -3,12 +3,15 @@
 #include <stdlib.h>
 // cppcheck-suppress missingIncludeSystem
 #include <assert.h>
+#include "log.h"
 
 list_node_t *list_prepend(list_node_t *list, void *data)
 {
 	list_node_t *node = (list_node_t *)malloc(sizeof(list_node_t));
-	if (!node)
+	if (!node) {
+		pr_err("list_prepend: memory allocation failed\n");
 		return list;
+	}
 	node->data = data;
 	node->next = list;
 	node->prev = NULL;
@@ -95,7 +98,8 @@ static list_node_t *merge(list_node_t *first, list_node_t *second,
 		tail = node;
 	}
 
-	/* Append any remaining nodes from either list */
+	/* Append any remaining nodes from either list in O(1) */
+	/* Note: internal prev/next pointers within 'remaining' are already correct */
 	{
 		list_node_t *remaining = first ? first : second;
 		if (remaining) {

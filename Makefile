@@ -60,7 +60,8 @@ endif
 TEST_TARGET := lru-test.out \
                bits-test.out \
                ramdisk-test.out \
-               list-test.out
+               list-test.out \
+               crc32-test.out
 
 DEVICE_LIBS =
 
@@ -240,6 +241,9 @@ ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
 	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 list-test.out: unity.o ./util/list.c ./test/list-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+
+crc32-test.out: unity.o ./util/crc32.c ./test/crc32-test.c
 	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
