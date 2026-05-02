@@ -5,7 +5,7 @@
  * @version 0.2
  * @date 2021-09-22
  */
-#include <ctime>
+#include <time.h>
 #include <errno.h>
 
 #include <assert.h>
