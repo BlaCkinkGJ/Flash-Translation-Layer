@@ -90,3 +90,7 @@ compile_commands.json
 # coverage results
 *.gcov
 *.gcda
+
+# Rust
+/target/
+**/*.rs.bk
