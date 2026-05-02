@@ -33,7 +33,6 @@ struct device_address page_ftl_get_free_page(struct page_ftl *pgftl)
 	size_t idx;
 
 	uint64_t nr_free_pages;
-	uint64_t nr_valid_pages;
 	uint32_t page;
 
 	dev = pgftl->dev;
@@ -63,7 +62,7 @@ retry:
 		paddr.lpn = PADDR_EMPTY;
 		return paddr;
 	}
-	nr_free_pages = (uint64_t)g_atomic_int_get(&segment->nr_free_pages);
+	nr_free_pages = (uint64_t)__atomic_load_n(&segment->nr_free_pages, __ATOMIC_SEQ_CST);
 	if (nr_free_pages == 0) {
 		goto retry;
 	}
@@ -82,10 +81,8 @@ retry:
 	paddr.lpn |= page;
 
 	set_bit(segment->use_bits, page);
-	g_atomic_int_set(&segment->nr_free_pages, (gint)nr_free_pages - 1);
-
-	nr_valid_pages = (uint64_t)g_atomic_int_get(&segment->nr_valid_pages);
-	g_atomic_int_set(&segment->nr_valid_pages, (gint)nr_valid_pages + 1);
+	__atomic_fetch_sub(&segment->nr_free_pages, 1, __ATOMIC_SEQ_CST);
+	__atomic_fetch_add(&segment->nr_valid_pages, 1, __ATOMIC_SEQ_CST);
 
 	return paddr;
 }

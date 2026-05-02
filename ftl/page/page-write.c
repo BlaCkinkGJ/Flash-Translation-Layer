@@ -18,8 +18,6 @@
 #include <errno.h>
 #include <string.h>
 
-#include <glib.h>
-
 /**
  * @brief invalidate a segment that including to the given LPN
  *
@@ -32,7 +30,7 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 	struct device_address paddr;
 
 	uint32_t segnum;
-	size_t nr_valid_pages, nr_free_pages;
+	size_t nr_free_pages;
 
 	/**< segment information update */
 	paddr.lpn = pgftl->trans_map[lpn];
@@ -40,17 +38,15 @@ static void page_ftl_invalidate(struct page_ftl *pgftl, size_t lpn)
 	segment = &pgftl->segments[segnum];
 
 	segment->lpn_list =
-		g_list_remove(segment->lpn_list, GSIZE_TO_POINTER(lpn));
+		list_remove(segment->lpn_list, (void *)(uintptr_t)lpn);
 
-	nr_valid_pages = g_atomic_int_get(&segment->nr_valid_pages);
-	nr_free_pages = g_atomic_int_get(&segment->nr_free_pages);
-	g_atomic_int_set(&segment->nr_valid_pages,
-			 (unsigned int)(nr_valid_pages - 1));
+	__atomic_fetch_sub(&segment->nr_valid_pages, 1, __ATOMIC_SEQ_CST);
+	nr_free_pages = (size_t)__atomic_load_n(&segment->nr_free_pages, __ATOMIC_SEQ_CST);
 
 	/**< global information update */
 	pgftl->trans_map[lpn] = PADDR_EMPTY;
 	if (nr_free_pages == 0 && get_bit(pgftl->gc_seg_bits, segnum) != 1) {
-		pgftl->gc_list = g_list_prepend(pgftl->gc_list, segment);
+		pgftl->gc_list = list_prepend(pgftl->gc_list, segment);
 		set_bit(pgftl->gc_seg_bits, segnum);
 	}
 }
@@ -131,7 +127,7 @@ static void page_ftl_write_update_metadata(struct page_ftl *pgftl,
 	/**< segment information update */
 	segment = &pgftl->segments[paddr.format.block];
 	segment->lpn_list =
-		g_list_prepend(segment->lpn_list, GSIZE_TO_POINTER(lpn));
+		list_prepend(segment->lpn_list, (void *)(uintptr_t)lpn);
 
 	/**< global information update */
 	page_ftl_update_map(pgftl, sector, paddr.lpn);
@@ -139,8 +135,8 @@ static void page_ftl_write_update_metadata(struct page_ftl *pgftl,
 	pr_debug("new address: %zu => %u (seg: %u)\n", lpn,
 		 pgftl->trans_map[lpn], pgftl->trans_map[lpn] >> 13);
 	pr_debug("%u/%u(free/valid)\n",
-		 g_atomic_int_get(&segment->nr_free_pages),
-		 g_atomic_int_get(&segment->nr_valid_pages));
+		 __atomic_load_n(&segment->nr_free_pages, __ATOMIC_SEQ_CST),
+		 __atomic_load_n(&segment->nr_valid_pages, __ATOMIC_SEQ_CST));
 }
 
 /**

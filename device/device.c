@@ -84,7 +84,7 @@ struct device_request *device_alloc_request(uint64_t flags)
 		return NULL;
 	}
 
-	g_atomic_int_set(&request->is_finish, 0);
+	__atomic_store_n(&request->is_finish, 0, __ATOMIC_SEQ_CST);
 
 	return request;
 }

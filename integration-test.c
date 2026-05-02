@@ -12,7 +12,6 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <glib.h>
 
 #include "module.h"
 #include "flash.h"
@@ -111,7 +110,7 @@ void *write_thread(void *data)
 	return NULL;
 }
 
-gint is_overwrite = 0;
+int is_overwrite = 0;
 
 void *overwrite_thread(void *data)
 {
@@ -122,7 +121,7 @@ void *overwrite_thread(void *data)
 	offset = 0;
 	flash = (struct flash_device *)data;
 
-	g_atomic_int_set(&is_overwrite, 1);
+	__atomic_store_n(&is_overwrite, 1, __ATOMIC_SEQ_CST);
 
 	sleep(2);
 	while (offset < (off_t)WRITE_SIZE) {
@@ -155,7 +154,7 @@ void *erase_thread(void *data)
 	struct flash_device *flash;
 	int i;
 	flash = (struct flash_device *)data;
-	while (!g_atomic_int_get(&is_overwrite)) {
+	while (!__atomic_load_n(&is_overwrite, __ATOMIC_SEQ_CST)) {
 		usleep(100);
 	}
 	for (i = 0; i < NR_ERASE; i++) {

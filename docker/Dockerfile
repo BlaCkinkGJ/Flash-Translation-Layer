@@ -1,7 +1,7 @@
 FROM ubuntu:18.04
 
 RUN apt-get update && apt-get clean
-RUN apt-get install --no-install-recommends -y git make gcc g++ libglib2.0-dev libiberty-dev
+RUN apt-get install --no-install-recommends -y git make gcc g++
 RUN apt-get install --no-install-recommends -y cppcheck flawfinder cflow
 RUN apt-get install --no-install-recommends -y python3-pip
 RUN apt-get install --no-install-recommends -y bear

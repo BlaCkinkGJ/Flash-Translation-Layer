@@ -21,10 +21,7 @@ INTEGRATION_TEST_TARGET = integration-test.out
 BENCHMARK_TARGET = benchmark.out
 LIBRARY_TARGET = libftl.a
 
-GLIB_INCLUDES = $(shell pkg-config --cflags glib-2.0)
 DEVICE_INCLUDES = 
-
-GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 DOCKER_TAG_ROOT = ftl
 
 # Device Module Setting
@@ -62,7 +59,9 @@ endif
 
 TEST_TARGET := lru-test.out \
                bits-test.out \
-               ramdisk-test.out
+               ramdisk-test.out \
+               list-test.out \
+               crc32-test.out
 
 DEVICE_LIBS =
 
@@ -155,9 +154,8 @@ CXXFLAGS := $(CFLAGS) \
             -std=c++11
 
 UNITY_ROOT := ./unity
-LIBS := -lm -lpthread $(GLIB_LIBS) $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
-
-INCLUDES := -I./include -I./unity/src $(GLIB_INCLUDES) $(DEVICE_INCLUDES)
+INCLUDES := -I./include -I./unity/src $(DEVICE_INCLUDES)
+LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
 
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
@@ -182,7 +180,7 @@ DEVICE_SRCS := $(RAMDISK_SRCS) \
                $(RASPBERRY_SRCS) \
                device/*.c
 
-UTIL_SRCS := util/*.c
+UTIL_SRCS := util/lru.c util/list.c util/crc32.c
 
 FTL_SRCS := ftl/page/*.c
 
@@ -207,7 +205,7 @@ test: $(TEST_TARGET)
 	done
 	# show coverage 
 	@for target in $(TEST_TARGET) ; do \
-		gcov ./$$target ; \
+		gcov $$target-*.gcda || true ; \
 	done
 
 integration-test: $(INTEGRATION_TEST_TARGET)
@@ -225,7 +223,7 @@ $(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET)
 	$(CXX) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread -liberty $(INCLUDES) $(LIBS)
+	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
@@ -240,6 +238,12 @@ bits-test.out: unity.o ./test/bits-test.c
 	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+
+list-test.out: unity.o ./util/list.c ./test/list-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+
+crc32-test.out: unity.o ./util/crc32.c ./test/crc32-test.c
 	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
@@ -267,7 +271,7 @@ docker-console:
 
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
-	cppcheck --quiet --error-exitcode=0 --enable=all --inconclusive -I include/ $(SRCS) *.c
+	cppcheck --quiet --error-exitcode=0 --enable=all --inconclusive --suppress=unusedStructMember --suppress=missingIncludeSystem -I include/ $(SRCS) *.c
 	@echo "[[ FLAWFINDER ROUTINE ]]"
 	flawfinder $(SRCS) include/*.h
 	@echo "[[ STATIC ANALYSIS ROUTINE ]]"

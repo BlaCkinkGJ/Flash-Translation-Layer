@@ -5,14 +5,13 @@
  * @version 0.2
  * @date 2021-09-22
  */
-#include <ctime>
+#include <time.h>
 #include <errno.h>
 
 #include <assert.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <string.h>
-#include <glib.h>
 #include <inttypes.h>
 
 #include "page.h"
@@ -53,8 +52,8 @@ static void *page_ftl_gc_thread(void *data)
 	ret = 0;
 	while (1) {
 		size_t free_pages;
-		g_assert(nanosleep(&req, NULL) == 0);
-		if (g_atomic_int_get(&is_gc_thread_exit) == 1) {
+		assert(nanosleep(&req, NULL) == 0);
+		if (__atomic_load_n(&is_gc_thread_exit, __ATOMIC_SEQ_CST) == 1) {
 			break;
 		}
 		free_pages = page_ftl_get_free_pages(pgftl);
@@ -111,15 +110,15 @@ static int page_ftl_alloc_bitmap(struct page_ftl *pgftl, uint64_t **bitmap)
 int page_ftl_segment_data_init(struct page_ftl *pgftl,
 			       struct page_ftl_segment *segment)
 {
-	gint nr_pages_per_segment;
-	nr_pages_per_segment = (gint)device_get_pages_per_segment(pgftl->dev);
-	g_atomic_int_set(&segment->nr_free_pages, nr_pages_per_segment);
-	g_atomic_int_set(&segment->nr_valid_pages, 0);
+	int nr_pages_per_segment;
+	nr_pages_per_segment = (int)device_get_pages_per_segment(pgftl->dev);
+	__atomic_store_n(&segment->nr_free_pages, nr_pages_per_segment, __ATOMIC_SEQ_CST);
+	__atomic_store_n(&segment->nr_valid_pages, 0, __ATOMIC_SEQ_CST);
 
 	memset(segment->use_bits, 0,
 	       (size_t)BITS_TO_UINT64_ALIGN(nr_pages_per_segment));
 	if (segment->lpn_list) {
-		g_list_free(segment->lpn_list);
+		list_free(segment->lpn_list);
 	}
 	segment->lpn_list = NULL;
 	return 0;
@@ -300,7 +299,7 @@ int page_ftl_open(struct page_ftl *pgftl, const char *name, int flags)
 
 	pgftl->o_flags = flags;
 
-	g_atomic_int_set(&is_gc_thread_exit, 0);
+	__atomic_store_n(&is_gc_thread_exit, 0, __ATOMIC_SEQ_CST);
 	gc_thread_status = pthread_create(&pgftl->gc_thread, NULL,
 					  page_ftl_gc_thread, (void *)pgftl);
 	if (gc_thread_status < 0) {
@@ -399,7 +398,7 @@ static void page_ftl_free_segments(struct page_ftl *pgftl)
 		segments[i].use_bits = NULL;
 
 		if (segments[i].lpn_list) {
-			g_list_free(segments[i].lpn_list);
+			list_free(segments[i].lpn_list);
 			segments[i].lpn_list = NULL;
 		}
 	}
@@ -420,7 +419,7 @@ int page_ftl_close(struct page_ftl *pgftl)
 		pr_err("null page ftl structure submitted\n");
 		return ret;
 	}
-	g_atomic_int_set(&is_gc_thread_exit, 1);
+	__atomic_store_n(&is_gc_thread_exit, 1, __ATOMIC_SEQ_CST);
 	pthread_join(pgftl->gc_thread, (void **)&status);
 
 	pthread_mutex_destroy(&pgftl->mutex);
@@ -441,7 +440,7 @@ int page_ftl_close(struct page_ftl *pgftl)
 	}
 
 	if (pgftl->gc_list) {
-		g_list_free(pgftl->gc_list);
+		list_free(pgftl->gc_list);
 		pgftl->gc_list = NULL;
 	}
 

@@ -5,7 +5,6 @@
  * @version 0.2
  * @date 2021-10-06
  */
-#include <glib.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,17 +22,17 @@
  *
  * @return to make precede a segment that contains the less valid pages
  */
-gint page_ftl_gc_list_cmp(gconstpointer a, gconstpointer b)
+int page_ftl_gc_list_cmp(const void *a, const void *b)
 {
 	struct page_ftl_segment *segment[2];
 	uint64_t nr_valid_pages[2];
 	segment[0] = (struct page_ftl_segment *)a;
 	segment[1] = (struct page_ftl_segment *)b;
 	nr_valid_pages[0] =
-		(uint64_t)g_atomic_int_get(&segment[0]->nr_valid_pages);
+		(uint64_t)__atomic_load_n(&segment[0]->nr_valid_pages, __ATOMIC_SEQ_CST);
 	nr_valid_pages[1] =
-		(uint64_t)g_atomic_int_get(&segment[1]->nr_valid_pages);
-	return (gint)(nr_valid_pages[0] - nr_valid_pages[1]);
+		(uint64_t)__atomic_load_n(&segment[1]->nr_valid_pages, __ATOMIC_SEQ_CST);
+	return (int)(nr_valid_pages[0] - nr_valid_pages[1]);
 }
 
 /**
@@ -59,13 +58,13 @@ static struct page_ftl_segment *page_ftl_pick_gc_target(struct page_ftl *pgftl)
 	if (pgftl->gc_list == NULL) {
 		return NULL;
 	}
-	pgftl->gc_list = g_list_sort(pgftl->gc_list, page_ftl_gc_list_cmp);
+	pgftl->gc_list = list_sort(pgftl->gc_list, page_ftl_gc_list_cmp);
 	segment = (struct page_ftl_segment *)pgftl->gc_list->data;
 	pr_debug("gc target: %zu (valid: %d) => %p\n",
 		 page_ftl_get_segment_number(pgftl, (uintptr_t)segment),
-		 g_atomic_int_get(&segment->nr_valid_pages), segment);
-	pgftl->gc_list = g_list_remove(pgftl->gc_list, segment);
-	g_atomic_int_set(&segment->nr_free_pages, 0);
+		 __atomic_load_n(&segment->nr_valid_pages, __ATOMIC_SEQ_CST), segment);
+	pgftl->gc_list = list_remove(pgftl->gc_list, segment);
+	__atomic_store_n(&segment->nr_free_pages, 0, __ATOMIC_SEQ_CST);
 	return segment;
 }
 
@@ -217,7 +216,7 @@ static ssize_t page_ftl_valid_page_copy(struct page_ftl *pgftl,
 					struct page_ftl_segment *segment)
 {
 	ssize_t ret = 0;
-	GList *list;
+	list_node_t *list;
 
 	(void)pgftl;
 	list = segment->lpn_list;
@@ -226,8 +225,8 @@ static ssize_t page_ftl_valid_page_copy(struct page_ftl *pgftl,
 		size_t lpn;
 		char *buffer;
 
-		GList *next = list->next;
-		lpn = GPOINTER_TO_SIZE(list->data);
+		list_node_t *next = list->next;
+		lpn = (size_t)(uintptr_t)list->data;
 		ret = page_ftl_read_valid_page(pgftl, lpn, &buffer);
 		if (ret < 0) {
 			pr_err("read valid page failed\n");
