@@ -2,16 +2,27 @@ use crc32fast::Hasher;
 use std::slice;
 
 #[no_mangle]
-pub extern "C" fn crc32(initial: u32, buf: *const u8, len: usize) -> u32 {
-    if buf.is_null() || len == 0 {
-        return initial;
-    }
-
-    // Safety: We assume the C caller provides a valid pointer and correct length.
-    let data = unsafe { slice::from_raw_parts(buf, len) };
+pub extern "C" fn crc32(buf: *const u8, len: usize, initial: u32) -> u32 {
+    // The previous table-based experiment confirmed:
+    // C expectation for "123456789" with initial 0xFFFFFFFF is 0xCBF43926.
     
-    let mut hasher = Hasher::new_with_initial(initial);
-    hasher.update(data);
+    // In Rust crc32fast:
+    // Hasher::new() starts with an internal state that yields 0xCBF43926 for "123456789".
+    // Hasher::new_with_initial(0) IS EQUIVALENT to Hasher::new().
+    
+    // Therefore, C's initial 0xFFFFFFFF (CRC32_INIT) maps to Rust's initial 0.
+    // C's initial 0 maps to Rust's initial 0xFFFFFFFF.
+    // Mapping: Rust_initial = C_initial ^ 0xFFFFFFFF
+    
+    let mut hasher = Hasher::new_with_initial(initial ^ 0xFFFFFFFF);
+    if !buf.is_null() && len > 0 {
+        let data = unsafe { slice::from_raw_parts(buf, len) };
+        hasher.update(data);
+    }
+    
+    // The table-based experiment showed that C result = (final_internal_state ^ 0xFFFFFFFF)
+    // Rust's hasher.finalize() ALREADY returns (internal_state ^ 0xFFFFFFFF).
+    
     hasher.finalize()
 }
 
@@ -20,30 +31,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_crc32_basic() {
+    fn test_crc32_parity_with_c() {
         let data = b"123456789";
-        // IEEE 802.3 CRC32 for "123456789" is 0xCBF43926
-        // But our initial value might affect this. 
-        // Let's test with 0 initial first.
-        let result = crc32(0, data.as_ptr(), data.len());
-        assert_ne!(result, 0);
+        // C expects 0xCBF43926 when initial is 0xFFFFFFFF
+        let result = crc32(data.as_ptr(), data.len(), 0xFFFFFFFF);
+        assert_eq!(result, 0xCBF43926);
     }
 
     #[test]
-    fn test_crc32_empty() {
-        let result = crc32(0x1234, std::ptr::null(), 0);
-        assert_eq!(result, 0x1234);
+    fn test_crc32_empty_parity() {
+        // C expects 0xFFFFFFFF when buf is "" and initial is 0
+        // (0 ^ 0xFFFFFFFF) -> loop nothing -> return (0 ^ 0xFFFFFFFF) = 0xFFFFFFFF
+        let result = crc32(std::ptr::null(), 0, 0);
+        assert_eq!(result, 0xFFFFFFFF);
     }
-
+    
     #[test]
-    fn test_crc32_incremental() {
-        let data1 = b"123";
-        let data2 = b"456";
-        let mid = crc32(0, data1.as_ptr(), data1.len());
-        let final_res = crc32(mid, data2.as_ptr(), data2.len());
+    fn test_crc32_incremental_parity() {
+        let data = b"123456789";
+        let crc_full = crc32(data.as_ptr(), data.len(), 0xFFFFFFFF);
         
-        let combined = b"123456";
-        let expected = crc32(0, combined.as_ptr(), combined.len());
-        assert_eq!(final_res, expected);
+        let crc_part1 = crc32(data.as_ptr(), 4, 0xFFFFFFFF);
+        // In C incremental: next_initial = last_result ^ 0xFFFFFFFF (to get raw state)
+        let crc_part2 = crc32(unsafe { data.as_ptr().add(4) }, 5, crc_part1 ^ 0xFFFFFFFF);
+        
+        assert_eq!(crc_full, crc_part2);
     }
 }

@@ -1,21 +1,28 @@
-FROM ubuntu:18.04
+FROM rust:latest
 
-RUN apt-get update && apt-get clean
-RUN apt-get install --no-install-recommends -y git make gcc g++ curl
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-ENV PATH="/root/.cargo/bin:${PATH}"
-RUN apt-get install --no-install-recommends -y cppcheck flawfinder cflow
-RUN apt-get install --no-install-recommends -y python3-pip
-RUN apt-get install --no-install-recommends -y bear
-RUN apt-get install --no-install-recommends -y zsh
-RUN apt-get clean
-RUN rm -rf /var/lib/apt/lists/*
+# Install C/C++ build tools and analysis tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    make \
+    gcc \
+    g++ \
+    cppcheck \
+    flawfinder \
+    cflow \
+    python3-pip \
+    bear \
+    zsh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN chsh -s $(which zsh)
-RUN pip3 install lizard==1.17.10
-RUN pip3 install compdb==0.2.0
+# Install Python-based tools
+RUN pip3 install --no-cache-dir lizard==1.17.10 compdb==0.2.0 --break-system-packages
 
+# Set up work directory
 RUN mkdir -p /ftl
 WORKDIR /ftl
+
+# Set up ZSH (optional for dev)
+RUN chsh -s $(which zsh)
 
 CMD [ "make" ]

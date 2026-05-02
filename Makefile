@@ -180,7 +180,7 @@ DEVICE_SRCS := $(RAMDISK_SRCS) \
                $(RASPBERRY_SRCS) \
                device/*.c
 
-UTIL_SRCS := util/lru.c util/list.c util/crc32.c
+UTIL_SRCS := util/lru.c util/list.c
 
 FTL_SRCS := ftl/page/*.c
 
@@ -193,13 +193,18 @@ SRCS := $(DEVICE_SRCS) \
 
 OBJS := *.o
 
+RUST_LIB := target/release/libftl_rs.a
+
 ifeq ($(PREFIX),)
 PREFIX := /usr/local
 endif
 
-all: $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
+all: rust $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 
-test: $(TEST_TARGET)
+rust:
+	cargo build --release
+
+test: rust $(TEST_TARGET)
 	@for target in $(TEST_TARGET) ; do \
 		./$$target ; \
 	done
@@ -243,8 +248,8 @@ ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
 list-test.out: unity.o ./util/list.c ./test/list-test.c
 	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
 
-crc32-test.out: unity.o ./util/crc32.c ./test/crc32-test.c
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+crc32-test.out: unity.o rust ./test/crc32-test.c
+	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage unity.o ./test/crc32-test.c $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 zone-test.out: $(OBJS) ./test/zone-test.c
@@ -297,4 +302,4 @@ clean:
 	find . -name '*.gcda' -exec rm -f {} +
 	find . -name '*.gcno' -exec rm -f {} +
 	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
-ARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
+	cargo clean
