@@ -16,10 +16,28 @@ jobs:
     - name: prepare environment
       run: |
         sudo apt-get update -y && sudo apt-get clean
-        sudo apt-get install --no-install-recommends -y git make gcc g++ libglib2.0-dev libiberty-dev
+        sudo apt-get install --no-install-recommends -y git make gcc g++
         sudo apt-get install --no-install-recommends -y cppcheck flawfinder cflow
         sudo apt-get install --no-install-recommends -y python3-pip
         sudo pip3 install lizard==1.17.0
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Rust tests
+      run: cargo test
+    - name: Rust format check
+      run: cargo fmt -- --check
     - name: make check
       run: make check
     - name: make flow

@@ -17,10 +17,18 @@ If you have any questions about this project, don't hesitate to contact the main
 
 Before you build this repository, you must install some packages from the package manager.
 
+#### C Environment
 ```bash
 sudo apt update -y
-sudo apt install -y git make gcc g++ libglib2.0-dev libiberty-dev
+sudo apt install -y git make gcc g++
 ```
+
+#### Rust Environment
+This project uses Rust for some components. You must install the Rust toolchain.
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+Follow the instructions to complete the installation.
 
 After you download the packages, you must receive this project code using `git clone` like below.
 

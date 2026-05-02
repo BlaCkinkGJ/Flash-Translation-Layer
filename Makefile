@@ -155,7 +155,7 @@ CXXFLAGS := $(CFLAGS) \
 
 UNITY_ROOT := ./unity
 INCLUDES := -I./include -I./unity/src $(DEVICE_INCLUDES)
-LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
+LIBS := -lm -lpthread -Ltarget/release -lftl_rs $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
 
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
@@ -297,3 +297,4 @@ clean:
 	find . -name '*.gcda' -exec rm -f {} +
 	find . -name '*.gcno' -exec rm -f {} +
 	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
+ARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
