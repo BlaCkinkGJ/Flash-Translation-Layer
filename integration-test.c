@@ -69,7 +69,7 @@ void *read_thread(void *data)
 		       offset);
 #endif
 		is_check[(size_t)(*(ssize_t *)buffer) / BLOCK_SIZE] = 1;
-		offset += BLOCK_SIZE;
+		offset += (off_t)BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
 		usleep((useconds_t)((rand() % 500) + 1000));
 #endif
@@ -102,7 +102,7 @@ void *write_thread(void *data)
 		       (size_t)offset);
 #endif
 		assert(ret == BLOCK_SIZE);
-		offset += BLOCK_SIZE;
+		offset += (off_t)BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
 		usleep((useconds_t)((rand() % 500) + 100));
 #endif
@@ -140,7 +140,7 @@ void *overwrite_thread(void *data)
 		printf("%-12s: %-16zd(offset: %zu)\n", "overwrite", buffer[0],
 		       (size_t)offset);
 #endif
-		offset += BLOCK_SIZE;
+		offset += (off_t)BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
 		usleep((useconds_t)((rand() % 500) + 100));
 #endif
