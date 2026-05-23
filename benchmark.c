@@ -324,7 +324,7 @@ static void shuffling(off_t *sequence, size_t nr_blocks)
 		uint64_t seed;
 		clock_gettime(CLOCK_MONOTONIC, &tv);
 
-		seed = (uint64_t)(tv.tv_sec * SEC_TO_NS) + tv.tv_nsec;
+		seed = (uint64_t)(tv.tv_sec * SEC_TO_NS) + (uint64_t)tv.tv_nsec;
 		srand((unsigned int)seed);
 		swap_pos = (size_t)rand();
 #else
@@ -534,7 +534,7 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 		char *ptr = &buffer[pos];
 		ret = syscall(SYS_getrandom, ptr, block_sz, GRND_NONBLOCK);
 		assert(ret >= 0);
-		pos += ret;
+		pos += (size_t)ret;
 	}
 #else
 	size_t pos = 0;
