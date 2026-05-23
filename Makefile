@@ -192,7 +192,7 @@ SRCS := $(DEVICE_SRCS) \
         $(FTL_SRCS) \
         $(INTERFACE_SRCS)
 
-OBJS := device.o flash.o list.o lru.o module.o page-core.o page-gc.o page-interface.o page-map.o page-read.o page-write.o ramdisk.o unity.o
+OBJS := $(notdir $(patsubst %.c,%.o,$(wildcard $(SRCS)))) unity.o
 
 ifeq ($(PREFIX),)
 PREFIX := /usr/local
