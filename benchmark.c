@@ -18,6 +18,10 @@
 // cppcheck-suppress missingIncludeSystem
 #include <assert.h>
 
+#ifdef __APPLE__
+#include <sys/random.h>
+#endif
+
 #include "module.h"
 #include "device.h"
 #include "crc32.h"
@@ -34,7 +38,9 @@
 #define DO_WARM_UP (1) /**< Do not erase */
 
 #define USE_CRC
+#ifndef __APPLE__
 #define USE_PER_CORE
+#endif
 // CRC32_INIT moved to crc32.h
 #define PAGE_SIZE (0x1 << 12)
 #define SEC_TO_NS (1000000000L)
@@ -139,8 +145,7 @@ int main(int argc, char **argv)
 
 	/* running part */
 	print_parameters(parm);
-	if (DO_WARM_UP || parm->workload_idx == RAND_READ ||
-	    parm->workload_idx == READ) {
+	if (DO_WARM_UP) {
 		printf("fill data start!\n");
 		write_data(parm);
 		for (idx = 0; idx < (size_t)parm->nr_jobs; idx++) {
@@ -589,7 +594,7 @@ static void *write_data(void *data)
 #ifdef USE_CRC
 		fill_buffer_random((char *)buffer, parm->block_sz);
 		parm->crc32_list[(size_t)offset / parm->block_sz] =
-			crc32(buffer, (int)parm->block_sz, CRC32_INIT);
+			crc32(buffer, (size_t)parm->block_sz, CRC32_INIT);
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &start);
 		ret = flash->f_op->write(flash, buffer, parm->block_sz, offset);
@@ -652,7 +657,7 @@ static void *read_data(void *data)
 #ifdef USE_CRC
 		{
 			uint32_t crc32_val =
-				crc32(buffer, (int)parm->block_sz, CRC32_INIT);
+				crc32(buffer, (size_t)parm->block_sz, CRC32_INIT);
 			if (crc32_val !=
 			    parm->crc32_list[(size_t)offset / parm->block_sz]) {
 				parm->crc32_is_match[(size_t)offset /

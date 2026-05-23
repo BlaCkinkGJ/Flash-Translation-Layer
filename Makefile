@@ -192,7 +192,7 @@ SRCS := $(DEVICE_SRCS) \
         $(FTL_SRCS) \
         $(INTERFACE_SRCS)
 
-OBJS := device.o flash.o list.o lru.o module.o page-core.o page-gc.o page-interface.o page-map.o page-read.o page-write.o ramdisk.o unity.o
+OBJS := $(patsubst %.c,%.o,$(notdir $(wildcard $(SRCS))))
 
 ifeq ($(PREFIX),)
 PREFIX := /usr/local
@@ -219,37 +219,40 @@ install: $(LIBRARY_TARGET)
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
 $(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET) build_rust
-	$(CXX) $(MACROS) $(CXXFLAGS) -c integration-test.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -c integration-test.c $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) build_rust
-	$(CXX) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
+	$(CC) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 %.o: %.c
-	$(CXX) $(MACROS) $(CFLAGS) -c $< $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -c $< $(INCLUDES)
+
+unity.o: unity.c
+	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< $(INCLUDES)
 
 lru-test.out: unity.o ./util/lru.c ./test/lru-test.c build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
 
 bits-test.out: unity.o ./test/bits-test.c build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
 
-ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
+ramdisk-test.out: $(OBJS) unity.o ./test/ramdisk-test.c build_rust
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
 
 list-test.out: unity.o ./util/list.c ./test/list-test.c build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
 
 crc32-test.out: unity.o ./test/crc32-test.c build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
+	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
-zone-test.out: $(OBJS) ./test/zone-test.c build_rust
-	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
+zone-test.out: $(OBJS) unity.o ./test/zone-test.c build_rust
+	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
 endif
 
 
