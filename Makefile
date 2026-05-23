@@ -1,3 +1,4 @@
+VPATH = device device/ramdisk device/zone device/bluedbm device/raspberry util ftl/page interface unity/src test
 # You can generate the compile_commands.json file by using
 # `make clean -j$(nproc)`
 # `bear make all -j$(nproc)`
@@ -155,7 +156,7 @@ CXXFLAGS := $(CFLAGS) \
 
 UNITY_ROOT := ./unity
 INCLUDES := -I./include -I./unity/src $(DEVICE_INCLUDES)
-LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -Ltarget/release -lftl_rust
+LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -Ltarget/$(if $(filter 1,$(USE_DEBUG)),debug,release) -lftl_rust -Ltarget/release -lftl_rust
 
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
@@ -228,8 +229,8 @@ $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) build_rust
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
-$(OBJS): $(SRCS)
-	$(CXX) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
+%.o: %.c
+	$(CXX) $(MACROS) $(CFLAGS) -c $< $(LIBS) $(INCLUDES)
 
 lru-test.out: unity.o ./util/lru.c ./test/lru-test.c build_rust
 	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
@@ -251,8 +252,6 @@ zone-test.out: $(OBJS) ./test/zone-test.c build_rust
 	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
 endif
 
-unity.o: $(UNITY_ROOT)/src/unity.c
-	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -c $^ $(LIBS)
 
 docker-builder:
 	docker build -t $(DOCKER_TAG_ROOT)/ftl-builder \
@@ -298,7 +297,14 @@ clean:
 	find . -name '*.gcno' -exec rm -f {} +
 	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	cargo clean
+	cargo clean
 
 .PHONY: build_rust
 build_rust:
 	cargo build --release
+
+
+
+.PHONY: build_rust
+build_rust:
+	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release)
