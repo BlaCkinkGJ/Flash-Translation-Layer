@@ -145,7 +145,11 @@ int main(int argc, char **argv)
 
 	/* running part */
 	print_parameters(parm);
-	if (DO_WARM_UP) {
+#if DO_WARM_UP
+	if (1) {
+#else
+	if (parm->workload_idx == RAND_READ || parm->workload_idx == READ) {
+#endif
 		printf("fill data start!\n");
 		write_data(parm);
 		for (idx = 0; idx < (size_t)parm->nr_jobs; idx++) {

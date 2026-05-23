@@ -192,7 +192,7 @@ SRCS := $(DEVICE_SRCS) \
         $(FTL_SRCS) \
         $(INTERFACE_SRCS)
 
-OBJS := $(patsubst %.c,%.o,$(notdir $(wildcard $(SRCS))))
+OBJS := $(patsubst %.c,%.o,$(wildcard $(SRCS)))
 
 ifeq ($(PREFIX),)
 PREFIX := /usr/local
@@ -230,10 +230,10 @@ $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 %.o: %.c
-	$(CC) $(MACROS) $(CFLAGS) -c $< $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -c $< -o $@ $(INCLUDES)
 
 unity.o: unity.c
-	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
 
 lru-test.out: unity.o ./util/lru.c ./test/lru-test.c build_rust
 	$(CC) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
