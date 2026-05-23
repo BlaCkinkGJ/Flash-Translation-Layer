@@ -156,7 +156,7 @@ CXXFLAGS := $(CFLAGS) \
 
 UNITY_ROOT := ./unity
 INCLUDES := -I./include -I./unity/src $(DEVICE_INCLUDES)
-LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -Ltarget/$(if $(filter 1,$(USE_DEBUG)),debug,release) -lftl_rust -Ltarget/release -lftl_rust
+LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -Ltarget/$(if $(filter 1,$(USE_DEBUG)),debug,release) -lftl_rust
 
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
@@ -230,7 +230,7 @@ $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 %.o: %.c
-	$(CXX) $(MACROS) $(CFLAGS) -c $< $(LIBS) $(INCLUDES)
+	$(CXX) $(MACROS) $(CFLAGS) -c $< $(INCLUDES)
 
 lru-test.out: unity.o ./util/lru.c ./test/lru-test.c build_rust
 	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.c %.o, $^) $(LIBS)
@@ -297,13 +297,6 @@ clean:
 	find . -name '*.gcno' -exec rm -f {} +
 	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	cargo clean
-	cargo clean
-
-.PHONY: build_rust
-build_rust:
-	cargo build --release
-
-
 
 .PHONY: build_rust
 build_rust:

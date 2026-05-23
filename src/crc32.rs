@@ -48,8 +48,8 @@ const CRC32_TAB: [u32; 256] = [
 
 #[no_mangle]
 pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
-    if buf.is_null() && size > 0 {
-        return 0; // or panic, but returning 0 is safer for C FFI if invalid pointer is given
+    if buf.is_null() {
+        return initial ^ 0xFFFFFFFF;
     }
 
     let mut crc = initial;
