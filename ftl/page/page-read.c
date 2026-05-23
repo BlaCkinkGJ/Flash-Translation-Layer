@@ -81,7 +81,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 		pr_warn("cannot find the mapping information (lpn: %zu)\n",
 			lpn);
 		memset(request->data, 0, request->data_len);
-		ret = (ssize_t)request->data_len;
+		ret = request->data_len;
 		device_free_request(request);
 		goto exception;
 	}
@@ -117,7 +117,7 @@ ssize_t page_ftl_read(struct page_ftl *pgftl, struct device_request *request)
 	read_rq->rq_private = request;
 	read_rq->end_rq = page_ftl_read_end_rq;
 
-	data_len = (ssize_t)request->data_len;
+	data_len = request->data_len;
 	ret = dev->d_op->read(dev, read_rq);
 	if (ret < 0) {
 		pr_err("device read failed (ppn: %u)\n", request->paddr.lpn);

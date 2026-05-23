@@ -29,9 +29,9 @@ void test_bits(void)
 		set_bit(bits, i);
 		one = find_first_one_bit(bits, nr_bits, 0);
 		zero = find_first_zero_bit(bits, nr_bits, 0);
-		TEST_ASSERT_EQUAL_UINT(0, (unsigned int)one);
+		TEST_ASSERT_EQUAL_UINT(0, (uint)one);
 		if (i + 1 < nr_bits) {
-			TEST_ASSERT_EQUAL_UINT(i + 1, (unsigned int)zero);
+			TEST_ASSERT_EQUAL_UINT(i + 1, (uint)zero);
 		} else {
 			TEST_ASSERT_EQUAL_INT(-1, (int)zero);
 		}
@@ -41,11 +41,11 @@ void test_bits(void)
 		one = find_first_one_bit(bits, nr_bits, 0);
 		zero = find_first_zero_bit(bits, nr_bits, 0);
 		if (i + 1 < nr_bits) {
-			TEST_ASSERT_EQUAL_UINT(i + 1, (unsigned int)one);
+			TEST_ASSERT_EQUAL_UINT(i + 1, (uint)one);
 		} else {
 			TEST_ASSERT_EQUAL_INT(-1, (int)one);
 		}
-		TEST_ASSERT_EQUAL_UINT(0, (unsigned int)zero);
+		TEST_ASSERT_EQUAL_UINT(0, (uint)zero);
 	}
 
 	// For arm machine
@@ -68,7 +68,7 @@ void test_get_bits(void)
 		bits = (uint64_t *)malloc(
 			(size_t)BITS_TO_UINT64_ALIGN(nr_bits));
 		memset(bits, 0, (size_t)BITS_TO_UINT64_ALIGN(nr_bits));
-		srand((unsigned int)time(NULL) + (unsigned int)((counter * rand()) % INT_MAX));
+		srand((unsigned int)time(NULL) + (counter * rand()) % INT_MAX);
 		for (i = 0; i < nr_bits; i++) {
 			setbit[i] = (char)(rand() % 2);
 		}

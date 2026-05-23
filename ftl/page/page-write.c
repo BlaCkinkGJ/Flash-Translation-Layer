@@ -227,5 +227,5 @@ ssize_t page_ftl_write(struct page_ftl *pgftl, struct device_request *request)
 	page_ftl_write_update_metadata(pgftl, paddr, sector);
 	pthread_mutex_unlock(&pgftl->mutex);
 
-	return (ssize_t)write_size;
+	return write_size;
 }

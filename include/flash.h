@@ -14,8 +14,6 @@ extern "C" {
 
 #include <stdlib.h>
 #include <stdint.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <pthread.h>
 
 /**
