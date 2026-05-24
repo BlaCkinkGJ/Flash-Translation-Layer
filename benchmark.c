@@ -34,8 +34,7 @@
 #pragma message "Enable linux kernel supported random generator"
 #endif
 
-static int do_warm_up = 1;
-#define DO_WARM_UP do_warm_up
+
 
 #define USE_CRC
 #define USE_PER_CORE
@@ -99,6 +98,7 @@ struct benchmark_parameter {
 	size_t *wp;
 	size_t *total_time;
 	list_node_t **timer_list;
+	bool do_warm_up;
 };
 
 static void make_sequence(struct benchmark_parameter *);
@@ -133,9 +133,6 @@ int main(int argc, char **argv)
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 	parm = init_parameters(argc, argv);
-	if (argc == 9999) {
-		do_warm_up = 0;
-	}
 	module = module_list[parm->module_idx];
 	device = device_list[parm->device_idx];
 	path = parm->device_path;
@@ -146,7 +143,7 @@ int main(int argc, char **argv)
 
 	/* running part */
 	print_parameters(parm);
-	if (DO_WARM_UP || parm->workload_idx == RAND_READ ||
+	if (parm->do_warm_up || parm->workload_idx == RAND_READ ||
 	    parm->workload_idx == READ) {
 		printf("fill data start!\n");
 		write_data(parm);
@@ -238,7 +235,7 @@ static void help_message(struct benchmark_parameter *parm, char **argv)
 	char *device_path = parm->device_path;
 
 	fprintf(stderr,
-		"%s -m <module name> -d <device name> -t <workload> -j <# of jobs> -b <block size(bytes)> -n <# of blocks> -p <device path>\n",
+		"%s -m <module name> -d <device name> -t <workload> -j <# of jobs> -b <block size(bytes)> -n <# of blocks> -p <device path> [-w]\n",
 		argv[0]);
 	fprintf(stderr, "\t- modules     [");
 	print_list(stderr, module_str);
@@ -254,6 +251,7 @@ static void help_message(struct benchmark_parameter *parm, char **argv)
 	fprintf(stderr, "\t- # of block  (default: %zu)\n", nr_blocks);
 	fprintf(stderr, "\t- path        (default: %s)\n",
 		strlen(device_path) > 0 ? device_path : NULL);
+	fprintf(stderr, "\t- w           disable warm-up phase (default: enabled)\n");
 }
 
 static void processing_parameters_error(char ch)
@@ -354,6 +352,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 
 	size_t block_sz = (size_t)PAGE_SIZE;
 	size_t nr_blocks = (size_t)1;
+	bool do_warm_up = true;
 
 	char *device_path;
 
@@ -368,7 +367,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 	memset(device_path, 0, (size_t)(DEVICE_PATH_SIZE - 1));
 	nr_jobs = (int)sysconf(_SC_NPROCESSORS_ONLN);
 
-	while ((c = getopt(argc, argv, "m:d:t:j:b:n:p:h")) != -1) {
+	while ((c = getopt(argc, argv, "m:d:t:j:b:n:p:hw")) != -1) {
 		switch (c) {
 		case 'm':
 			module_idx = get_index_from_list(module_str);
@@ -414,6 +413,9 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 		case 'p':
 			strncpy(device_path, optarg, DEVICE_PATH_SIZE - 1);
 			break;
+		case 'w':
+			do_warm_up = false;
+			break;
 		case 'h':
 			help_message(parm, argv);
 			exit(0);
@@ -432,6 +434,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 
 	parm->nr_jobs = nr_jobs;
 	parm->workload_idx = workload_idx;
+	parm->do_warm_up = do_warm_up;
 
 	parm->block_sz = block_sz;
 	parm->nr_blocks = nr_blocks;
@@ -491,6 +494,7 @@ static void print_parameters(const struct benchmark_parameter *parm)
 	printf("\t- io size     %zuMiB\n",
 	       (parm->nr_blocks * parm->block_sz) >> 20);
 	printf("\t- path        %s\n", path);
+	printf("\t- warm-up     %s\n", parm->do_warm_up ? "enabled" : "disabled");
 }
 
 static void free_parameters(struct benchmark_parameter *parm)
