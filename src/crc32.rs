@@ -46,6 +46,15 @@ const CRC32_TAB: [u32; 256] = [
     0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d,
 ];
 
+/// Calculates the CRC32 checksum of the given buffer.
+///
+/// # Safety
+/// The caller must ensure that `buf` is a valid pointer to at least `size` bytes.
+/// If `buf` is null, the function returns `initial ^ 0xFFFFFFFF`.
+///
+/// # Incremental Calculation
+/// To perform incremental CRC32, the `initial` value for subsequent calls should be
+/// the result of the previous call XORed with `0xFFFFFFFF`.
 #[no_mangle]
 pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
     if buf.is_null() {

@@ -317,25 +317,26 @@ static void make_sequence(struct benchmark_parameter *parm)
 static void shuffling(off_t *sequence, size_t nr_blocks)
 {
 	size_t idx;
+	unsigned int seed;
 #ifdef USE_LEGACY_RANDOM
 	struct timespec tv;
-	uint64_t seed;
+	uint64_t temp_seed;
 	clock_gettime(CLOCK_MONOTONIC, &tv);
 
-	seed = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
-	srand((unsigned int)seed);
+	temp_seed = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
+	seed = (unsigned int)temp_seed;
+#else
+	if (getentropy(&seed, sizeof(seed)) != 0) {
+		perror("getentropy failed");
+		exit(EXIT_FAILURE);
+	}
 #endif
+	srand(seed);
+
 	for (idx = 0; idx < nr_blocks; idx++) {
 		off_t temp;
 		size_t swap_pos;
-#ifdef USE_LEGACY_RANDOM
 		swap_pos = (size_t)rand();
-#else
-		if (getentropy(&swap_pos, sizeof(size_t)) != 0) {
-			perror("getentropy failed");
-			exit(EXIT_FAILURE);
-		}
-#endif
 		swap_pos = swap_pos % nr_blocks;
 		temp = sequence[idx];
 		sequence[idx] = sequence[swap_pos];
