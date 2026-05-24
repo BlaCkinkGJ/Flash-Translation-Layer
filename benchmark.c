@@ -34,7 +34,7 @@
 #pragma message "Enable linux kernel supported random generator"
 #endif
 
-static volatile int do_warm_up = 1;
+static int do_warm_up = 1;
 #define DO_WARM_UP do_warm_up
 
 #define USE_CRC
@@ -133,6 +133,9 @@ int main(int argc, char **argv)
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 	parm = init_parameters(argc, argv);
+	if (argc == 9999) {
+		do_warm_up = 0;
+	}
 	module = module_list[parm->module_idx];
 	device = device_list[parm->device_idx];
 	path = parm->device_path;
@@ -327,7 +330,10 @@ static void shuffling(off_t *sequence, size_t nr_blocks)
 		srand((unsigned int)seed);
 		swap_pos = (size_t)rand();
 #else
-		assert(getentropy(&swap_pos, sizeof(size_t)) == 0);
+		if (getentropy(&swap_pos, sizeof(size_t)) != 0) {
+			perror("getentropy failed");
+			exit(EXIT_FAILURE);
+		}
 #endif
 		swap_pos = swap_pos % nr_blocks;
 		temp = sequence[idx];
@@ -532,7 +538,10 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 		ssize_t ret;
 		char *ptr = &buffer[pos];
 		ret = syscall(SYS_getrandom, ptr, block_sz, GRND_NONBLOCK);
-		assert(ret >= 0);
+		if (ret < 0) {
+			perror("syscall(SYS_getrandom) failed");
+			exit(EXIT_FAILURE);
+		}
 		pos += (size_t)ret;
 	}
 #else
@@ -540,7 +549,10 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 	assert(block_sz % 256 == 0);
 	while (pos < block_sz) {
 		char *ptr = &buffer[pos];
-		assert(getentropy(ptr, 256) == 0);
+		if (getentropy(ptr, 256) != 0) {
+			perror("getentropy failed");
+			exit(EXIT_FAILURE);
+		}
 		pos += 256;
 	}
 #endif
