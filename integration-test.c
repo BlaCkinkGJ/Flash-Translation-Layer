@@ -6,7 +6,7 @@
  * @date 2021-09-22
  */
 #include <assert.h>
-#include <climits>
+#include <limits.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
@@ -71,7 +71,7 @@ void *read_thread(void *data)
 		is_check[(size_t)(*(ssize_t *)buffer) / BLOCK_SIZE] = 1;
 		offset += (off_t)BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
-		usleep((rand() % 500) + 1000);
+		usleep((useconds_t)((rand() % 500) + 1000));
 #endif
 	}
 	return NULL;
@@ -104,7 +104,7 @@ void *write_thread(void *data)
 		assert(ret == BLOCK_SIZE);
 		offset += (off_t)BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
-		usleep((rand() % 500) + 100);
+		usleep((useconds_t)((rand() % 500) + 100));
 #endif
 	}
 	return NULL;
@@ -142,7 +142,7 @@ void *overwrite_thread(void *data)
 #endif
 		offset += (off_t)BLOCK_SIZE;
 #ifdef USE_RANDOM_WAIT
-		usleep((rand() % 500) + 100);
+		usleep((useconds_t)((rand() % 500) + 100));
 #endif
 	}
 	return NULL;

@@ -7,6 +7,9 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
+#ifdef __APPLE__
+#include <sys/random.h>
+#endif
 #ifdef __cplusplus
 #define HAVE_DECL_BASENAME (1)
 #endif
@@ -31,7 +34,8 @@
 #pragma message "Enable linux kernel supported random generator"
 #endif
 
-#define DO_WARM_UP (1) /**< Do not erase */
+static volatile int do_warm_up = 1;
+#define DO_WARM_UP do_warm_up
 
 #define USE_CRC
 #define USE_PER_CORE
@@ -319,7 +323,7 @@ static void shuffling(off_t *sequence, size_t nr_blocks)
 		uint64_t seed;
 		clock_gettime(CLOCK_MONOTONIC, &tv);
 
-		seed = (uint64_t)(tv.tv_sec * SEC_TO_NS) + (uint64_t)tv.tv_nsec;
+		seed = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
 		srand((unsigned int)seed);
 		swap_pos = (size_t)rand();
 #else
@@ -566,7 +570,9 @@ static void *write_data(void *data)
 	struct flash_device *flash;
 	struct benchmark_parameter *parm;
 #ifdef USE_PER_CORE
+#ifndef __APPLE__
 	uint64_t mask;
+#endif
 #endif
 
 	parm = (struct benchmark_parameter *)data;
@@ -575,9 +581,13 @@ static void *write_data(void *data)
 	thread_id = __atomic_fetch_add(&parm->thread_id_allocator, 1, __ATOMIC_SEQ_CST);
 
 #ifdef USE_PER_CORE
+#ifdef __APPLE__
+	ret = 0;
+#else
 	mask = (0x1 << thread_id);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
 				     (cpu_set_t *)&mask);
+#endif
 	assert(ret >= 0);
 #endif
 
@@ -589,7 +599,7 @@ static void *write_data(void *data)
 #ifdef USE_CRC
 		fill_buffer_random((char *)buffer, parm->block_sz);
 		parm->crc32_list[(size_t)offset / parm->block_sz] =
-			crc32(buffer, (int)parm->block_sz, CRC32_INIT);
+			crc32(buffer, parm->block_sz, CRC32_INIT);
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &start);
 		ret = flash->f_op->write(flash, buffer, parm->block_sz, offset);
@@ -617,7 +627,9 @@ static void *read_data(void *data)
 	struct flash_device *flash;
 	struct benchmark_parameter *parm;
 #ifdef USE_PER_CORE
+#ifndef __APPLE__
 	uint64_t mask;
+#endif
 #endif
 
 	parm = (struct benchmark_parameter *)data;
@@ -628,9 +640,13 @@ static void *read_data(void *data)
 
 	thread_id = __atomic_fetch_add(&parm->thread_id_allocator, 1, __ATOMIC_SEQ_CST);
 #ifdef USE_PER_CORE
+#ifdef __APPLE__
+	ret = 0;
+#else
 	mask = (0x1 << thread_id);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
 				     (cpu_set_t *)&mask);
+#endif
 	assert(ret >= 0);
 #endif
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
@@ -652,7 +668,7 @@ static void *read_data(void *data)
 #ifdef USE_CRC
 		{
 			uint32_t crc32_val =
-				crc32(buffer, (int)parm->block_sz, CRC32_INIT);
+				crc32(buffer, parm->block_sz, CRC32_INIT);
 			if (crc32_val !=
 			    parm->crc32_list[(size_t)offset / parm->block_sz]) {
 				parm->crc32_is_match[(size_t)offset /
