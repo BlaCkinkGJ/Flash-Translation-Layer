@@ -30,10 +30,14 @@
 #include "crc32.h"
 #include "list.h"
 
+#include <stdlib.h>
+
 #ifdef USE_LEGACY_RANDOM
 #pragma message "Disable linux kernel supported random generator"
+#ifdef __linux__
 #include <linux/random.h>
 #include <syscall.h>
+#endif
 #else
 #pragma message "Enable linux kernel supported random generator"
 #endif
@@ -564,10 +568,25 @@ static void free_parameters(struct benchmark_parameter *parm)
 static void fill_buffer_random(char *buffer, size_t block_sz)
 {
 #ifdef USE_LEGACY_RANDOM
+	static __thread unsigned int seed = 0;
+	if (seed == 0) {
+		struct timespec tv;
+		clock_gettime(CLOCK_MONOTONIC, &tv);
+		seed = (unsigned int)((uintptr_t)tv.tv_nsec ^ (uintptr_t)pthread_self());
+		if (seed == 0) {
+			seed = 1;
+		}
+	}
 	size_t pos = 0;
 	while (pos < block_sz) {
-		buffer[pos] = (char)rand();
-		pos++;
+		if (block_sz - pos >= sizeof(int)) {
+			int r = rand_r(&seed);
+			memcpy(&buffer[pos], &r, sizeof(int));
+			pos += sizeof(int);
+		} else {
+			buffer[pos] = (char)rand_r(&seed);
+			pos++;
+		}
 	}
 #else
 	size_t pos = 0;

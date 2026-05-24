@@ -53,8 +53,10 @@ static CRC32_TAB: [u32; 256] = [
 /// If `buf` is null, the function returns `initial ^ 0xFFFFFFFF`.
 ///
 /// # Incremental Calculation
-/// To perform incremental CRC32, the `initial` value for subsequent calls should be
-/// the result of the previous call XORed with `0xFFFFFFFF`.
+/// To perform incremental CRC32, the `initial` value for subsequent calls must be
+/// the result of the previous call XORed with `0xFFFFFFFF`. This is because the
+/// function applies a final XOR with `0xFFFFFFFF` to its output. Chaining subsequent
+/// calculations requires reverting this final XOR for the new `initial` input.
 #[no_mangle]
 pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
     if buf.is_null() {
