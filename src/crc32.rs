@@ -54,13 +54,11 @@ pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
 
     let mut crc = initial;
 
-    if size > 0 {
-        // Safety: We assume the caller provided a valid buffer of `size` bytes.
-        let slice = unsafe { std::slice::from_raw_parts(buf as *const u8, size) };
-        for &byte in slice {
-            let index = ((crc ^ (byte as u32)) & 0xFF) as usize;
-            crc = CRC32_TAB[index] ^ (crc >> 8);
-        }
+    // Safety: We assume the caller provided a valid buffer of `size` bytes.
+    let slice = unsafe { std::slice::from_raw_parts(buf as *const u8, size) };
+    for &byte in slice {
+        let index = ((crc ^ (byte as u32)) & 0xFF) as usize;
+        crc = CRC32_TAB[index] ^ (crc >> 8);
     }
 
     crc ^ 0xFFFFFFFF
