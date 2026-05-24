@@ -579,12 +579,12 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 	}
 	size_t pos = 0;
 	while (pos < block_sz) {
+		int r = rand_r(&seed);
 		if (block_sz - pos >= sizeof(int)) {
-			int r = rand_r(&seed);
 			memcpy(&buffer[pos], &r, sizeof(int));
 			pos += sizeof(int);
 		} else {
-			buffer[pos] = (char)rand_r(&seed);
+			buffer[pos] = (char)r;
 			pos++;
 		}
 	}
