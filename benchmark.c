@@ -316,16 +316,18 @@ static void make_sequence(struct benchmark_parameter *parm)
 static void shuffling(off_t *sequence, size_t nr_blocks)
 {
 	size_t idx;
+#ifdef USE_LEGACY_RANDOM
+	struct timespec tv;
+	uint64_t seed;
+	clock_gettime(CLOCK_MONOTONIC, &tv);
+
+	seed = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
+	srand((unsigned int)seed);
+#endif
 	for (idx = 0; idx < nr_blocks; idx++) {
 		off_t temp;
 		size_t swap_pos;
 #ifdef USE_LEGACY_RANDOM
-		struct timespec tv;
-		uint64_t seed;
-		clock_gettime(CLOCK_MONOTONIC, &tv);
-
-		seed = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
-		srand((unsigned int)seed);
 		swap_pos = (size_t)rand();
 #else
 		if (getentropy(&swap_pos, sizeof(size_t)) != 0) {
@@ -541,7 +543,7 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 	while (pos < block_sz) {
 		ssize_t ret;
 		char *ptr = &buffer[pos];
-		ret = syscall(SYS_getrandom, ptr, block_sz, GRND_NONBLOCK);
+		ret = syscall(SYS_getrandom, ptr, block_sz - pos, GRND_NONBLOCK);
 		if (ret < 0) {
 			perror("syscall(SYS_getrandom) failed");
 			exit(EXIT_FAILURE);

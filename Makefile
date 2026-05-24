@@ -223,36 +223,36 @@ $(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET) build_rust
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) build_rust
-	$(CXX) -x c++ $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES)
-	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
+	$(CXX) -x c++ $(MACROS) $(CXXFLAGS) -c benchmark.c $(INCLUDES)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 %.o: %.c
-	$(CXX) -x c++ $(MACROS) $(CFLAGS) -c $< -o $@ $(INCLUDES)
+	$(CXX) -x c++ $(MACROS) $(CXXFLAGS) -c $< -o $@ $(INCLUDES)
 
 unity.o: unity.c
-	$(CXX) -x c++ $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
+	$(CXX) -x c++ $(MACROS) $(CXXFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
 
 lru-test.out: unity.o util/lru.o test/lru-test.o build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 bits-test.out: unity.o test/bits-test.o build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 ramdisk-test.out: $(OBJS) unity.o test/ramdisk-test.o build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 list-test.out: unity.o util/list.o test/list-test.o build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 crc32-test.out: unity.o test/crc32-test.o build_rust
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 zone-test.out: $(OBJS) unity.o test/zone-test.o build_rust
-	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
+	$(CXX) $(MACROS) $(CXXFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 endif
 
 
