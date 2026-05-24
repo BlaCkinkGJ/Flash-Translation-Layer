@@ -20,6 +20,7 @@
 #include <time.h>
 // cppcheck-suppress missingIncludeSystem
 #include <assert.h>
+#include <errno.h>
 
 #include "module.h"
 #include "device.h"
@@ -545,7 +546,14 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 		char *ptr = &buffer[pos];
 		ret = syscall(SYS_getrandom, ptr, block_sz - pos, GRND_NONBLOCK);
 		if (ret < 0) {
+			if (errno == EINTR || errno == EAGAIN) {
+				continue;
+			}
 			perror("syscall(SYS_getrandom) failed");
+			exit(EXIT_FAILURE);
+		}
+		if (ret == 0) {
+			fprintf(stderr, "getrandom returned 0 bytes\n");
 			exit(EXIT_FAILURE);
 		}
 		pos += (size_t)ret;
