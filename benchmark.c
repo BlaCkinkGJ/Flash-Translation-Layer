@@ -10,6 +10,9 @@
 #if defined(__linux__) || defined(__APPLE__)
 #include <sys/random.h>
 #endif
+#ifdef __linux__
+#include <sched.h>
+#endif
 #ifdef __cplusplus
 #define HAVE_DECL_BASENAME (1)
 #endif
@@ -598,7 +601,7 @@ static void *write_data(void *data)
 	struct benchmark_parameter *parm;
 #ifdef USE_PER_CORE
 #ifndef __APPLE__
-	uint64_t mask;
+	cpu_set_t cpuset;
 #endif
 #endif
 
@@ -611,9 +614,9 @@ static void *write_data(void *data)
 #ifdef __APPLE__
 	ret = 0;
 #else
-	mask = ((uint64_t)1 << thread_id);
-	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
-				     (cpu_set_t *)&mask);
+	CPU_ZERO(&cpuset);
+	CPU_SET(thread_id, &cpuset);
+	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
 	assert(ret >= 0);
 #endif
@@ -655,7 +658,7 @@ static void *read_data(void *data)
 	struct benchmark_parameter *parm;
 #ifdef USE_PER_CORE
 #ifndef __APPLE__
-	uint64_t mask;
+	cpu_set_t cpuset;
 #endif
 #endif
 
@@ -670,9 +673,9 @@ static void *read_data(void *data)
 #ifdef __APPLE__
 	ret = 0;
 #else
-	mask = ((uint64_t)1 << thread_id);
-	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
-				     (cpu_set_t *)&mask);
+	CPU_ZERO(&cpuset);
+	CPU_SET(thread_id, &cpuset);
+	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
 	assert(ret >= 0);
 #endif
