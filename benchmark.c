@@ -641,7 +641,8 @@ static void *write_data(void *data)
 	ret = 0;
 #else
 	CPU_ZERO(&cpuset);
-	CPU_SET(thread_id, &cpuset);
+	// Cast to unsigned int to prevent glibc CPU_SET macro sign-conversion warning
+	CPU_SET((unsigned int)thread_id, &cpuset);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
 	assert(ret == 0);
@@ -700,7 +701,8 @@ static void *read_data(void *data)
 	ret = 0;
 #else
 	CPU_ZERO(&cpuset);
-	CPU_SET(thread_id, &cpuset);
+	// Cast to unsigned int to prevent glibc CPU_SET macro sign-conversion warning
+	CPU_SET((unsigned int)thread_id, &cpuset);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
 	assert(ret == 0);
