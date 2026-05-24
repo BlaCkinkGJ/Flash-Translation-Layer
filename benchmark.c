@@ -7,7 +7,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
-#ifdef __APPLE__
+#if defined(__linux__) || defined(__APPLE__)
 #include <sys/random.h>
 #endif
 #ifdef __cplusplus
@@ -545,9 +545,9 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 	while (pos < block_sz) {
 		ssize_t ret;
 		char *ptr = &buffer[pos];
-		ret = syscall(SYS_getrandom, ptr, block_sz - pos, GRND_NONBLOCK);
+		ret = syscall(SYS_getrandom, ptr, block_sz - pos, 0);
 		if (ret < 0) {
-			if (errno == EINTR || errno == EAGAIN) {
+			if (errno == EINTR) {
 				continue;
 			}
 			perror("syscall(SYS_getrandom) failed");
