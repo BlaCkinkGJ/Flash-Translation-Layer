@@ -317,29 +317,47 @@ static void make_sequence(struct benchmark_parameter *parm)
 	}
 }
 
+static uint64_t xorshift64_state;
+
+static uint64_t xorshift64(void)
+{
+	uint64_t x = xorshift64_state;
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 17;
+	return xorshift64_state = x;
+}
+
 static void shuffling(off_t *sequence, size_t nr_blocks)
 {
 	size_t idx;
-	unsigned int seed;
 #ifdef USE_LEGACY_RANDOM
 	struct timespec tv;
 	uint64_t temp_seed;
 	clock_gettime(CLOCK_MONOTONIC, &tv);
 
 	temp_seed = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
-	seed = (unsigned int)temp_seed;
+	srand((unsigned int)temp_seed);
 #else
+	uint64_t seed = 0;
 	if (getentropy(&seed, sizeof(seed)) != 0) {
 		perror("getentropy failed");
 		exit(EXIT_FAILURE);
 	}
+	if (seed == 0) {
+		seed = 1;
+	}
+	xorshift64_state = seed;
 #endif
-	srand(seed);
 
 	for (idx = 0; idx < nr_blocks; idx++) {
 		off_t temp;
 		size_t swap_pos;
+#ifdef USE_LEGACY_RANDOM
 		swap_pos = (size_t)rand();
+#else
+		swap_pos = (size_t)xorshift64();
+#endif
 		swap_pos = swap_pos % nr_blocks;
 		temp = sequence[idx];
 		sequence[idx] = sequence[swap_pos];
@@ -546,21 +564,8 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 #ifdef USE_LEGACY_RANDOM
 	size_t pos = 0;
 	while (pos < block_sz) {
-		ssize_t ret;
-		char *ptr = &buffer[pos];
-		ret = getrandom(ptr, block_sz - pos, 0);
-		if (ret < 0) {
-			if (errno == EINTR) {
-				continue;
-			}
-			perror("getrandom failed");
-			exit(EXIT_FAILURE);
-		}
-		if (ret == 0) {
-			fprintf(stderr, "getrandom returned 0 bytes\n");
-			exit(EXIT_FAILURE);
-		}
-		pos += (size_t)ret;
+		buffer[pos] = (char)rand();
+		pos++;
 	}
 #else
 	size_t pos = 0;
