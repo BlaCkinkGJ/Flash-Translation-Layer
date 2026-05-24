@@ -615,7 +615,7 @@ static void *write_data(void *data)
 	ret = 0;
 #else
 	CPU_ZERO(&cpuset);
-	CPU_SET(thread_id, &cpuset);
+	CPU_SET((size_t)thread_id, &cpuset);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
 	assert(ret >= 0);
@@ -674,7 +674,7 @@ static void *read_data(void *data)
 	ret = 0;
 #else
 	CPU_ZERO(&cpuset);
-	CPU_SET(thread_id, &cpuset);
+	CPU_SET((size_t)thread_id, &cpuset);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
 	assert(ret >= 0);
