@@ -324,13 +324,13 @@ static void make_sequence(struct benchmark_parameter *parm)
 #ifndef USE_LEGACY_RANDOM
 static uint64_t xorshift64_state;
 
-static uint64_t xorshift64(void)
+static inline uint64_t xorshift64_next(uint64_t *state)
 {
-	uint64_t x = xorshift64_state;
+	uint64_t x = *state;
 	x ^= x << 13;
 	x ^= x >> 7;
 	x ^= x << 17;
-	return xorshift64_state = x;
+	return *state = x;
 }
 #endif
 
@@ -362,7 +362,7 @@ static void shuffling(off_t *sequence, size_t nr_blocks)
 #ifdef USE_LEGACY_RANDOM
 		swap_pos = (size_t)rand();
 #else
-		swap_pos = (size_t)xorshift64();
+		swap_pos = (size_t)xorshift64_next(&xorshift64_state);
 #endif
 		swap_pos = swap_pos % nr_blocks;
 		temp = sequence[idx];
@@ -602,19 +602,11 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 	size_t pos = 0;
 	while (pos < block_sz) {
 		if (block_sz - pos >= sizeof(uint64_t)) {
-			uint64_t x = seed;
-			x ^= x << 13;
-			x ^= x >> 7;
-			x ^= x << 17;
-			seed = x;
+			uint64_t x = xorshift64_next(&seed);
 			memcpy(&buffer[pos], &x, sizeof(uint64_t));
 			pos += sizeof(uint64_t);
 		} else {
-			uint64_t x = seed;
-			x ^= x << 13;
-			x ^= x >> 7;
-			x ^= x << 17;
-			seed = x;
+			uint64_t x = xorshift64_next(&seed);
 			buffer[pos] = (char)(x & 0xFF);
 			pos++;
 		}
