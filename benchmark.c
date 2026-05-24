@@ -317,6 +317,7 @@ static void make_sequence(struct benchmark_parameter *parm)
 	}
 }
 
+#ifndef USE_LEGACY_RANDOM
 static uint64_t xorshift64_state;
 
 static uint64_t xorshift64(void)
@@ -327,6 +328,7 @@ static uint64_t xorshift64(void)
 	x ^= x << 17;
 	return xorshift64_state = x;
 }
+#endif
 
 static void shuffling(off_t *sequence, size_t nr_blocks)
 {
