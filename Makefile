@@ -219,21 +219,21 @@ install: $(LIBRARY_TARGET)
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
 $(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET) build_rust
-	$(CXX) -x c++ $(MACROS) $(CXXFLAGS) -c integration-test.c $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -c integration-test.c $(INCLUDES)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) build_rust
-	$(CXX) -x c++ $(MACROS) $(CXXFLAGS) -c benchmark.c $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 %.o: %.c
-	$(CXX) -x c++ $(MACROS) $(CXXFLAGS) -c $< -o $@ $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -c $< -o $@ $(INCLUDES)
 
 unity.o: unity.c
-	$(CXX) -x c++ $(MACROS) $(CXXFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
+	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
 
 lru-test.out: unity.o util/lru.o test/lru-test.o build_rust
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)

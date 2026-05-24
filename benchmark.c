@@ -561,14 +561,14 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 	}
 #else
 	size_t pos = 0;
-	assert(block_sz % 256 == 0);
 	while (pos < block_sz) {
 		char *ptr = &buffer[pos];
-		if (getentropy(ptr, 256) != 0) {
+		size_t len = (block_sz - pos) > 256 ? 256 : (block_sz - pos);
+		if (getentropy(ptr, len) != 0) {
 			perror("getentropy failed");
 			exit(EXIT_FAILURE);
 		}
-		pos += 256;
+		pos += len;
 	}
 #endif
 }
