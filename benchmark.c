@@ -589,15 +589,35 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 		}
 	}
 #else
-	size_t pos = 0;
-	while (pos < block_sz) {
-		char *ptr = &buffer[pos];
-		size_t len = (block_sz - pos) > 256 ? 256 : (block_sz - pos);
-		if (getentropy(ptr, len) != 0) {
+	static __thread uint64_t seed = 0;
+	if (seed == 0) {
+		if (getentropy(&seed, sizeof(seed)) != 0) {
 			perror("getentropy failed");
 			exit(EXIT_FAILURE);
 		}
-		pos += len;
+		if (seed == 0) {
+			seed = 1;
+		}
+	}
+	size_t pos = 0;
+	while (pos < block_sz) {
+		if (block_sz - pos >= sizeof(uint64_t)) {
+			uint64_t x = seed;
+			x ^= x << 13;
+			x ^= x >> 7;
+			x ^= x << 17;
+			seed = x;
+			memcpy(&buffer[pos], &x, sizeof(uint64_t));
+			pos += sizeof(uint64_t);
+		} else {
+			uint64_t x = seed;
+			x ^= x << 13;
+			x ^= x >> 7;
+			x ^= x << 17;
+			seed = x;
+			buffer[pos] = (char)(x & 0xFF);
+			pos++;
+		}
 	}
 #endif
 }
