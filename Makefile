@@ -156,7 +156,9 @@ CXXFLAGS := $(CFLAGS) \
 
 UNITY_ROOT := ./unity
 INCLUDES := -I./include -I./unity/src $(DEVICE_INCLUDES)
-LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -Ltarget/$(if $(filter 1,$(USE_DEBUG)),debug,release) -lftl_rust
+RUST_LIB_DIR := target/$(if $(filter 1,$(USE_DEBUG)),debug,release)
+RUST_LIB := $(RUST_LIB_DIR)/libftl_rust.a
+LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -L$(RUST_LIB_DIR) -lftl_rust
 
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
@@ -218,11 +220,11 @@ install: $(LIBRARY_TARGET)
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
-$(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET) build_rust
+$(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET) $(RUST_LIB)
 	$(CC) $(MACROS) $(CFLAGS) -c integration-test.c $(INCLUDES)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
-$(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) build_rust
+$(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) $(RUST_LIB)
 	$(CC) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
 
@@ -235,23 +237,23 @@ $(LIBRARY_TARGET): $(OBJS)
 unity.o: unity.c
 	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
 
-lru-test.out: unity.o util/lru.o test/lru-test.o build_rust
+lru-test.out: unity.o util/lru.o test/lru-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
-bits-test.out: unity.o test/bits-test.o build_rust
+bits-test.out: unity.o test/bits-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
-ramdisk-test.out: $(OBJS) unity.o test/ramdisk-test.o build_rust
+ramdisk-test.out: $(OBJS) unity.o test/ramdisk-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
-list-test.out: unity.o util/list.o test/list-test.o build_rust
+list-test.out: unity.o util/list.o test/list-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
-crc32-test.out: unity.o test/crc32-test.o build_rust
+crc32-test.out: unity.o test/crc32-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
-zone-test.out: $(OBJS) unity.o test/zone-test.o build_rust
+zone-test.out: $(OBJS) unity.o test/zone-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 endif
 
@@ -301,6 +303,10 @@ clean:
 	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	cargo clean
 
-.PHONY: build_rust
-build_rust:
+.PHONY: build_rust FORCE
+build_rust: $(RUST_LIB)
+
+$(RUST_LIB): FORCE
 	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release)
+
+FORCE:
