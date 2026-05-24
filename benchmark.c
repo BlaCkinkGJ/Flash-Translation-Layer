@@ -611,7 +611,7 @@ static void *write_data(void *data)
 #ifdef __APPLE__
 	ret = 0;
 #else
-	mask = (0x1 << thread_id);
+	mask = ((uint64_t)1 << thread_id);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
 				     (cpu_set_t *)&mask);
 #endif
@@ -670,7 +670,7 @@ static void *read_data(void *data)
 #ifdef __APPLE__
 	ret = 0;
 #else
-	mask = (0x1 << thread_id);
+	mask = ((uint64_t)1 << thread_id);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
 				     (cpu_set_t *)&mask);
 #endif
