@@ -548,12 +548,12 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 	while (pos < block_sz) {
 		ssize_t ret;
 		char *ptr = &buffer[pos];
-		ret = syscall(SYS_getrandom, ptr, block_sz - pos, 0);
+		ret = getrandom(ptr, block_sz - pos, 0);
 		if (ret < 0) {
 			if (errno == EINTR) {
 				continue;
 			}
-			perror("syscall(SYS_getrandom) failed");
+			perror("getrandom failed");
 			exit(EXIT_FAILURE);
 		}
 		if (ret == 0) {
@@ -618,7 +618,7 @@ static void *write_data(void *data)
 	CPU_SET((size_t)thread_id, &cpuset);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
-	assert(ret >= 0);
+	assert(ret == 0);
 #endif
 
 	buffer = (unsigned char *)alloc_buffer(parm->block_sz);
@@ -677,7 +677,7 @@ static void *read_data(void *data)
 	CPU_SET((size_t)thread_id, &cpuset);
 	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
-	assert(ret >= 0);
+	assert(ret == 0);
 #endif
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
 		off_t offset = parm->offset_sequence[i];
