@@ -344,10 +344,16 @@ static void shuffling(off_t *sequence, size_t nr_blocks)
 	srand((unsigned int)temp_seed);
 #else
 	uint64_t xorshift64_state = 0;
+#if defined(__linux__) || defined(__APPLE__)
 	if (getentropy(&xorshift64_state, sizeof(xorshift64_state)) != 0) {
 		perror("getentropy failed");
 		exit(EXIT_FAILURE);
 	}
+#else
+	struct timespec tv;
+	clock_gettime(CLOCK_MONOTONIC, &tv);
+	xorshift64_state = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
+#endif
 	if (xorshift64_state == 0) {
 		xorshift64_state = 1;
 	}
@@ -591,10 +597,16 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 #else
 	static __thread uint64_t seed = 0;
 	if (seed == 0) {
+#if defined(__linux__) || defined(__APPLE__)
 		if (getentropy(&seed, sizeof(seed)) != 0) {
 			perror("getentropy failed");
 			exit(EXIT_FAILURE);
 		}
+#else
+		struct timespec tv;
+		clock_gettime(CLOCK_MONOTONIC, &tv);
+		seed = (uint64_t)tv.tv_nsec ^ (uint64_t)pthread_self();
+#endif
 		if (seed == 0) {
 			seed = 1;
 		}

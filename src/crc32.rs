@@ -59,13 +59,15 @@ static CRC32_TAB: [u32; 256] = [
 /// calculations requires reverting this final XOR for the new `initial` input.
 #[no_mangle]
 pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
-    if buf.is_null() {
+    if size == 0 {
         return initial ^ 0xFFFFFFFF;
     }
+    assert!(!buf.is_null(), "crc32: null buffer with non-zero size");
 
     let mut crc = initial;
 
-    // Safety: We assume the caller provided a valid buffer of `size` bytes.
+    // Safety: We verified that buf is not null, and size > 0.
+    // The caller must ensure that buf points to at least size valid bytes.
     let slice = unsafe { std::slice::from_raw_parts(buf as *const u8, size) };
     for &byte in slice {
         let index = ((crc ^ (byte as u32)) & 0xFF) as usize;
