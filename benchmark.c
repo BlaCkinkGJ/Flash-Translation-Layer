@@ -619,9 +619,7 @@ static void *write_data(void *data)
 	thread_id = __atomic_fetch_add(&parm->thread_id_allocator, 1, __ATOMIC_SEQ_CST);
 
 #ifdef USE_PER_CORE
-#ifdef __APPLE__
-	ret = 0;
-#else
+#ifndef __APPLE__
 	int num_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	if (num_cores > 0) {
 		CPU_ZERO(&cpuset);
@@ -683,9 +681,7 @@ static void *read_data(void *data)
 
 	thread_id = __atomic_fetch_add(&parm->thread_id_allocator, 1, __ATOMIC_SEQ_CST);
 #ifdef USE_PER_CORE
-#ifdef __APPLE__
-	ret = 0;
-#else
+#ifndef __APPLE__
 	int num_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	if (num_cores > 0) {
 		CPU_ZERO(&cpuset);
