@@ -322,8 +322,6 @@ static void make_sequence(struct benchmark_parameter *parm)
 }
 
 #ifndef USE_LEGACY_RANDOM
-static uint64_t xorshift64_state;
-
 static inline uint64_t xorshift64_next(uint64_t *state)
 {
 	uint64_t x = *state;
@@ -345,15 +343,14 @@ static void shuffling(off_t *sequence, size_t nr_blocks)
 	temp_seed = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
 	srand((unsigned int)temp_seed);
 #else
-	uint64_t seed = 0;
-	if (getentropy(&seed, sizeof(seed)) != 0) {
+	uint64_t xorshift64_state = 0;
+	if (getentropy(&xorshift64_state, sizeof(xorshift64_state)) != 0) {
 		perror("getentropy failed");
 		exit(EXIT_FAILURE);
 	}
-	if (seed == 0) {
-		seed = 1;
+	if (xorshift64_state == 0) {
+		xorshift64_state = 1;
 	}
-	xorshift64_state = seed;
 #endif
 
 	for (idx = 0; idx < nr_blocks; idx++) {
