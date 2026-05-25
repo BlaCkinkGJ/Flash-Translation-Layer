@@ -345,7 +345,7 @@ static uint64_t get_random_seed(void)
 #endif
 	struct timespec tv;
 	clock_gettime(CLOCK_MONOTONIC, &tv);
-	seed = ((uint64_t)tv.tv_sec * SEC_TO_NS) ^ (uint64_t)tv.tv_nsec ^ (uint64_t)pthread_self();
+	seed = ((uint64_t)tv.tv_sec * SEC_TO_NS) ^ (uint64_t)tv.tv_nsec ^ (uint64_t)(uintptr_t)pthread_self();
 	if (seed == 0) {
 		seed = 1;
 	}
