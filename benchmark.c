@@ -575,13 +575,16 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 		}
 	}
 	size_t pos = 0;
-	while (pos < block_sz) {
+	while (pos + sizeof(int) <= block_sz) {
 		int r = rand_r(&seed);
-		if (block_sz - pos >= sizeof(int)) {
-			memcpy(&buffer[pos], &r, sizeof(int));
-			pos += sizeof(int);
-		} else {
-			buffer[pos] = (char)r;
+		memcpy(&buffer[pos], &r, sizeof(int));
+		pos += sizeof(int);
+	}
+	if (pos < block_sz) {
+		unsigned int r = (unsigned int)rand_r(&seed);
+		while (pos < block_sz) {
+			buffer[pos] = (char)(r & 0xFF);
+			r >>= 8;
 			pos++;
 		}
 	}
@@ -597,14 +600,16 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 		}
 	}
 	size_t pos = 0;
-	while (pos < block_sz) {
-		if (block_sz - pos >= sizeof(uint64_t)) {
-			uint64_t x = xorshift64_next(&seed);
-			memcpy(&buffer[pos], &x, sizeof(uint64_t));
-			pos += sizeof(uint64_t);
-		} else {
-			uint64_t x = xorshift64_next(&seed);
+	while (pos + sizeof(uint64_t) <= block_sz) {
+		uint64_t x = xorshift64_next(&seed);
+		memcpy(&buffer[pos], &x, sizeof(uint64_t));
+		pos += sizeof(uint64_t);
+	}
+	if (pos < block_sz) {
+		uint64_t x = xorshift64_next(&seed);
+		while (pos < block_sz) {
 			buffer[pos] = (char)(x & 0xFF);
+			x >>= 8;
 			pos++;
 		}
 	}
