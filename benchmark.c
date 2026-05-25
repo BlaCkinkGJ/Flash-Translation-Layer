@@ -7,6 +7,14 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
+#if defined(__linux__) || defined(__APPLE__)
+// cppcheck-suppress missingIncludeSystem
+#include <sys/random.h>
+#endif
+#ifdef __linux__
+// cppcheck-suppress missingIncludeSystem
+#include <sched.h>
+#endif
 #ifdef __cplusplus
 #define HAVE_DECL_BASENAME (1)
 #endif
@@ -17,21 +25,28 @@
 #include <time.h>
 // cppcheck-suppress missingIncludeSystem
 #include <assert.h>
+// cppcheck-suppress missingIncludeSystem
+#include <errno.h>
 
 #include "module.h"
 #include "device.h"
 #include "crc32.h"
 #include "list.h"
 
+// cppcheck-suppress missingIncludeSystem
+#include <stdlib.h>
+
 #ifdef USE_LEGACY_RANDOM
 #pragma message "Disable linux kernel supported random generator"
+#ifdef __linux__
 #include <linux/random.h>
 #include <syscall.h>
+#endif
 #else
 #pragma message "Enable linux kernel supported random generator"
 #endif
 
-#define DO_WARM_UP (1) /**< Do not erase */
+
 
 #define USE_CRC
 #define USE_PER_CORE
@@ -95,6 +110,7 @@ struct benchmark_parameter {
 	size_t *wp;
 	size_t *total_time;
 	list_node_t **timer_list;
+	bool do_warm_up;
 };
 
 static void make_sequence(struct benchmark_parameter *);
@@ -139,7 +155,7 @@ int main(int argc, char **argv)
 
 	/* running part */
 	print_parameters(parm);
-	if (DO_WARM_UP || parm->workload_idx == RAND_READ ||
+	if (parm->do_warm_up || parm->workload_idx == RAND_READ ||
 	    parm->workload_idx == READ) {
 		printf("fill data start!\n");
 		write_data(parm);
@@ -231,7 +247,7 @@ static void help_message(struct benchmark_parameter *parm, char **argv)
 	char *device_path = parm->device_path;
 
 	fprintf(stderr,
-		"%s -m <module name> -d <device name> -t <workload> -j <# of jobs> -b <block size(bytes)> -n <# of blocks> -p <device path>\n",
+		"%s -m <module name> -d <device name> -t <workload> -j <# of jobs> -b <block size(bytes)> -n <# of blocks> -p <device path> [-w]\n",
 		argv[0]);
 	fprintf(stderr, "\t- modules     [");
 	print_list(stderr, module_str);
@@ -247,6 +263,7 @@ static void help_message(struct benchmark_parameter *parm, char **argv)
 	fprintf(stderr, "\t- # of block  (default: %zu)\n", nr_blocks);
 	fprintf(stderr, "\t- path        (default: %s)\n",
 		strlen(device_path) > 0 ? device_path : NULL);
+	fprintf(stderr, "\t- w           disable warm-up phase (default: enabled)\n");
 }
 
 static void processing_parameters_error(char ch)
@@ -308,23 +325,42 @@ static void make_sequence(struct benchmark_parameter *parm)
 	}
 }
 
+static inline uint64_t xorshift64_next(uint64_t *state)
+{
+	uint64_t x = *state;
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 17;
+	*state = x;
+	return x;
+}
+
+static uint64_t get_random_seed(void)
+{
+	uint64_t seed = 0;
+#if (defined(__linux__) || defined(__APPLE__)) && !defined(USE_LEGACY_RANDOM)
+	if (getentropy(&seed, sizeof(seed)) == 0 && seed != 0) {
+		return seed;
+	}
+#endif
+	struct timespec tv;
+	clock_gettime(CLOCK_MONOTONIC, &tv);
+	seed = ((uint64_t)tv.tv_sec * SEC_TO_NS) ^ (uint64_t)tv.tv_nsec ^ (uint64_t)(uintptr_t)pthread_self();
+	if (seed == 0) {
+		seed = 1;
+	}
+	return seed;
+}
+
 static void shuffling(off_t *sequence, size_t nr_blocks)
 {
 	size_t idx;
+	uint64_t xorshift64_state = get_random_seed();
+
 	for (idx = 0; idx < nr_blocks; idx++) {
 		off_t temp;
 		size_t swap_pos;
-#ifdef USE_LEGACY_RANDOM
-		struct timespec tv;
-		uint64_t seed;
-		clock_gettime(CLOCK_MONOTONIC, &tv);
-
-		seed = (uint64_t)(tv.tv_sec * SEC_TO_NS) + tv.tv_nsec;
-		srand((unsigned int)seed);
-		swap_pos = (size_t)rand();
-#else
-		assert(getentropy(&swap_pos, sizeof(size_t)) == 0);
-#endif
+		swap_pos = (size_t)xorshift64_next(&xorshift64_state);
 		swap_pos = swap_pos % nr_blocks;
 		temp = sequence[idx];
 		sequence[idx] = sequence[swap_pos];
@@ -344,6 +380,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 
 	size_t block_sz = (size_t)PAGE_SIZE;
 	size_t nr_blocks = (size_t)1;
+	bool do_warm_up = true;
 
 	char *device_path;
 
@@ -358,7 +395,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 	memset(device_path, 0, (size_t)(DEVICE_PATH_SIZE - 1));
 	nr_jobs = (int)sysconf(_SC_NPROCESSORS_ONLN);
 
-	while ((c = getopt(argc, argv, "m:d:t:j:b:n:p:h")) != -1) {
+	while ((c = getopt(argc, argv, "m:d:t:j:b:n:p:hw")) != -1) {
 		switch (c) {
 		case 'm':
 			module_idx = get_index_from_list(module_str);
@@ -404,6 +441,9 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 		case 'p':
 			strncpy(device_path, optarg, DEVICE_PATH_SIZE - 1);
 			break;
+		case 'w':
+			do_warm_up = false;
+			break;
 		case 'h':
 			help_message(parm, argv);
 			exit(0);
@@ -422,6 +462,7 @@ static struct benchmark_parameter *init_parameters(int argc, char **argv)
 
 	parm->nr_jobs = nr_jobs;
 	parm->workload_idx = workload_idx;
+	parm->do_warm_up = do_warm_up;
 
 	parm->block_sz = block_sz;
 	parm->nr_blocks = nr_blocks;
@@ -481,6 +522,7 @@ static void print_parameters(const struct benchmark_parameter *parm)
 	printf("\t- io size     %zuMiB\n",
 	       (parm->nr_blocks * parm->block_sz) >> 20);
 	printf("\t- path        %s\n", path);
+	printf("\t- warm-up     %s\n", parm->do_warm_up ? "enabled" : "disabled");
 }
 
 static void free_parameters(struct benchmark_parameter *parm)
@@ -522,24 +564,24 @@ static void free_parameters(struct benchmark_parameter *parm)
 #ifdef USE_CRC
 static void fill_buffer_random(char *buffer, size_t block_sz)
 {
-#ifdef USE_LEGACY_RANDOM
-	size_t pos = 0;
-	while (pos < block_sz) {
-		ssize_t ret;
-		char *ptr = &buffer[pos];
-		ret = syscall(SYS_getrandom, ptr, block_sz, GRND_NONBLOCK);
-		assert(ret >= 0);
-		pos += ret;
+	static __thread uint64_t seed = 0;
+	if (seed == 0) {
+		seed = get_random_seed();
 	}
-#else
 	size_t pos = 0;
-	assert(block_sz % 256 == 0);
-	while (pos < block_sz) {
-		char *ptr = &buffer[pos];
-		assert(getentropy(ptr, 256) == 0);
-		pos += 256;
+	while (pos + sizeof(uint64_t) <= block_sz) {
+		uint64_t x = xorshift64_next(&seed);
+		memcpy(&buffer[pos], &x, sizeof(uint64_t));
+		pos += sizeof(uint64_t);
 	}
-#endif
+	if (pos < block_sz) {
+		uint64_t x = xorshift64_next(&seed);
+		while (pos < block_sz) {
+			buffer[pos] = (char)(x & 0xFF);
+			x >>= 8;
+			pos++;
+		}
+	}
 }
 #endif
 
@@ -566,7 +608,9 @@ static void *write_data(void *data)
 	struct flash_device *flash;
 	struct benchmark_parameter *parm;
 #ifdef USE_PER_CORE
-	uint64_t mask;
+#ifndef __APPLE__
+	cpu_set_t cpuset;
+#endif
 #endif
 
 	parm = (struct benchmark_parameter *)data;
@@ -575,10 +619,17 @@ static void *write_data(void *data)
 	thread_id = __atomic_fetch_add(&parm->thread_id_allocator, 1, __ATOMIC_SEQ_CST);
 
 #ifdef USE_PER_CORE
-	mask = (0x1 << thread_id);
-	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
-				     (cpu_set_t *)&mask);
-	assert(ret >= 0);
+#ifndef __APPLE__
+	int num_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
+	if (num_cores > 0) {
+		CPU_ZERO(&cpuset);
+		CPU_SET((unsigned int)(thread_id % num_cores), &cpuset);
+		ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+		if (ret != 0) {
+			fprintf(stderr, "Warning: pthread_setaffinity_np failed for thread %d\n", thread_id);
+		}
+	}
+#endif
 #endif
 
 	buffer = (unsigned char *)alloc_buffer(parm->block_sz);
@@ -589,7 +640,7 @@ static void *write_data(void *data)
 #ifdef USE_CRC
 		fill_buffer_random((char *)buffer, parm->block_sz);
 		parm->crc32_list[(size_t)offset / parm->block_sz] =
-			crc32(buffer, (int)parm->block_sz, CRC32_INIT);
+			crc32(buffer, parm->block_sz, CRC32_INIT);
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &start);
 		ret = flash->f_op->write(flash, buffer, parm->block_sz, offset);
@@ -617,7 +668,9 @@ static void *read_data(void *data)
 	struct flash_device *flash;
 	struct benchmark_parameter *parm;
 #ifdef USE_PER_CORE
-	uint64_t mask;
+#ifndef __APPLE__
+	cpu_set_t cpuset;
+#endif
 #endif
 
 	parm = (struct benchmark_parameter *)data;
@@ -628,10 +681,17 @@ static void *read_data(void *data)
 
 	thread_id = __atomic_fetch_add(&parm->thread_id_allocator, 1, __ATOMIC_SEQ_CST);
 #ifdef USE_PER_CORE
-	mask = (0x1 << thread_id);
-	ret = pthread_setaffinity_np(pthread_self(), sizeof(mask),
-				     (cpu_set_t *)&mask);
-	assert(ret >= 0);
+#ifndef __APPLE__
+	int num_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
+	if (num_cores > 0) {
+		CPU_ZERO(&cpuset);
+		CPU_SET((unsigned int)(thread_id % num_cores), &cpuset);
+		ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+		if (ret != 0) {
+			fprintf(stderr, "Warning: pthread_setaffinity_np failed for thread %d\n", thread_id);
+		}
+	}
+#endif
 #endif
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
 		off_t offset = parm->offset_sequence[i];
@@ -652,7 +712,7 @@ static void *read_data(void *data)
 #ifdef USE_CRC
 		{
 			uint32_t crc32_val =
-				crc32(buffer, (int)parm->block_sz, CRC32_INIT);
+				crc32(buffer, parm->block_sz, CRC32_INIT);
 			if (crc32_val !=
 			    parm->crc32_list[(size_t)offset / parm->block_sz]) {
 				parm->crc32_is_match[(size_t)offset /

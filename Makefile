@@ -1,3 +1,4 @@
+VPATH = device device/ramdisk device/zone device/bluedbm device/raspberry util ftl/page interface unity/src test
 # You can generate the compile_commands.json file by using
 # `make clean -j$(nproc)`
 # `bear make all -j$(nproc)`
@@ -155,7 +156,9 @@ CXXFLAGS := $(CFLAGS) \
 
 UNITY_ROOT := ./unity
 INCLUDES := -I./include -I./unity/src $(DEVICE_INCLUDES)
-LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS)
+RUST_LIB_DIR := target/$(if $(filter 1,$(USE_DEBUG)),debug,release)
+RUST_LIB := $(RUST_LIB_DIR)/libftl_rust.a
+LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -L$(RUST_LIB_DIR) -lftl_rust
 
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
@@ -180,7 +183,7 @@ DEVICE_SRCS := $(RAMDISK_SRCS) \
                $(RASPBERRY_SRCS) \
                device/*.c
 
-UTIL_SRCS := util/lru.c util/list.c util/crc32.c
+UTIL_SRCS := util/lru.c util/list.c
 
 FTL_SRCS := ftl/page/*.c
 
@@ -191,15 +194,15 @@ SRCS := $(DEVICE_SRCS) \
         $(FTL_SRCS) \
         $(INTERFACE_SRCS)
 
-OBJS := *.o
+OBJS := $(patsubst %.c,%.o,$(sort $(wildcard $(SRCS))))
 
 ifeq ($(PREFIX),)
 PREFIX := /usr/local
 endif
 
-all: $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
+all: build_rust $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 
-test: $(TEST_TARGET)
+test: build_rust $(TEST_TARGET)
 	@for target in $(TEST_TARGET) ; do \
 		./$$target ; \
 	done
@@ -217,42 +220,43 @@ install: $(LIBRARY_TARGET)
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 
-$(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET)
-	$(CXX) $(MACROS) $(CXXFLAGS) -c integration-test.c $(INCLUDES) $(LIBS)
+$(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET) $(RUST_LIB)
+	$(CC) $(MACROS) $(CFLAGS) -c integration-test.c $(INCLUDES)
 	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
 
-$(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET)
-	$(CXX) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES) $(LIBS)
-	$(CXX) $(MACROS) $(CFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
+$(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) $(RUST_LIB)
+	$(CC) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES)
+	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
-$(OBJS): $(SRCS)
-	$(CXX) $(MACROS) $(CFLAGS) -c $^ $(LIBS) $(INCLUDES)
+%.o: %.c
+	$(CC) $(MACROS) $(CFLAGS) -c $< -o $@ $(INCLUDES)
 
-lru-test.out: unity.o ./util/lru.c ./test/lru-test.c
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+unity.o: unity.c
+	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
 
-bits-test.out: unity.o ./test/bits-test.c
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+lru-test.out: unity.o util/lru.o test/lru-test.o $(RUST_LIB)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
-ramdisk-test.out: $(OBJS) ./test/ramdisk-test.c
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+bits-test.out: unity.o test/bits-test.o $(RUST_LIB)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
-list-test.out: unity.o ./util/list.c ./test/list-test.c
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+ramdisk-test.out: $(OBJS) unity.o test/ramdisk-test.o $(RUST_LIB)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
-crc32-test.out: unity.o ./util/crc32.c ./test/crc32-test.c
-	$(CXX) $(MACROS) $(CFLAGS) $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+list-test.out: unity.o util/list.o test/list-test.o $(RUST_LIB)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
+
+crc32-test.out: unity.o test/crc32-test.o $(RUST_LIB)
+	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 ifeq ($(USE_ZONE_DEVICE), 1)
-zone-test.out: $(OBJS) ./test/zone-test.c
-	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $^ $(LIBS)
+zone-test.out: $(OBJS) unity.o test/zone-test.o $(RUST_LIB)
+	$(CXX) $(MACROS) $(CXXFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 endif
 
-unity.o: $(UNITY_ROOT)/src/unity.c
-	$(CXX) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -c $^ $(LIBS)
 
 docker-builder:
 	docker build -t $(DOCKER_TAG_ROOT)/ftl-builder \
@@ -297,3 +301,13 @@ clean:
 	find . -name '*.gcda' -exec rm -f {} +
 	find . -name '*.gcno' -exec rm -f {} +
 	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
+	cargo clean
+
+.PHONY: build_rust FORCE
+build_rust: $(RUST_LIB)
+
+RUST_SRCS := $(wildcard src/*.rs) Cargo.toml $(wildcard Cargo.lock)
+$(RUST_LIB): $(RUST_SRCS)
+	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release)
+
+FORCE:
