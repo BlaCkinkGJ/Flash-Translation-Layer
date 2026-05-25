@@ -14,7 +14,9 @@ extern "C" {
 
 #include <stdlib.h>
 #include <stdint.h>
+// cppcheck-suppress missingIncludeSystem
 #include <sys/types.h>
+// cppcheck-suppress missingIncludeSystem
 #include <unistd.h>
 #include <pthread.h>
 

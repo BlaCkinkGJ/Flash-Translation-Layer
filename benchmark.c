@@ -8,9 +8,11 @@
 #include <unistd.h>
 #include <string.h>
 #if defined(__linux__) || defined(__APPLE__)
+// cppcheck-suppress missingIncludeSystem
 #include <sys/random.h>
 #endif
 #ifdef __linux__
+// cppcheck-suppress missingIncludeSystem
 #include <sched.h>
 #endif
 #ifdef __cplusplus
@@ -23,6 +25,7 @@
 #include <time.h>
 // cppcheck-suppress missingIncludeSystem
 #include <assert.h>
+// cppcheck-suppress missingIncludeSystem
 #include <errno.h>
 
 #include "module.h"
@@ -30,6 +33,7 @@
 #include "crc32.h"
 #include "list.h"
 
+// cppcheck-suppress missingIncludeSystem
 #include <stdlib.h>
 
 #ifdef USE_LEGACY_RANDOM
@@ -321,52 +325,42 @@ static void make_sequence(struct benchmark_parameter *parm)
 	}
 }
 
-#ifndef USE_LEGACY_RANDOM
 static inline uint64_t xorshift64_next(uint64_t *state)
 {
 	uint64_t x = *state;
 	x ^= x << 13;
 	x ^= x >> 7;
 	x ^= x << 17;
-	return *state = x;
+	*state = x;
+	return x;
 }
+
+static uint64_t get_random_seed(void)
+{
+	uint64_t seed = 0;
+#if (defined(__linux__) || defined(__APPLE__)) && !defined(USE_LEGACY_RANDOM)
+	if (getentropy(&seed, sizeof(seed)) == 0 && seed != 0) {
+		return seed;
+	}
 #endif
+	struct timespec tv;
+	clock_gettime(CLOCK_MONOTONIC, &tv);
+	seed = ((uint64_t)tv.tv_sec * SEC_TO_NS) ^ (uint64_t)tv.tv_nsec ^ (uint64_t)pthread_self();
+	if (seed == 0) {
+		seed = 1;
+	}
+	return seed;
+}
 
 static void shuffling(off_t *sequence, size_t nr_blocks)
 {
 	size_t idx;
-#ifdef USE_LEGACY_RANDOM
-	struct timespec tv;
-	uint64_t temp_seed;
-	clock_gettime(CLOCK_MONOTONIC, &tv);
-
-	temp_seed = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
-	srand((unsigned int)temp_seed);
-#else
-	uint64_t xorshift64_state = 0;
-#if defined(__linux__) || defined(__APPLE__)
-	if (getentropy(&xorshift64_state, sizeof(xorshift64_state)) != 0) {
-		perror("getentropy failed");
-		exit(EXIT_FAILURE);
-	}
-#else
-	struct timespec tv;
-	clock_gettime(CLOCK_MONOTONIC, &tv);
-	xorshift64_state = (uint64_t)tv.tv_sec * SEC_TO_NS + (uint64_t)tv.tv_nsec;
-#endif
-	if (xorshift64_state == 0) {
-		xorshift64_state = 1;
-	}
-#endif
+	uint64_t xorshift64_state = get_random_seed();
 
 	for (idx = 0; idx < nr_blocks; idx++) {
 		off_t temp;
 		size_t swap_pos;
-#ifdef USE_LEGACY_RANDOM
-		swap_pos = (size_t)rand();
-#else
 		swap_pos = (size_t)xorshift64_next(&xorshift64_state);
-#endif
 		swap_pos = swap_pos % nr_blocks;
 		temp = sequence[idx];
 		sequence[idx] = sequence[swap_pos];
@@ -570,46 +564,9 @@ static void free_parameters(struct benchmark_parameter *parm)
 #ifdef USE_CRC
 static void fill_buffer_random(char *buffer, size_t block_sz)
 {
-#ifdef USE_LEGACY_RANDOM
-	static __thread unsigned int seed = 0;
-	if (seed == 0) {
-		struct timespec tv;
-		clock_gettime(CLOCK_MONOTONIC, &tv);
-		seed = (unsigned int)((uintptr_t)tv.tv_nsec ^ (uintptr_t)pthread_self());
-		if (seed == 0) {
-			seed = 1;
-		}
-	}
-	size_t pos = 0;
-	while (pos + sizeof(int) <= block_sz) {
-		int r = rand_r(&seed);
-		memcpy(&buffer[pos], &r, sizeof(int));
-		pos += sizeof(int);
-	}
-	if (pos < block_sz) {
-		unsigned int r = (unsigned int)rand_r(&seed);
-		while (pos < block_sz) {
-			buffer[pos] = (char)(r & 0xFF);
-			r >>= 8;
-			pos++;
-		}
-	}
-#else
 	static __thread uint64_t seed = 0;
 	if (seed == 0) {
-#if defined(__linux__) || defined(__APPLE__)
-		if (getentropy(&seed, sizeof(seed)) != 0) {
-			perror("getentropy failed");
-			exit(EXIT_FAILURE);
-		}
-#else
-		struct timespec tv;
-		clock_gettime(CLOCK_MONOTONIC, &tv);
-		seed = (uint64_t)tv.tv_nsec ^ (uint64_t)pthread_self();
-#endif
-		if (seed == 0) {
-			seed = 1;
-		}
+		seed = get_random_seed();
 	}
 	size_t pos = 0;
 	while (pos + sizeof(uint64_t) <= block_sz) {
@@ -625,7 +582,6 @@ static void fill_buffer_random(char *buffer, size_t block_sz)
 			pos++;
 		}
 	}
-#endif
 }
 #endif
 
@@ -666,12 +622,16 @@ static void *write_data(void *data)
 #ifdef __APPLE__
 	ret = 0;
 #else
-	CPU_ZERO(&cpuset);
-	// Cast to unsigned int to prevent glibc CPU_SET macro sign-conversion warning
-	CPU_SET((unsigned int)thread_id, &cpuset);
-	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+	int num_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
+	if (num_cores > 0) {
+		CPU_ZERO(&cpuset);
+		CPU_SET((unsigned int)(thread_id % num_cores), &cpuset);
+		ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+		if (ret != 0) {
+			fprintf(stderr, "Warning: pthread_setaffinity_np failed for thread %d\n", thread_id);
+		}
+	}
 #endif
-	assert(ret == 0);
 #endif
 
 	buffer = (unsigned char *)alloc_buffer(parm->block_sz);
@@ -726,12 +686,16 @@ static void *read_data(void *data)
 #ifdef __APPLE__
 	ret = 0;
 #else
-	CPU_ZERO(&cpuset);
-	// Cast to unsigned int to prevent glibc CPU_SET macro sign-conversion warning
-	CPU_SET((unsigned int)thread_id, &cpuset);
-	ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+	int num_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
+	if (num_cores > 0) {
+		CPU_ZERO(&cpuset);
+		CPU_SET((unsigned int)(thread_id % num_cores), &cpuset);
+		ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+		if (ret != 0) {
+			fprintf(stderr, "Warning: pthread_setaffinity_np failed for thread %d\n", thread_id);
+		}
+	}
 #endif
-	assert(ret == 0);
 #endif
 	for (int i = 0; i < (int)parm->nr_blocks; i++) {
 		off_t offset = parm->offset_sequence[i];

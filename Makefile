@@ -306,7 +306,8 @@ clean:
 .PHONY: build_rust FORCE
 build_rust: $(RUST_LIB)
 
-$(RUST_LIB): FORCE
+RUST_SRCS := $(wildcard src/*.rs) Cargo.toml $(wildcard Cargo.lock)
+$(RUST_LIB): $(RUST_SRCS)
 	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release)
 
 FORCE:
