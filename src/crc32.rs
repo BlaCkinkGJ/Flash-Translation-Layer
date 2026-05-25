@@ -1,4 +1,5 @@
 use std::os::raw::c_void;
+use std::sync::OnceLock;
 
 static CRC32_TAB: [u32; 256] = [
     0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f,
@@ -46,6 +47,22 @@ static CRC32_TAB: [u32; 256] = [
     0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d,
 ];
 
+static CRC32_TABLES: OnceLock<[[u32; 256]; 8]> = OnceLock::new();
+
+fn get_crc32_tables() -> &'static [[u32; 256]; 8] {
+    CRC32_TABLES.get_or_init(|| {
+        let mut tables = [[0u32; 256]; 8];
+        tables[0] = CRC32_TAB;
+        for i in 1..8 {
+            for j in 0..256 {
+                let prev = tables[i - 1][j];
+                tables[i][j] = (prev >> 8) ^ CRC32_TAB[(prev & 0xFF) as usize];
+            }
+        }
+        tables
+    })
+}
+
 /// Calculates the CRC32 checksum of the given buffer.
 ///
 /// # Safety
@@ -68,10 +85,71 @@ pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
     // Safety: We verified that buf is not null, and size > 0.
     // The caller must ensure that buf points to at least size valid bytes.
     let slice = unsafe { std::slice::from_raw_parts(buf as *const u8, size) };
-    for &byte in slice {
+
+    let tables = get_crc32_tables();
+
+    // Process chunks of 8 bytes
+    let mut chunks = slice.chunks_exact(8);
+    for chunk in &mut chunks {
+        let one = crc ^ u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        let two = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+
+        crc = tables[7][(one & 0xFF) as usize]
+            ^ tables[6][((one >> 8) & 0xFF) as usize]
+            ^ tables[5][((one >> 16) & 0xFF) as usize]
+            ^ tables[4][(one >> 24) as usize]
+            ^ tables[3][(two & 0xFF) as usize]
+            ^ tables[2][((two >> 8) & 0xFF) as usize]
+            ^ tables[1][((two >> 16) & 0xFF) as usize]
+            ^ tables[0][(two >> 24) as usize];
+    }
+
+    // Process remaining bytes
+    let remainder = chunks.remainder();
+    for &byte in remainder {
         let index = ((crc ^ (byte as u32)) & 0xFF) as usize;
-        crc = CRC32_TAB[index] ^ (crc >> 8);
+        crc = tables[0][index] ^ (crc >> 8);
     }
 
     crc ^ 0xFFFFFFFF
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn crc32_byte_by_byte(buf: &[u8], initial: u32) -> u32 {
+        let mut crc = initial;
+        for &byte in buf {
+            let index = ((crc ^ (byte as u32)) & 0xFF) as usize;
+            crc = CRC32_TAB[index] ^ (crc >> 8);
+        }
+        crc ^ 0xFFFFFFFF
+    }
+
+    #[test]
+    fn test_slicing_by_8_matches_byte_by_byte() {
+        let inputs = [
+            b"".as_slice(),
+            b"1".as_slice(),
+            b"12".as_slice(),
+            b"123".as_slice(),
+            b"1234".as_slice(),
+            b"12345".as_slice(),
+            b"123456".as_slice(),
+            b"1234567".as_slice(),
+            b"12345678".as_slice(),
+            b"123456789".as_slice(),
+            b"12345678901234567890".as_slice(),
+        ];
+        
+        for input in &inputs {
+            let initial = 0xFFFFFFFF;
+            let res_bytes = crc32_byte_by_byte(input, initial);
+            let res_slice = crc32(input.as_ptr() as *const c_void, input.len(), initial);
+            assert_eq!(res_bytes, res_slice, "Failed for input: {:?}", input);
+        }
+    }
+}
+
+
