@@ -15,78 +15,81 @@ use std::os::raw::c_int;
 pub const BITS_NOT_FOUND: u64 = u64::MAX;
 
 /// Number of bits packed in one `u64` bucket.
-pub const BITS_PER_UINT64: u64 = 64;
+pub const BITS_PER_UINT64: usize = 64;
 
 /// Set the bit at `index` (a bit position, not a bucket position).
 ///
 /// The caller must ensure `index / 64` is in range for `bits`.
 pub fn set_bit(bits: &mut [u64], index: u64) {
-    bits[(index / BITS_PER_UINT64) as usize] |= 1u64 << (index % BITS_PER_UINT64);
+    bits[index as usize / BITS_PER_UINT64] |= 1u64 << (index % BITS_PER_UINT64 as u64);
 }
 
 /// Returns `true` if the bit at `index` is set.
 pub fn get_bit(bits: &[u64], index: u64) -> bool {
-    (bits[(index / BITS_PER_UINT64) as usize] & (1u64 << (index % BITS_PER_UINT64))) > 0
+    (bits[index as usize / BITS_PER_UINT64] & (1u64 << (index % BITS_PER_UINT64 as u64))) > 0
 }
 
 /// Clear the bit at `index`.
 pub fn reset_bit(bits: &mut [u64], index: u64) {
-    bits[(index / BITS_PER_UINT64) as usize] &= !(1u64 << (index % BITS_PER_UINT64));
+    bits[index as usize / BITS_PER_UINT64] &= !(1u64 << (index % BITS_PER_UINT64 as u64));
+}
+
+/// Find the position of the first bit matching `want` (set or clear) at
+/// or after `idx`, within `[idx, size)`. Returns `BITS_NOT_FOUND` if no
+/// such bit exists or if the candidate position falls outside `[0, size)`.
+///
+/// `bits` must have at least `size.div_ceil(BITS_PER_UINT64)` elements
+/// (callers using the C `BITS_TO_UINT64_ALIGN` macro satisfy this).
+fn find_first_bit_matching(bits: &[u64], size: u64, idx: u64, want: bool) -> u64 {
+    if idx >= size {
+        return BITS_NOT_FOUND;
+    }
+    let mut start = idx;
+    while start < size {
+        let bucket_idx = start as usize / BITS_PER_UINT64;
+        let bucket = bits[bucket_idx];
+        // Bits strictly below `idx` (in the first iteration) are
+        // masked off so the returned position is always `>= idx`.
+        let lo = if start == idx {
+            (start % BITS_PER_UINT64 as u64) as u32
+        } else {
+            0
+        };
+        let mask = if lo == 0 { u64::MAX } else { u64::MAX << lo };
+        let probe = if want {
+            bucket & mask
+        } else {
+            (!bucket) & mask
+        };
+        if probe > 0 {
+            let pos = (bucket_idx as u64) * BITS_PER_UINT64 as u64 + probe.trailing_zeros() as u64;
+            return if pos < size { pos } else { BITS_NOT_FOUND };
+        }
+        start = (bucket_idx as u64 + 1) * BITS_PER_UINT64 as u64;
+    }
+    BITS_NOT_FOUND
 }
 
 /// Find the position of the first `1` bit at or after `idx`.
 ///
 /// `size` is the number of bits in the bitmap. Returns `BITS_NOT_FOUND`
-/// when no such bit exists within `[idx, size)`. Mirrors the C inline
-/// in `include/bits.h` but correctly handles `idx` values that are
-/// not multiples of 64, and clamps the result to `size`.
+/// when no such bit exists within `[idx, size)`. Unlike the C inline
+/// in `include/bits.h`, this function never returns a position `>= size`.
+///
+/// `bits` must have at least `size.div_ceil(BITS_PER_UINT64)` elements.
 pub fn find_first_one_bit(bits: &[u64], size: u64, idx: u64) -> u64 {
-    let mut start = idx;
-    while start < size {
-        let bucket_idx = (start / BITS_PER_UINT64) as usize;
-        let bucket = bits[bucket_idx];
-        // In the first iteration, mask off bits below `idx` so we never
-        // return a position strictly less than `idx`. Subsequent
-        // iterations are already aligned to bucket boundaries.
-        let lo = if start == idx {
-            start % BITS_PER_UINT64
-        } else {
-            0
-        };
-        for diff in lo..BITS_PER_UINT64 {
-            if bucket & (1u64 << diff) > 0 {
-                let pos = (bucket_idx as u64) * BITS_PER_UINT64 + diff;
-                return if pos < size { pos } else { BITS_NOT_FOUND };
-            }
-        }
-        start = (bucket_idx as u64 + 1) * BITS_PER_UINT64;
-    }
-    BITS_NOT_FOUND
+    find_first_bit_matching(bits, size, idx, true)
 }
 
 /// Find the position of the first `0` bit at or after `idx`.
 ///
 /// `size` is the number of bits in the bitmap. Returns `BITS_NOT_FOUND`
-/// when every bit in `[idx, size)` is `1`. Mirror of `find_first_one_bit`.
+/// when every bit in `[idx, size)` is `1`. Unlike the C inline in
+/// `include/bits.h`, this function never returns a position `>= size`.
+///
+/// `bits` must have at least `size.div_ceil(BITS_PER_UINT64)` elements.
 pub fn find_first_zero_bit(bits: &[u64], size: u64, idx: u64) -> u64 {
-    let mut start = idx;
-    while start < size {
-        let bucket_idx = (start / BITS_PER_UINT64) as usize;
-        let bucket = bits[bucket_idx];
-        let lo = if start == idx {
-            start % BITS_PER_UINT64
-        } else {
-            0
-        };
-        for diff in lo..BITS_PER_UINT64 {
-            if bucket & (1u64 << diff) == 0 {
-                let pos = (bucket_idx as u64) * BITS_PER_UINT64 + diff;
-                return if pos < size { pos } else { BITS_NOT_FOUND };
-            }
-        }
-        start = (bucket_idx as u64 + 1) * BITS_PER_UINT64;
-    }
-    BITS_NOT_FOUND
+    find_first_bit_matching(bits, size, idx, false)
 }
 
 // --- FFI wrappers --------------------------------------------------------
@@ -100,7 +103,7 @@ pub fn find_first_zero_bit(bits: &[u64], size: u64, idx: u64) -> u64 {
 /// writable `u64`s.
 #[no_mangle]
 pub unsafe extern "C" fn ffi_set_bit(bits: *mut u64, index: u64) {
-    *bits.add((index / BITS_PER_UINT64) as usize) |= 1u64 << (index % BITS_PER_UINT64);
+    *bits.add(index as usize / BITS_PER_UINT64) |= 1u64 << (index % BITS_PER_UINT64 as u64);
 }
 
 /// # Safety
@@ -108,8 +111,8 @@ pub unsafe extern "C" fn ffi_set_bit(bits: *mut u64, index: u64) {
 /// readable `u64`s.
 #[no_mangle]
 pub unsafe extern "C" fn ffi_get_bit(bits: *const u64, index: u64) -> c_int {
-    let bucket = *bits.add((index / BITS_PER_UINT64) as usize);
-    let mask = 1u64 << (index % BITS_PER_UINT64);
+    let bucket = *bits.add(index as usize / BITS_PER_UINT64);
+    let mask = 1u64 << (index % BITS_PER_UINT64 as u64);
     (bucket & mask > 0) as c_int
 }
 
@@ -118,26 +121,26 @@ pub unsafe extern "C" fn ffi_get_bit(bits: *const u64, index: u64) -> c_int {
 /// writable `u64`s.
 #[no_mangle]
 pub unsafe extern "C" fn ffi_reset_bit(bits: *mut u64, index: u64) {
-    *bits.add((index / BITS_PER_UINT64) as usize) &= !(1u64 << (index % BITS_PER_UINT64));
+    *bits.add(index as usize / BITS_PER_UINT64) &= !(1u64 << (index % BITS_PER_UINT64 as u64));
 }
 
 /// # Safety
-/// `bits` must be non-null and point to at least `size / 64 + 1`
-/// readable `u64`s.
+/// `bits` must be non-null and point to at least
+/// `size.div_ceil(BITS_PER_UINT64)` readable `u64`s.
 #[no_mangle]
 pub unsafe extern "C" fn ffi_find_first_zero_bit(bits: *const u64, size: u64, idx: u64) -> u64 {
-    let len = (size / BITS_PER_UINT64 + 1) as usize;
+    let len = size.div_ceil(BITS_PER_UINT64 as u64) as usize;
     // SAFETY: caller guarantees `bits` is valid for `len` `u64`s.
     let slice = unsafe { std::slice::from_raw_parts(bits, len) };
     find_first_zero_bit(slice, size, idx)
 }
 
 /// # Safety
-/// `bits` must be non-null and point to at least `size / 64 + 1`
-/// readable `u64`s.
+/// `bits` must be non-null and point to at least
+/// `size.div_ceil(BITS_PER_UINT64)` readable `u64`s.
 #[no_mangle]
 pub unsafe extern "C" fn ffi_find_first_one_bit(bits: *const u64, size: u64, idx: u64) -> u64 {
-    let len = (size / BITS_PER_UINT64 + 1) as usize;
+    let len = size.div_ceil(BITS_PER_UINT64 as u64) as usize;
     // SAFETY: caller guarantees `bits` is valid for `len` `u64`s.
     let slice = unsafe { std::slice::from_raw_parts(bits, len) };
     find_first_one_bit(slice, size, idx)
@@ -231,6 +234,12 @@ mod tests {
         assert_eq!(find_first_one_bit(&bits, 100, 0), BITS_NOT_FOUND);
     }
 
+    #[test]
+    fn find_first_one_bit_size_zero() {
+        let bits: &[u64] = &[];
+        assert_eq!(find_first_one_bit(bits, 0, 0), BITS_NOT_FOUND);
+    }
+
     // ---- safe API: find_first_zero_bit ----
 
     #[test]
@@ -274,6 +283,12 @@ mod tests {
         assert_eq!(find_first_zero_bit(&bits, 100, 0), 0);
     }
 
+    #[test]
+    fn find_first_zero_bit_size_zero() {
+        let bits: &[u64] = &[];
+        assert_eq!(find_first_zero_bit(bits, 0, 0), BITS_NOT_FOUND);
+    }
+
     // ---- FFI wrappers ----
 
     #[test]
@@ -292,7 +307,8 @@ mod tests {
 
     #[test]
     fn ffi_find_first_one_bit_basic() {
-        let mut storage = [0u64; 3]; // size=128 needs 128/64+1 = 3 buckets
+        // size=128 needs ceil(128/64) = 2 buckets
+        let mut storage = [0u64; 2];
         let ptr = storage.as_mut_ptr();
         unsafe {
             ffi_set_bit(ptr, 70);
@@ -303,7 +319,8 @@ mod tests {
 
     #[test]
     fn ffi_find_first_zero_bit_basic() {
-        let storage = [u64::MAX, u64::MAX, u64::MAX];
+        // size=128 needs ceil(128/64) = 2 buckets
+        let storage = [u64::MAX, u64::MAX];
         let ptr = storage.as_ptr();
         let r = unsafe { ffi_find_first_zero_bit(ptr, 128, 0) };
         assert_eq!(r, BITS_NOT_FOUND);
@@ -311,13 +328,27 @@ mod tests {
 
     #[test]
     fn ffi_find_first_one_bit_unaligned_idx() {
-        let mut storage = [0u64; 3];
+        // size=128 needs 2 buckets
+        let mut storage = [0u64; 2];
         let ptr = storage.as_mut_ptr();
         unsafe {
             ffi_set_bit(ptr, 70);
         }
         // idx=66 must find bit 70
         let r = unsafe { ffi_find_first_one_bit(ptr, 128, 66) };
+        assert_eq!(r, 70);
+    }
+
+    #[test]
+    fn ffi_find_first_zero_bit_unaligned_idx() {
+        // size=128 needs 2 buckets; bits[1] has bit 6 cleared (position 70)
+        let mut storage = [u64::MAX, u64::MAX];
+        let ptr = storage.as_mut_ptr();
+        unsafe {
+            ffi_reset_bit(ptr, 70);
+        }
+        // idx=66 must find bit 70
+        let r = unsafe { ffi_find_first_zero_bit(ptr, 128, 66) };
         assert_eq!(r, 70);
     }
 }
