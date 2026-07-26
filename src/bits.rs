@@ -4,6 +4,8 @@
 //! 1. Pure-Rust safe API on `&mut [u64]` / `&[u64]`.
 //! 2. `extern "C"` FFI wrappers (`ffi_*`) on raw pointers for C interop.
 
+use std::os::raw::c_int;
+
 /// Sentinel returned when no matching bit is found.
 pub const BITS_NOT_FOUND: u64 = u64::MAX;
 
@@ -71,6 +73,95 @@ pub fn find_first_zero_bit(bits: &[u64], size: u64, idx: u64) -> u64 {
         idx += BITS_PER_UINT64 as u64;
     }
     BITS_NOT_FOUND
+}
+
+// --- FFI wrappers --------------------------------------------------------
+//
+// These mirror the C inline functions in `include/bits.h` so that C code
+// can call into the Rust implementation. They are prefixed with `ffi_`
+// to avoid symbol collision with the C inline functions still in
+// `bits.h`. Each function requires the caller to uphold the listed
+// safety invariants; they intentionally perform no bounds checks
+// (matching C behaviour).
+
+/// # Safety
+/// `bits` must point to at least `index / 64 + 1` writable `u64`s.
+#[no_mangle]
+pub extern "C" fn ffi_set_bit(bits: *mut u64, index: u64) {
+    if bits.is_null() {
+        return;
+    }
+    // SAFETY: caller guarantees the bucket at `index / 64` is writable.
+    unsafe {
+        (*bits.add((index / BITS_PER_UINT64 as u64) as usize)) |=
+            1u64 << (index % BITS_PER_UINT64 as u64);
+    }
+}
+
+/// # Safety
+/// `bits` must point to at least `index / 64 + 1` readable `u64`s.
+#[no_mangle]
+pub extern "C" fn ffi_get_bit(bits: *const u64, index: u64) -> c_int {
+    if bits.is_null() {
+        return 0;
+    }
+    // SAFETY: caller guarantees the bucket at `index / 64` is readable.
+    let v = unsafe {
+        (*bits.add((index / BITS_PER_UINT64 as u64) as usize))
+            & (1u64 << (index % BITS_PER_UINT64 as u64))
+    };
+    (v > 0) as c_int
+}
+
+/// # Safety
+/// `bits` must point to at least `index / 64 + 1` writable `u64`s.
+#[no_mangle]
+pub extern "C" fn ffi_reset_bit(bits: *mut u64, index: u64) {
+    if bits.is_null() {
+        return;
+    }
+    // SAFETY: caller guarantees the bucket at `index / 64` is writable.
+    unsafe {
+        (*bits.add((index / BITS_PER_UINT64 as u64) as usize)) &=
+            !(1u64 << (index % BITS_PER_UINT64 as u64));
+    }
+}
+
+/// # Safety
+/// `bits` must point to at least `(size / 64) + 1` readable `u64`s.
+#[no_mangle]
+pub extern "C" fn ffi_find_first_zero_bit(
+    bits: *const u64,
+    size: u64,
+    idx: u64,
+) -> u64 {
+    if bits.is_null() {
+        return BITS_NOT_FOUND;
+    }
+    // Length must cover the highest bucket we may index: `size / 64`,
+    // plus 1 because the C version also reads the bucket containing
+    // bit `size - 1`.
+    let len = (size / BITS_PER_UINT64 as u64 + 1) as usize;
+    // SAFETY: caller guarantees `bits` is valid for `len` `u64`s.
+    let slice = unsafe { std::slice::from_raw_parts(bits, len) };
+    find_first_zero_bit(slice, size, idx)
+}
+
+/// # Safety
+/// `bits` must point to at least `(size / 64) + 1` readable `u64`s.
+#[no_mangle]
+pub extern "C" fn ffi_find_first_one_bit(
+    bits: *const u64,
+    size: u64,
+    idx: u64,
+) -> u64 {
+    if bits.is_null() {
+        return BITS_NOT_FOUND;
+    }
+    let len = (size / BITS_PER_UINT64 as u64 + 1) as usize;
+    // SAFETY: caller guarantees `bits` is valid for `len` `u64`s.
+    let slice = unsafe { std::slice::from_raw_parts(bits, len) };
+    find_first_one_bit(slice, size, idx)
 }
 
 #[cfg(test)]
