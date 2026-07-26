@@ -71,6 +71,10 @@ make USE_LOG_SILENT=1 lru-test.out && ./lru-test.out
 
 # Rust crate only
 cargo build --release
+# Rust tooling (also wrapped as Makefile targets — see below)
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
+cargo llvm-cov --lcov --output-path coverage-rust.lcov
 ```
 
 ### Full builds
@@ -130,6 +134,13 @@ make check        # cppcheck + flawfinder + lizard
   `staticlib` and links into the C side via `-lftl_rust`.
 - Edition 2021 (see `Cargo.toml`).
 - No external dependencies declared yet — keep it that way unless justified.
+- `cargo clippy --all-targets -- -D warnings` is treated as a build blocker,
+  mirroring the C `-Werror` policy. The Makefile wraps this as
+  `make cargo-clippy`.
+- The Makefile also wraps `cargo test --all-targets` as `make cargo-test`
+  and `cargo llvm-cov --lcov --output-path coverage-rust.lcov` as
+  `make cargo-coverage` (requires the `llvm-tools-preview` rustup component
+  and the `cargo-llvm-cov` cargo subcommand).
 
 ## Testing
 

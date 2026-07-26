@@ -303,8 +303,23 @@ clean:
 	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	cargo clean
 
-.PHONY: build_rust FORCE
+.PHONY: build_rust cargo-test cargo-clippy cargo-coverage FORCE
 build_rust: $(RUST_LIB)
+
+# Run the Rust test suite. Requires no extra toolchain components.
+cargo-test:
+	cargo test --all-targets
+
+# Lint the Rust crate with warnings treated as errors, mirroring the C
+# `-Werror` policy. Requires `rustup component add clippy`.
+cargo-clippy:
+	cargo clippy --all-targets -- -D warnings
+
+# Emit an LCOV coverage report for the Rust crate.
+# Requires: `rustup component add llvm-tools-preview` and
+#           `cargo install cargo-llvm-cov`.
+cargo-coverage:
+	cargo llvm-cov --lcov --output-path coverage-rust.lcov
 
 RUST_SRCS := $(wildcard src/*.rs) Cargo.toml $(wildcard Cargo.lock)
 $(RUST_LIB): $(RUST_SRCS)
