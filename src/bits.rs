@@ -31,6 +31,48 @@ pub fn reset_bit(bits: &mut [u64], index: u64) {
         !(1u64 << (index % BITS_PER_UINT64 as u64));
 }
 
+/// Find the position of the first `1` bit at or after `idx`.
+///
+/// `size` is the number of bits in the bitmap. Returns `BITS_NOT_FOUND`
+/// when no such bit exists within `[idx, size)`. Semantics mirror the
+/// C inline in `include/bits.h`: the search bucket-walks in `u64`
+/// strides and within each non-empty bucket scans from bit 0 upward.
+pub fn find_first_one_bit(bits: &[u64], size: u64, idx: u64) -> u64 {
+    let mut idx = idx;
+    while idx < size {
+        let bucket = bits[(idx / BITS_PER_UINT64 as u64) as usize];
+        if bucket > 0 {
+            for diff in 0..BITS_PER_UINT64 as u64 {
+                if (bucket & (1u64 << diff)) > 0 {
+                    return idx + diff;
+                }
+            }
+        }
+        idx += BITS_PER_UINT64 as u64;
+    }
+    BITS_NOT_FOUND
+}
+
+/// Find the position of the first `0` bit at or after `idx`.
+///
+/// `size` is the number of bits in the bitmap. Returns `BITS_NOT_FOUND`
+/// when every bit in `[idx, size)` is `1`. Mirror of `find_first_one_bit`.
+pub fn find_first_zero_bit(bits: &[u64], size: u64, idx: u64) -> u64 {
+    let mut idx = idx;
+    while idx < size {
+        let bucket = bits[(idx / BITS_PER_UINT64 as u64) as usize];
+        if bucket < u64::MAX {
+            for diff in 0..BITS_PER_UINT64 as u64 {
+                if (bucket & (1u64 << diff)) == 0 {
+                    return idx + diff;
+                }
+            }
+        }
+        idx += BITS_PER_UINT64 as u64;
+    }
+    BITS_NOT_FOUND
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,5 +108,34 @@ mod tests {
         reset_bit(&mut bits, 64);
         assert_eq!(bits[0], u64::MAX - 1);
         assert_eq!(bits[1], u64::MAX - 1);
+    }
+
+    #[test]
+    fn find_first_one_bit_empty_map_returns_not_found() {
+        let bits = [0u64; 4];
+        assert_eq!(find_first_one_bit(&bits, 256, 0), BITS_NOT_FOUND);
+    }
+
+    #[test]
+    fn find_first_one_bit_returns_first_set_bit() {
+        let mut bits = [0u64; 1];
+        set_bit(&mut bits, 3);
+        set_bit(&mut bits, 7);
+        set_bit(&mut bits, 40);
+        assert_eq!(find_first_one_bit(&bits, 64, 0), 3);
+    }
+
+    #[test]
+    fn find_first_zero_bit_empty_map_returns_zero() {
+        let bits = [0u64; 4];
+        assert_eq!(find_first_zero_bit(&bits, 256, 0), 0);
+    }
+
+    #[test]
+    fn find_first_zero_bit_skips_full_buckets() {
+        // bucket 0 all ones, bucket 1 has zero at position 70 (= 64 + 6)
+        let mut bits = [u64::MAX, u64::MAX];
+        reset_bit(&mut bits, 70);
+        assert_eq!(find_first_zero_bit(&bits, 128, 0), 70);
     }
 }
