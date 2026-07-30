@@ -6,4 +6,9 @@ edition = "2021"
 [lib]
 crate-type = ["staticlib"]
 
+[features]
+# When enabled, pr_info / pr_warn / pr_err expand to no-ops.
+# Mirrors C `-DENABLE_LOG_SILENT` (Makefile `USE_LOG_SILENT=1`).
+silent = []
+
 [dependencies]
