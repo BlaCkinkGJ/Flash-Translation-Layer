@@ -71,10 +71,12 @@ make USE_LOG_SILENT=1 lru-test.out && ./lru-test.out
 
 # Rust crate only
 cargo build --release
-# Rust tooling (also wrapped as Makefile targets — see below)
-cargo test --all-targets
-cargo clippy --all-targets -- -D warnings
-cargo llvm-cov --lcov --output-path coverage-rust.lcov
+# Rust tooling — Makefile wrappers are the preferred path (consistent
+# flags, fail-fast on warnings, no shell quoting). Raw cargo commands
+# shown for reference.
+make cargo-test      # = cargo test --all-targets
+make cargo-clippy    # = cargo clippy --all-targets -- -D warnings
+make cargo-coverage  # = cargo llvm-cov --lcov (needs llvm-tools-preview + cargo-llvm-cov)
 ```
 
 ### Full builds
