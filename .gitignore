@@ -90,6 +90,7 @@ compile_commands.json
 # coverage results
 *.gcov
 *.gcda
+*.lcov
 
 
 # Added by cargo
