@@ -88,6 +88,6 @@ mod tests {
         pr_err!("zero-arg err");
         pr_err!("with arg: {}", -1i32);
         pr_debug!("zero-arg debug");
-        pr_debug!("with arg: {}", 3.14_f32);
+        pr_debug!("with arg: {}", 1.5_f32);
     }
 }
