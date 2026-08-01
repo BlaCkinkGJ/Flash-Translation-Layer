@@ -4,24 +4,47 @@
 //! the `silent` cargo feature is on, the macros expand to no-ops
 //! (C `-DENABLE_LOG_SILENT` equivalent).
 //!
-//! Level filtering is handled by the `log` facade. The bundled
-//! backend ([`env_logger`]) reads `RUST_LOG` — e.g. `RUST_LOG=debug`
-//! to enable `pr_debug!` in release. The backend is installed
-//! exactly once on first macro use; callers may also invoke
-//! [`init()`] explicitly at startup.
+//! Level filtering via `RUST_LOG` (e.g. `RUST_LOG=debug` to enable
+//! `pr_debug!` in release). Output is one JSON object per line
+//! (Loki-compatible). Swap `env_logger` for a Loki / OpenTelemetry
+//! exporter later without touching call sites.
 
-use std::sync::Once;
-static INIT: Once = Once::new();
+use std::io::Write;
 
-/// Install `env_logger` exactly once. Safe to call repeatedly;
-/// subsequent calls are no-ops.
+/// Install `env_logger` with JSON output. Safe to call repeatedly;
+/// `try_init` no-ops after the first successful install.
 pub fn init() {
-    INIT.call_once(|| {
-        let _ = env_logger::Builder::from_env(
-            env_logger::Env::default().default_filter_or("info"),
-        )
-        .try_init();
-    });
+    let _ = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info"),
+    )
+    .format(json_format)
+    .try_init();
+}
+
+fn json_format(
+    buf: &mut env_logger::fmt::Formatter,
+    record: &log::Record,
+) -> std::io::Result<()> {
+    writeln!(
+        buf,
+        r#"{{"ts":"{}","level":"{}","target":"{}","msg":"{}"}}"#,
+        buf.timestamp(),
+        record.level(),
+        record.target(),
+        json_escape(&record.args().to_string()),
+    )
+}
+
+/// ponytail: inline JSON escape. Stdlib has no equivalent without
+/// pulling serde_json. Handles the chars that break JSON parsers:
+/// quote, backslash, CR, LF, TAB. Upgrade to a single-pass loop if
+/// log throughput ever matters.
+fn json_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 #[cfg(not(feature = "silent"))]
@@ -77,7 +100,7 @@ macro_rules! pr_debug {
 #[cfg(test)]
 mod tests {
     /// All four macros must compile and run without panicking.
-    /// Output is unobservable here (no env_logger init in tests).
+    /// JSON output is emitted to stderr (one object per line).
     #[test]
     fn all_macros_compile_and_run() {
         pr_info!("zero-arg info");
