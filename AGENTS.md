@@ -135,7 +135,12 @@ make check        # cppcheck + flawfinder + lizard
 - `src/lib.rs` is the crate root. Add modules there; the crate builds as
   `staticlib` and links into the C side via `-lftl_rust`.
 - Edition 2021 (see `Cargo.toml`).
-- No external dependencies declared yet — keep it that way unless justified.
+- External dependencies are allowed but must be justified. Current
+  deps: `log` (standard logging facade) and `env_logger` (default
+  backend). The `pr_*!` macros in `src/log.rs` delegate to `log::*!`
+  so backend swaps (Loki / OpenTelemetry / etc.) only touch
+  initialization, not call sites. Level filtering: `RUST_LOG` env
+  var, e.g. `RUST_LOG=debug` to enable `pr_debug!` in release.
 - `cargo clippy --all-targets -- -D warnings` is treated as a build blocker,
   mirroring the C `-Werror` policy. The Makefile wraps this as
   `make cargo-clippy`.

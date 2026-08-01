@@ -12,3 +12,7 @@ crate-type = ["staticlib"]
 silent = []
 
 [dependencies]
+# Standard logging facade. Backend-agnostic — swap env_logger for
+# tracing-subscriber / Loki exporter when observability story lands.
+log = "0.4"
+env_logger = "0.11"
