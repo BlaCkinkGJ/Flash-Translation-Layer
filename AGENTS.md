@@ -71,10 +71,12 @@ make USE_LOG_SILENT=1 lru-test.out && ./lru-test.out
 
 # Rust crate only
 cargo build --release
-# Rust tooling (also wrapped as Makefile targets — see below)
-cargo test --all-targets
-cargo clippy --all-targets -- -D warnings
-cargo llvm-cov --lcov --output-path coverage-rust.lcov
+# Rust tooling — Makefile wrappers are the preferred path (consistent
+# flags, fail-fast on warnings, no shell quoting). Raw cargo commands
+# shown for reference.
+make cargo-test      # = cargo test --all-targets
+make cargo-clippy    # = cargo clippy --all-targets -- -D warnings
+make cargo-coverage  # = cargo llvm-cov --lcov (needs llvm-tools-preview + cargo-llvm-cov)
 ```
 
 ### Full builds
@@ -133,7 +135,12 @@ make check        # cppcheck + flawfinder + lizard
 - `src/lib.rs` is the crate root. Add modules there; the crate builds as
   `staticlib` and links into the C side via `-lftl_rust`.
 - Edition 2021 (see `Cargo.toml`).
-- No external dependencies declared yet — keep it that way unless justified.
+- External dependencies are allowed but must be justified. Current
+  deps: `log` (standard logging facade) and `env_logger` (default
+  backend). The `pr_*!` macros in `src/log.rs` delegate to `log::*!`
+  so backend swaps (Loki / OpenTelemetry / etc.) only touch
+  initialization, not call sites. Level filtering: `RUST_LOG` env
+  var, e.g. `RUST_LOG=debug` to enable `pr_debug!` in release.
 - `cargo clippy --all-targets -- -D warnings` is treated as a build blocker,
   mirroring the C `-Werror` policy. The Makefile wraps this as
   `make cargo-clippy`.
