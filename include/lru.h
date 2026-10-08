@@ -17,6 +17,9 @@ extern "C" {
 #include <stdint.h>
 #include <stdlib.h>
 
+// cppcheck-suppress missingIncludeSystem
+#include <stddef.h>
+
 #include "log.h"
 
 /**
@@ -44,6 +47,50 @@ struct lru_cache {
 	lru_dealloc_fn deallocate;
 	struct lru_node nil; /**< don't access this directly */
 };
+
+/*
+ * Guard the shared layout: `src/lru.rs` declares both structs as
+ * `#[repr(C)]` and asserts these numbers in its `layout_matches_c` test.
+ * `lru_get_evict_size` below and `test/lru-test.c` read `capacity` / `size`
+ * straight out of the struct, so the offsets are part of the ABI.
+ *
+ * The Rust `lru_cache` carries a Rust-only field after `nil`, so its size is
+ * larger than this one: never `sizeof(struct lru_cache)` for allocation, only
+ * `lru_init` ever did.
+ */
+#if defined(__cplusplus)
+#define LRU_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#else
+#define LRU_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#endif
+
+LRU_STATIC_ASSERT(offsetof(struct lru_node, key) == 0,
+		  "lru_node.key must be first");
+LRU_STATIC_ASSERT(offsetof(struct lru_node, value) == sizeof(uint64_t),
+		  "lru_node.value must follow key");
+LRU_STATIC_ASSERT(offsetof(struct lru_node, next) ==
+			  sizeof(uint64_t) + sizeof(uintptr_t),
+		  "lru_node.next must follow value");
+LRU_STATIC_ASSERT(offsetof(struct lru_node, prev) ==
+			  sizeof(uint64_t) + 2 * sizeof(uintptr_t),
+		  "lru_node.prev must follow next");
+LRU_STATIC_ASSERT(sizeof(struct lru_node) ==
+			  sizeof(uint64_t) + 3 * sizeof(uintptr_t),
+		  "lru_node must be key plus three words");
+
+LRU_STATIC_ASSERT(offsetof(struct lru_cache, capacity) == 0,
+		  "lru_cache.capacity must be first");
+LRU_STATIC_ASSERT(offsetof(struct lru_cache, size) == sizeof(size_t),
+		  "lru_cache.size must follow capacity");
+LRU_STATIC_ASSERT(offsetof(struct lru_cache, head) == 2 * sizeof(size_t),
+		  "lru_cache.head must follow size");
+LRU_STATIC_ASSERT(offsetof(struct lru_cache, deallocate) ==
+			  3 * sizeof(size_t),
+		  "lru_cache.deallocate must follow head");
+LRU_STATIC_ASSERT(offsetof(struct lru_cache, nil) == 4 * sizeof(size_t),
+		  "lru_cache.nil must follow deallocate");
+
+#undef LRU_STATIC_ASSERT
 
 struct lru_cache *lru_init(const size_t capacity, lru_dealloc_fn deallocate);
 int lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value);
