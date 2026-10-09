@@ -12,6 +12,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+// cppcheck-suppress missingIncludeSystem
+#include <stddef.h>
+
 #include "log.h" /**< to use the TOSTRING */
 
 #define PADDR_EMPTY ((uint32_t)UINT32_MAX)
@@ -199,6 +202,121 @@ struct device_operations {
 	int (*erase)(struct device *, struct device_request *);
 	int (*close)(struct device *);
 };
+
+/**
+ * @brief layout assertions
+ *
+ * These pin the offsets the Rust port in `src/device/mod.rs` mirrors; its
+ * `layout_matches_c` test asserts the same formulas, so a change to either
+ * definition breaks a build instead of corrupting a device at runtime.
+ */
+#define DEVICE_ALIGN_UP(value, align) (((value) + (align) - 1) / (align) * (align))
+
+#ifdef __cplusplus
+#define DEVICE_ALIGNOF(type) alignof(type)
+// cppcheck-suppress missingIncludeSystem
+#define DEVICE_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#else
+#define DEVICE_ALIGNOF(type) _Alignof(type)
+#define DEVICE_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#endif
+
+DEVICE_STATIC_ASSERT(sizeof(struct device_address) == sizeof(uint32_t),
+		     "device_address must be one packed uint32_t");
+
+DEVICE_STATIC_ASSERT(sizeof(struct device_page) == sizeof(size_t),
+		     "device_page must be one size_t");
+DEVICE_STATIC_ASSERT(sizeof(struct device_block) == 2 * sizeof(size_t),
+		     "device_block must be page plus nr_pages");
+DEVICE_STATIC_ASSERT(sizeof(struct device_package) == 3 * sizeof(size_t),
+		     "device_package must be block plus nr_blocks");
+DEVICE_STATIC_ASSERT(sizeof(struct device_info) == 5 * sizeof(size_t),
+		     "device_info must be package plus nr_bus and nr_chips");
+DEVICE_STATIC_ASSERT(offsetof(struct device_info, nr_bus) ==
+			     3 * sizeof(size_t),
+		     "device_info.nr_bus must follow the package");
+
+DEVICE_STATIC_ASSERT(offsetof(struct device, mutex) == 0,
+		     "device.mutex must be first");
+DEVICE_STATIC_ASSERT(offsetof(struct device, d_op) ==
+			     DEVICE_ALIGN_UP(sizeof(pthread_mutex_t),
+					     sizeof(void *)),
+		     "device.d_op must follow mutex");
+DEVICE_STATIC_ASSERT(offsetof(struct device, info) ==
+			     offsetof(struct device, d_op) + sizeof(void *),
+		     "device.info must follow d_op");
+DEVICE_STATIC_ASSERT(offsetof(struct device, badseg_bitmap) ==
+			     offsetof(struct device, info) +
+				     5 * sizeof(size_t),
+		     "device.badseg_bitmap must follow info");
+DEVICE_STATIC_ASSERT(offsetof(struct device, d_private) ==
+			     offsetof(struct device, badseg_bitmap) +
+				     sizeof(void *),
+		     "device.d_private must follow badseg_bitmap");
+DEVICE_STATIC_ASSERT(offsetof(struct device, d_submodule_exit) ==
+			     offsetof(struct device, d_private) +
+				     sizeof(void *),
+		     "device.d_submodule_exit must follow d_private");
+DEVICE_STATIC_ASSERT(sizeof(struct device) ==
+			     offsetof(struct device, d_submodule_exit) +
+				     sizeof(void *),
+		     "device must end after d_submodule_exit");
+
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, flag) == 0,
+		     "device_request.flag must be first");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, data_len) ==
+			     DEVICE_ALIGN_UP(sizeof(unsigned int),
+					     sizeof(size_t)),
+		     "device_request.data_len must follow flag");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, sector) ==
+			     offsetof(struct device_request, data_len) +
+				     sizeof(size_t),
+		     "device_request.sector must follow data_len");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, paddr) ==
+			     offsetof(struct device_request, sector) +
+				     sizeof(size_t),
+		     "device_request.paddr must follow sector");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, data) ==
+			     DEVICE_ALIGN_UP(
+				     offsetof(struct device_request, paddr) +
+					     sizeof(struct device_address),
+				     sizeof(void *)),
+		     "device_request.data must follow paddr");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, end_rq) ==
+			     offsetof(struct device_request, data) +
+				     sizeof(void *),
+		     "device_request.end_rq must follow data");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, is_finish) ==
+			     offsetof(struct device_request, end_rq) +
+				     sizeof(void *),
+		     "device_request.is_finish must follow end_rq");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, mutex) ==
+			     DEVICE_ALIGN_UP(
+				     offsetof(struct device_request, is_finish) +
+					     sizeof(int),
+				     DEVICE_ALIGNOF(pthread_mutex_t)),
+		     "device_request.mutex must follow is_finish");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, cond) ==
+			     offsetof(struct device_request, mutex) +
+				     sizeof(pthread_mutex_t),
+		     "device_request.cond must follow mutex");
+DEVICE_STATIC_ASSERT(offsetof(struct device_request, rq_private) ==
+			     DEVICE_ALIGN_UP(
+				     offsetof(struct device_request, cond) +
+					     sizeof(pthread_cond_t),
+				     sizeof(void *)),
+		     "device_request.rq_private must follow cond");
+DEVICE_STATIC_ASSERT(sizeof(struct device_request) ==
+			     offsetof(struct device_request, rq_private) +
+				     sizeof(void *),
+		     "device_request must end after rq_private");
+
+DEVICE_STATIC_ASSERT(sizeof(struct device_operations) == 5 * sizeof(void *),
+		     "device_operations must be five function pointers");
+
+#undef DEVICE_STATIC_ASSERT
+#undef DEVICE_ALIGNOF
+#undef DEVICE_ALIGN_UP
 
 struct device_request *device_alloc_request(uint64_t flags);
 void device_free_request(struct device_request *);
