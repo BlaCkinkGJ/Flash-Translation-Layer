@@ -16,3 +16,8 @@ silent = []
 # tracing-subscriber / Loki exporter when observability story lands.
 log = "0.4"
 env_logger = "0.11"
+# C ABI types for the ported C headers: the device layer mirrors structs that
+# embed `pthread_mutex_t` / `pthread_cond_t`, and the exact size and alignment
+# of those types is part of the layout contract with C. `libc` is the standard
+# binding crate (no dependencies of its own).
+libc = "0.2"
