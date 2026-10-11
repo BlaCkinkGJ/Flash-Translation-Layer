@@ -11,6 +11,12 @@
 //! `nr_free_pages` and `nr_valid_pages` and its `find_first_zero_bit` scan. It
 //! keeps C's "skip and retry" behaviour when the free counter and the bitmap
 //! disagree (C logs a warning and moves to the next segment).
+//!
+//! One more deviation from C: C packs the segment number as
+//! `paddr.format.block = (uint16_t)segnum` (16-bit truncation) while
+//! `device_address::new` masks with the 19-bit `BLOCK_MASK`. The two agree for
+//! `segnum < 65536`, which is outside the design envelope (the ramdisk has 64
+//! segments), and C is already broken past that point.
 
 use core::ffi::c_int;
 use core::sync::atomic::Ordering;
@@ -71,10 +77,6 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> device_address {
                 nr_free_pages,
                 page
             );
-            continue;
-        }
-        if page >= pages_per_segment as u64 {
-            pr_warn!("use_bits scan returned page {} out of range", page);
             continue;
         }
 
@@ -160,7 +162,7 @@ mod tests {
 
     /// Small but valid geometry: 3 segments of 16 pages each.
     struct Fixture {
-        dev: device,
+        dev: Box<device>,
         use_bits: Vec<u64>,
         segments: Vec<PageFtlSegment>,
         trans_map: Vec<u32>,
@@ -170,7 +172,8 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let mut dev = unsafe { MaybeUninit::<device>::zeroed().assume_init() };
+            // Boxed so `pgftl.dev` stays valid when the `Fixture` moves.
+            let mut dev = Box::new(unsafe { MaybeUninit::<device>::zeroed().assume_init() });
             dev.info.nr_bus = 2;
             dev.info.nr_chips = 2;
             dev.info.package.nr_blocks = 3;
@@ -195,7 +198,7 @@ mod tests {
             dev.badseg_bitmap = badseg.as_mut_ptr();
 
             let mut pgftl = unsafe { MaybeUninit::<PageFtl>::zeroed().assume_init() };
-            pgftl.dev = &mut dev;
+            pgftl.dev = &mut *dev;
             pgftl.segments = segments.as_ptr() as *mut PageFtlSegment;
             pgftl.trans_map = trans_map.as_mut_ptr();
 
@@ -296,6 +299,30 @@ mod tests {
         let last = f.trans_map.len() - 1;
         let overflow = (last + 1) * DEVICE_PAGE_SIZE;
         assert_eq!(update_map(&mut f.pgftl, overflow, 1), -libc::EINVAL);
+    }
+
+    #[test]
+    fn bitmap_desync_retries_to_next_segment() {
+        let mut f = Fixture::new();
+        // Every segment claims one free page, but segment 0's bitmap is full:
+        // its free counter and its bitmap disagree.
+        for segnum in 0..3 {
+            f.set_free(segnum, 1);
+        }
+        for bit in 0..16 {
+            set_bit(&mut f.use_bits[0..1], bit);
+        }
+
+        let addr = get_free_page(&mut f.pgftl);
+        // Segment 0's stale counter made its scan miss, so the page comes from
+        // segment 1.
+        assert_eq!(addr.block(), 1);
+        // C assigns alloc_segnum before the scan (`pgftl->alloc_segnum = segnum`)
+        // and `goto retry` walks on, so the retry re-assigns it to the segment
+        // that supplied the page. It does not stay on the desynced segment 0.
+        assert_eq!(f.pgftl.alloc_segnum, 1);
+        // The desynced segment keeps its stale free-page counter, exactly like C.
+        assert_eq!(f.free(0), 1);
     }
 
     #[test]

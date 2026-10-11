@@ -134,7 +134,8 @@ impl PageFtl {
     /// C's `page_ftl_get_map_size`: bytes in the L2P table.
     ///
     /// One extra `uint32_t` slot, so a full device still has a terminator.
-    /// Division by zero matches C when `page_size` is 0.
+    /// When `page_size` is 0 the division diverges from C: C raises SIGFPE,
+    /// Rust panics, and a panic crossing an `extern "C"` boundary aborts.
     pub fn map_size(&self) -> usize {
         let dev = self.dev();
         (dev.total_size() / dev.page_size() + 1) * core::mem::size_of::<u32>()
