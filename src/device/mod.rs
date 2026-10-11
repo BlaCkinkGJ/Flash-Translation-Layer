@@ -10,9 +10,10 @@
 //!
 //! `device_operations` stays the C-visible vtable that a backend installs into
 //! `dev->d_op`; Rust backends implement [`DeviceOperations`] and
-//! [`device_operations::from_backend`] turns that implementation into the
-//! vtable, so C keeps dispatching through `dev->d_op` unchanged. The
-//! C-named structs keep their C names (a `#[repr(C)]` type is not subject to
+//! [`device::install_backend`] stores the backend plus the vtable built from it
+//! in one slot, so C keeps dispatching through `dev->d_op` unchanged and the
+//! vtable can never disagree with the type behind it. The C-named structs keep
+//! their C names (a `#[repr(C)]` type is not subject to
 //! `non_camel_case_types`); type aliases are camel-cased as in `src/lru.rs`.
 //!
 //! Symbols carry the `ffi_` prefix so they can coexist with `device/device.c`
@@ -294,16 +295,17 @@ pub struct device_operations {
 /// Rust-side device backend interface; the trait-based form of the
 /// `device_operations` vtable.
 ///
-/// A backend stores itself in [`device::d_private`] and installs
-/// [`device_operations::from_backend::<Self>`] into [`device::d_op`]. The shims
-/// recover the backend from `d_private`, so C calling `dev->d_op->read(...)`
-/// reaches this implementation.
+/// [`device::install_backend`] stores the backend and the vtable built from it
+/// in one slot, and points [`device::d_op`] at that vtable. C calling
+/// `dev->d_op->read(...)` therefore reaches this implementation, and the type
+/// the shims recover can never disagree with the vtable they are called
+/// through.
 ///
 /// # Safety
 ///
-/// Every method is called by C with the device the backend was initialized
-/// into; implementations must tolerate being called from any thread and must
-/// not move themselves.
+/// Every method is called by C with the device the backend was installed into;
+/// implementations must tolerate being called from any thread and must not
+/// move themselves.
 pub trait DeviceOperations {
     /// Open the backend (C's `device_operations.open`).
     ///
@@ -339,50 +341,57 @@ pub trait DeviceOperations {
     unsafe fn close(&self, dev: *mut device) -> c_int;
 }
 
+/// A Rust backend together with the C-visible vtable built from it.
+///
+/// [`device::d_private`] points at the slot, so the vtable [`device::d_op`]
+/// points at and the type the shims recover are built from the same `B` and
+/// cannot disagree.
+struct BackendSlot<B: DeviceOperations> {
+    ops: device_operations,
+    backend: B,
+}
+
 unsafe extern "C" fn shim_open<B: DeviceOperations>(
     dev: *mut device,
     name: *const c_char,
     flags: c_int,
 ) -> c_int {
-    let backend = &*((*dev).d_private as *const B);
-    backend.open(dev, name, flags)
+    let slot = &*((*dev).d_private as *const BackendSlot<B>);
+    slot.backend.open(dev, name, flags)
 }
 
 unsafe extern "C" fn shim_write<B: DeviceOperations>(
     dev: *mut device,
     request: *mut device_request,
 ) -> isize {
-    let backend = &*((*dev).d_private as *const B);
-    backend.write(dev, request)
+    let slot = &*((*dev).d_private as *const BackendSlot<B>);
+    slot.backend.write(dev, request)
 }
 
 unsafe extern "C" fn shim_read<B: DeviceOperations>(
     dev: *mut device,
     request: *mut device_request,
 ) -> isize {
-    let backend = &*((*dev).d_private as *const B);
-    backend.read(dev, request)
+    let slot = &*((*dev).d_private as *const BackendSlot<B>);
+    slot.backend.read(dev, request)
 }
 
 unsafe extern "C" fn shim_erase<B: DeviceOperations>(
     dev: *mut device,
     request: *mut device_request,
 ) -> c_int {
-    let backend = &*((*dev).d_private as *const B);
-    backend.erase(dev, request)
+    let slot = &*((*dev).d_private as *const BackendSlot<B>);
+    slot.backend.erase(dev, request)
 }
 
 unsafe extern "C" fn shim_close<B: DeviceOperations>(dev: *mut device) -> c_int {
-    let backend = &*((*dev).d_private as *const B);
-    backend.close(dev)
+    let slot = &*((*dev).d_private as *const BackendSlot<B>);
+    slot.backend.close(dev)
 }
 
 impl device_operations {
     /// Build the C-visible vtable from a Rust backend.
-    ///
-    /// `B` must be the type stored in [`device::d_private`], because that is
-    /// where the shims recover the implementation from.
-    pub const fn from_backend<B: DeviceOperations>() -> Self {
+    fn from_backend<B: DeviceOperations>() -> Self {
         Self {
             open: Some(shim_open::<B>),
             write: Some(shim_write::<B>),
@@ -390,6 +399,40 @@ impl device_operations {
             erase: Some(shim_erase::<B>),
             close: Some(shim_close::<B>),
         }
+    }
+}
+
+impl device {
+    /// Install a Rust backend on this device: store it and point
+    /// [`device::d_op`] at the vtable built from it.
+    ///
+    /// This replaces C's per-backend `static` vtable plus the `d_private`
+    /// bookkeeping that had to agree with it.
+    ///
+    /// # Safety
+    /// `self` is a live device with no backend installed yet.
+    pub unsafe fn install_backend<B: DeviceOperations>(&mut self, backend: B) {
+        let slot = Box::into_raw(Box::new(BackendSlot {
+            ops: device_operations::from_backend::<B>(),
+            backend,
+        }));
+        self.d_op = ptr::addr_of!((*slot).ops);
+        self.d_private = slot as *mut c_void;
+    }
+
+    /// Release the backend installed by [`device::install_backend`] and clear
+    /// `d_private` / `d_op`. A `NULL` `d_private` is a no-op.
+    ///
+    /// # Safety
+    /// `self` had `install_backend::<B>` called on it with the same `B`, and no
+    /// operation is in flight.
+    pub unsafe fn uninstall_backend<B: DeviceOperations>(&mut self) {
+        if self.d_private.is_null() {
+            return;
+        }
+        drop(Box::from_raw(self.d_private as *mut BackendSlot<B>));
+        self.d_private = ptr::null_mut();
+        self.d_op = ptr::null();
     }
 }
 
@@ -508,7 +551,7 @@ unsafe fn destroy_device(dev: *mut device) -> c_int {
 /// `out` is `NULL` or a writable pointer; the table's entries follow the
 /// backend init contract of C's `submodule_init[]`.
 unsafe fn module_init_with(
-    table: &[Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT],
+    table: &[Option<SubmoduleInitFn>],
     modnum: u64,
     out: *mut *mut device,
     flags: u64,
@@ -524,7 +567,9 @@ unsafe fn module_init_with(
         return -libc::EINVAL;
     };
 
-    let Some(submodule_init) = table[module as usize] else {
+    let Some(submodule_init) = table.get(module as usize).copied().flatten() else {
+        // Also covers a backend list shorter than the module list, the shape
+        // Tasks 6/7 build up entry by entry.
         pr_err!("no backend for this device module (modnum: {})", modnum);
         return -libc::ENODEV;
     };
@@ -785,19 +830,15 @@ mod tests {
         }
     }
 
-    static MOCK_OPS: device_operations = device_operations::from_backend::<MockBackend>();
-
     unsafe extern "C" fn mock_init(dev: *mut device, _flags: u64) -> c_int {
-        (*dev).d_op = &MOCK_OPS;
-        (*dev).d_private = Box::into_raw(Box::new(MockBackend)) as *mut c_void;
+        (*dev).install_backend(MockBackend);
         (*dev).d_submodule_exit = Some(mock_exit);
         0
     }
 
     unsafe extern "C" fn mock_exit(dev: *mut device) -> c_int {
         MOCK_EXITS.fetch_add(1, Ordering::SeqCst);
-        drop(Box::from_raw((*dev).d_private as *mut MockBackend));
-        (*dev).d_private = ptr::null_mut();
+        (*dev).uninstall_backend::<MockBackend>();
         0
     }
 
@@ -816,8 +857,9 @@ mod tests {
 
             // C reaches the Rust implementation through the vtable.
             let ops = &*(*dev).d_op;
+            let opens = MOCK_OPENS.load(Ordering::SeqCst);
             assert_eq!((ops.open.unwrap())(dev, ptr::null(), 0), 0);
-            assert_eq!(MOCK_OPENS.load(Ordering::SeqCst), 1);
+            assert_eq!(MOCK_OPENS.load(Ordering::SeqCst), opens + 1);
 
             let mut request = zeroed_request();
             request.flag = DeviceDirection::Write as c_uint;
@@ -869,6 +911,56 @@ mod tests {
             );
 
             assert_eq!(ffi_device_module_exit(ptr::null_mut()), 0);
+        }
+    }
+
+    #[test]
+    fn install_and_uninstall_backend_keep_the_vtable_and_the_slot_in_step() {
+        unsafe {
+            let mut dev = zeroed_device();
+            dev.install_backend(MockBackend);
+            assert!(!dev.d_op.is_null());
+            assert!(!dev.d_private.is_null());
+
+            // The vtable lives in the same allocation as the backend, so the
+            // pointer C calls through and the type the shim recovers cannot
+            // disagree.
+            let ops = &*dev.d_op;
+            let opens = MOCK_OPENS.load(Ordering::SeqCst);
+            assert_eq!((ops.open.unwrap())(&mut dev, ptr::null(), 0), 0);
+            assert_eq!(MOCK_OPENS.load(Ordering::SeqCst), opens + 1);
+
+            dev.uninstall_backend::<MockBackend>();
+            assert!(dev.d_private.is_null());
+            assert!(dev.d_op.is_null());
+
+            // A second uninstall is a no-op, not a double free.
+            dev.uninstall_backend::<MockBackend>();
+        }
+    }
+
+    #[test]
+    fn module_init_rejects_a_table_that_is_too_short() {
+        unsafe {
+            // Tasks 6/7 grow the backend list one entry at a time, so a list
+            // shorter than the module list must report -ENODEV instead of
+            // indexing past its end.
+            let table = [Some(mock_init as SubmoduleInitFn)];
+
+            let mut dev: *mut device = ptr::null_mut();
+            assert_eq!(
+                module_init_with(&table, DeviceModule::Ramdisk as u64, &mut dev, 0),
+                0
+            );
+            assert!(!dev.is_null());
+            assert_eq!(ffi_device_module_exit(dev), 0);
+
+            let mut dev: *mut device = ptr::null_mut();
+            assert_eq!(
+                module_init_with(&table, DeviceModule::Zone as u64, &mut dev, 0),
+                -libc::ENODEV
+            );
+            assert!(dev.is_null());
         }
     }
 
