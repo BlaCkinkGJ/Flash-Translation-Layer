@@ -35,6 +35,10 @@
 //!   accept `NULL` and report `-EINVAL`, where C dereferences it.
 //! - `read` drops C's `pr_debug` line that dereferences `request->rq_private`
 //!   as a `struct device_request`. It only existed to print a mutex address.
+//! - A `paddr.lpn` or block past the end of the store panics on the `Vec` and
+//!   slice bounds checks, where C reads or writes past the buffer. The panic
+//!   aborts if it crosses the `extern "C"` shim, which is a defined outcome
+//!   where C corrupts the heap.
 //! - C's ramdisk has no locking and neither does this port: concurrent requests
 //!   to one device are the caller's responsibility, exactly as in C. The
 //!   `unsafe impl Sync` below records that contract for Rust callers.
