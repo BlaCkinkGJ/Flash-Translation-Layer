@@ -9,15 +9,15 @@
 //! `include/device.h`.
 //!
 //! `device_operations` stays the C-visible vtable that a backend installs into
-//! `dev->d_op`; Rust backends implement [`DeviceOperations`] and
+//! `dev->d_op`. Rust backends implement [`DeviceOperations`] and
 //! [`device::install_backend`] stores the backend plus the vtable built from it
 //! in one slot, so C keeps dispatching through `dev->d_op` unchanged and the
 //! vtable can never disagree with the type behind it. The C-named structs keep
 //! their C names (a `#[repr(C)]` type is not subject to
-//! `non_camel_case_types`); type aliases are camel-cased as in `src/lru.rs`.
+//! `non_camel_case_types`). Type aliases are camel-cased as in `src/lru.rs`.
 //!
 //! Symbols carry the `ffi_` prefix so they can coexist with `device/device.c`
-//! while both implementations are linked; the cutover is Task 14.
+//! while both implementations are linked. The cutover is Task 14.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -26,7 +26,7 @@
 //!   `submodule_init[modnum]` unchecked and calls a `NULL` entry, so both are
 //!   wild calls there.
 //! - `ffi_device_module_init` and `ffi_device_free_request` accept `NULL`
-//!   (`-EINVAL` / no-op); C dereferences it, and `device_module_exit` asserts.
+//!   (`-EINVAL` / no-op). C dereferences it, and `device_module_exit` asserts.
 //! - A failing `pthread_mutex_init` / `pthread_cond_init` releases the
 //!   partially built structure. C leaks the request (mutex failure) or the
 //!   mutex (cond failure), and ignores the mutex failure in
@@ -39,7 +39,7 @@
 //! - The bit counts and `DEVICE_PAGE_SIZE` are the default (ramdisk)
 //!   `DEVICE_INFO` from the Makefile. The non-default backends compile C with
 //!   different `-DDEVICE_NR_*_BITS` (zoned `3/3/5/21`, raspberry `1/1/4/24`
-//!   with a 2048 byte page); their Rust ports (Task 7) must bring the matching
+//!   with a 2048 byte page). Their Rust ports (Task 7) must bring the matching
 //!   configuration with them.
 //! - `ffi_device_module_init` dispatches through an all-`None` backend table:
 //!   the Rust backends arrive with Tasks 6 (ramdisk) and 7 (stubs), and C's
@@ -123,7 +123,7 @@ pub enum DeviceDirection {
 
 /// Mirrors `struct device_address` in `include/device.h`.
 ///
-/// C declares it as a union of bitfield views over one `uint32_t`; Rust keeps
+/// C declares it as a union of bitfield views over one `uint32_t`. Rust keeps
 /// the `lpn` word and reproduces the views with shifts, so the bit order is
 /// explicit instead of compiler-defined. C's bitfield order on a little-endian
 /// target puts the first declared field in the least significant bits, which
@@ -178,12 +178,12 @@ impl device_address {
 
 /// Callback run when the device finishes a request. Mirrors
 /// `device_end_req_fn` in `include/device.h` (renamed for Rust's
-/// `non_camel_case_types`; the ABI is the same nullable function pointer).
+/// `non_camel_case_types`. The ABI is the same nullable function pointer).
 pub type DeviceEndReqFn = Option<unsafe extern "C" fn(*mut device_request)>;
 
 /// Mirrors `struct device_request` in `include/device.h`.
 ///
-/// `mutex` / `cond` guard `is_finish`; the FTL allocates a request per I/O and
+/// `mutex` / `cond` guard `is_finish`. The FTL allocates a request per I/O and
 /// waits on `cond` until the backend's `end_rq` callback signals it. C reads
 /// `flag`, `paddr`, `data`, `end_rq` and locks `mutex` directly, so every field
 /// keeps its C offset (see `layout_matches_c`).
@@ -236,7 +236,7 @@ pub struct device_info {
 /// Mirrors `struct device`.
 ///
 /// A backend fills `d_op`, `d_private` and `d_submodule_exit` in its init
-/// routine; the geometry lives in `info` and is filled by the backend's `open`.
+/// routine. The geometry lives in `info` and is filled by the backend's `open`.
 #[repr(C)]
 pub struct device {
     pub mutex: pthread_mutex_t,
@@ -275,7 +275,7 @@ impl device {
 
     /// Total number of pages in the flash board (C's `device_get_total_pages`).
     ///
-    /// Panics when the page size is zero; C divides by zero there.
+    /// Panics when the page size is zero. C divides by zero there.
     pub fn get_total_pages(&self) -> usize {
         self.get_total_size() / self.get_page_size()
     }
@@ -292,7 +292,7 @@ pub struct device_operations {
     pub close: Option<unsafe extern "C" fn(*mut device) -> c_int>,
 }
 
-/// Rust-side device backend interface; the trait-based form of the
+/// Rust-side device backend interface, the trait-based form of the
 /// `device_operations` vtable.
 ///
 /// [`device::install_backend`] stores the backend and the vtable built from it
@@ -303,8 +303,8 @@ pub struct device_operations {
 ///
 /// # Safety
 ///
-/// Every method is called by C with the device the backend was installed into;
-/// implementations must tolerate being called from any thread and must not
+/// Every method is called by C with the device the backend was installed into.
+/// Implementations must tolerate being called from any thread and must not
 /// move themselves.
 pub trait DeviceOperations {
     /// Open the backend (C's `device_operations.open`).
@@ -451,7 +451,7 @@ static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] =
 /// Set `errno`, the way C's failure paths do before returning a negative value.
 ///
 /// C stores the pthread return code in `errno` so callers can read it after
-/// `NULL`; `libc` exposes the location per target.
+/// `NULL`. `libc` exposes the location per target.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 unsafe fn set_errno(value: c_int) {
     *libc::__errno_location() = value;
@@ -472,7 +472,7 @@ unsafe fn set_errno(_value: c_int) {}
 
 /// Allocate a device request, mirroring C's `device_alloc_request`.
 ///
-/// `flags` is ignored like C does; [`DEVICE_DEFAULT_REQUEST`] is the only flag
+/// `flags` is ignored like C does. [`DEVICE_DEFAULT_REQUEST`] is the only flag
 /// defined. Returns `NULL` and sets `errno` when the request's synchronization
 /// primitives cannot be initialized.
 ///
@@ -548,7 +548,7 @@ unsafe fn destroy_device(dev: *mut device) -> c_int {
 /// backend while the real table is still empty (see the module docs).
 ///
 /// # Safety
-/// `out` is `NULL` or a writable pointer; the table's entries follow the
+/// `out` is `NULL` or a writable pointer. The table's entries follow the
 /// backend init contract of C's `submodule_init[]`.
 unsafe fn module_init_with(
     table: &[Option<SubmoduleInitFn>],
@@ -598,7 +598,7 @@ unsafe fn module_init_with(
 
 /// Initialize a device module, mirroring C's `device_module_init`.
 ///
-/// Returns `0` on success and a negative value on failure; on failure `*dev` is
+/// Returns `0` on success and a negative value on failure. On failure `*dev` is
 /// left untouched.
 ///
 /// # Safety

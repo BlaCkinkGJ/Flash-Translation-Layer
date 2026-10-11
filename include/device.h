@@ -206,7 +206,7 @@ struct device_operations {
 /**
  * @brief layout assertions
  *
- * These pin the offsets the Rust port in `src/device/mod.rs` mirrors; its
+ * These pin the offsets the Rust port in `src/device/mod.rs` mirrors. Its
  * `layout_matches_c` test asserts the same formulas, so a change to either
  * definition breaks a build instead of corrupting a device at runtime.
  */
