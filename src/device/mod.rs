@@ -41,6 +41,10 @@
 //!   different `-DDEVICE_NR_*_BITS` (zoned `3/3/5/21`, raspberry `1/1/4/24`
 //!   with a 2048 byte page). Their Rust ports (Task 7) must bring the matching
 //!   configuration with them.
+//! - C's `raspberry` address view is not ported: it only means something under
+//!   the raspberry build's bit counts, and the Pi NAND path is out of scope, so
+//!   it lands with the raspberry backend (Task 7) instead of carrying a
+//!   constant that is wrong for its own target. See [`device_address`].
 //! - `ffi_device_module_init` dispatches through an all-`None` backend table:
 //!   the Rust backends arrive with Tasks 6 (ramdisk) and 7 (stubs), and C's
 //!   `device/device.c` keeps its own table and stays the live path for C
@@ -79,10 +83,6 @@ const BUS_MASK: u32 = (1u32 << DEVICE_NR_BUS_BITS) - 1;
 const CHIP_MASK: u32 = (1u32 << DEVICE_NR_CHIPS_BITS) - 1;
 const PAGE_MASK: u32 = (1u32 << DEVICE_NR_PAGES_BITS) - 1;
 const BLOCK_MASK: u32 = (1u32 << DEVICE_NR_BLOCKS_BITS) - 1;
-
-/// Width of the `page` field in C's `raspberry` address view.
-const RASPBERRY_PAGE_BITS: u32 =
-    DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS + DEVICE_NR_PAGES_BITS;
 
 /// C's `enum { RAMDISK_MODULE = 0, ... }`.
 #[repr(C)]
@@ -128,6 +128,13 @@ pub enum DeviceDirection {
 /// explicit instead of compiler-defined. C's bitfield order on a little-endian
 /// target puts the first declared field in the least significant bits, which
 /// is what the shifts below encode.
+///
+/// C's third view, `raspberry`, folds the whole bus/chip/page run into one
+/// `page` field for the Pi NAND API (`device/raspberry/raspberry.c` reads
+/// `addr.raspberry.page` and `.block`). It is only meaningful under the
+/// raspberry build's bit counts, which this port does not express, so it lands
+/// with the raspberry backend (Task 7). C's `raspberry_converter` view is a
+/// field-by-field copy of `format` and needs no helper here.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct device_address {
@@ -163,16 +170,6 @@ impl device_address {
     /// Block (segment) of this address.
     pub const fn block(&self) -> u32 {
         (self.lpn >> BLOCK_SHIFT) & BLOCK_MASK
-    }
-
-    /// C's `raspberry` view: the page field covers bus, chip and page.
-    pub const fn raspberry_page(&self) -> u32 {
-        self.lpn & ((1u32 << RASPBERRY_PAGE_BITS) - 1)
-    }
-
-    /// C's `raspberry` view: the block field covers everything above the page.
-    pub const fn raspberry_block(&self) -> u32 {
-        self.lpn >> RASPBERRY_PAGE_BITS
     }
 }
 
@@ -658,18 +655,6 @@ mod tests {
         // uses 30 of the 32 bits.
         assert_ne!(PADDR_EMPTY, full.lpn);
         assert_eq!(device_address { lpn: PADDR_EMPTY }.lpn, u32::MAX);
-
-        // C's raspberry view: page = bus | chip | page, block = the rest. With
-        // the default geometry that page field is 11 bits wide (the raspberry
-        // build narrows it to 6: bus 1 + chip 1 + page 4).
-        assert_eq!(
-            addr.raspberry_page(),
-            addr.lpn & ((1 << RASPBERRY_PAGE_BITS) - 1)
-        );
-        assert_eq!(addr.raspberry_page(), 1 | (2 << 2) | (4 << 4));
-        assert_eq!(addr.raspberry_page(), 73);
-        assert_eq!(addr.raspberry_block(), addr.lpn >> RASPBERRY_PAGE_BITS);
-        assert_eq!(addr.raspberry_block(), 3);
 
         assert_eq!(device_address::default().lpn, 0);
     }
