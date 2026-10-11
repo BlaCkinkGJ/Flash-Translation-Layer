@@ -6,7 +6,7 @@
 //!
 //! The `ffi_` prefix on the C-ABI functions avoids collision with the
 //! `static inline` symbols still exposed by `include/bits.h` to other
-//! C translation units. The FFI wrappers do **not** null-check; passing
+//! C translation units. The FFI wrappers do **not** null-check. Passing
 //! `null` is undefined behaviour, matching the C contract.
 //!
 //! ## Differences from the C original
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(find_first_one_bit(&bits, 128, 3), 3);
         // idx=2 finds bit 3
         assert_eq!(find_first_one_bit(&bits, 128, 2), 3);
-        // idx=4 must skip bit 3; bucket 1 is empty -> not found
+        // idx=4 must skip bit 3. Bucket 1 is empty, so not found
         assert_eq!(find_first_one_bit(&bits, 128, 4), BITS_NOT_FOUND);
     }
 
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn find_first_one_bit_bit_beyond_size_returns_not_found() {
         // bit 200 is set, but size=100. A bit set outside [0,size) must
-        // never be returned; only bits within the requested range count.
+        // never be returned. Only bits within the requested range count.
         let mut bits = [0u64; 4];
         set_bit(&mut bits, 200);
         assert_eq!(find_first_one_bit(&bits, 100, 0), BITS_NOT_FOUND);
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn find_first_one_bit_bucket_aligned_idx() {
-        // idx=64 is a 64-bit bucket boundary; lo must be 0.
+        // idx=64 is a 64-bit bucket boundary, so lo must be 0.
         let bits = [0u64, 1u64];
         // idx=64: bit 64 is the first set bit >= 64 -> return 64
         assert_eq!(find_first_one_bit(&bits, 128, 64), 64);
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(find_first_one_bit(&bits, 63, 0), 0);
         // size=65, looking for first zero bit. Bucket 0 is all ones.
         // No zero bits in [0,65) because bit 64 of bucket 1 is set.
-        // The only zero bits are at positions 65..128; not in range.
+        // The only zero bits are at positions 65..128, outside the range.
         let bits = [u64::MAX, u64::MAX];
         assert_eq!(find_first_zero_bit(&bits, 65, 0), BITS_NOT_FOUND);
     }
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(find_first_zero_bit(&bits, 128, 66), 70);
         // idx=70 finds bit 70 immediately
         assert_eq!(find_first_zero_bit(&bits, 128, 70), 70);
-        // idx=71 must skip bit 70; no other zeros -> not found
+        // idx=71 must skip bit 70. No other zeros, so not found
         assert_eq!(find_first_zero_bit(&bits, 128, 71), BITS_NOT_FOUND);
     }
 
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn ffi_find_first_zero_bit_unaligned_idx() {
-        // size=128 needs 2 buckets; bits[1] has bit 6 cleared (position 70)
+        // size=128 needs 2 buckets. bits[1] has bit 6 cleared (position 70)
         let mut storage = [u64::MAX, u64::MAX];
         let ptr = storage.as_mut_ptr();
         unsafe {
