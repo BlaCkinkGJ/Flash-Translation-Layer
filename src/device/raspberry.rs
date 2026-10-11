@@ -6,6 +6,11 @@
 //! routine only installs the stub backend. The geometry C's `raspberry_open`
 //! fills in, and the raspberry build's bit counts (`1/1/4/24` with a 2048 byte
 //! page), land with the hardware implementation.
+//!
+//! One deliberate difference from C: `raspberry_device_init` calls `nand_init()`
+//! and returns its error, so C's module init fails when the NAND stack is
+//! missing. The stub cannot call it, so init returns `0` and the first `open`
+//! reports `-ENOSYS` instead.
 
 use core::ffi::{c_char, c_int};
 
