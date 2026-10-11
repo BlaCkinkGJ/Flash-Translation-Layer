@@ -538,17 +538,40 @@ impl device {
 /// Init routine of a device backend, C's `submodule_init[]` element type.
 pub type SubmoduleInitFn = unsafe extern "C" fn(*mut device, u64) -> c_int;
 
+#[cfg(feature = "bluedbm")]
+mod bluedbm;
+#[cfg(feature = "raspberry")]
+mod raspberry;
+#[cfg(feature = "zone")]
+mod zone;
+
+#[cfg(feature = "bluedbm")]
+const BLUEDBM_INIT: Option<SubmoduleInitFn> = Some(bluedbm::bluedbm_device_init);
+#[cfg(not(feature = "bluedbm"))]
+const BLUEDBM_INIT: Option<SubmoduleInitFn> = None;
+
+#[cfg(feature = "zone")]
+const ZONE_INIT: Option<SubmoduleInitFn> = Some(zone::zone_device_init);
+#[cfg(not(feature = "zone"))]
+const ZONE_INIT: Option<SubmoduleInitFn> = None;
+
+#[cfg(feature = "raspberry")]
+const RASPBERRY_INIT: Option<SubmoduleInitFn> = Some(raspberry::raspberry_device_init);
+#[cfg(not(feature = "raspberry"))]
+const RASPBERRY_INIT: Option<SubmoduleInitFn> = None;
+
 /// C's `submodule_init[]`, indexed by [`DeviceModule`].
 ///
-/// Task 6 wired the ramdisk entry and Task 7 fills the remaining three. C's
+/// Task 6 wired the ramdisk entry and Task 7 wires the bluedbm / zone /
+/// raspberry stub slots, each enabled by its Cargo feature. C's
 /// `device/device.c` keeps its own table and stays the live path for C callers
 /// until the Task 14 cutover, so no C caller regresses while the Rust table is
 /// still being filled.
 static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] = [
     Some(ramdisk::ffi_ramdisk_device_init),
-    None,
-    None,
-    None,
+    BLUEDBM_INIT,
+    ZONE_INIT,
+    RASPBERRY_INIT,
 ];
 
 /// Set `errno`, the way C's failure paths do before returning a negative value.
@@ -1147,8 +1170,8 @@ mod tests {
 
     #[test]
     fn exported_module_init_reports_unported_backends() {
-        // Task 6 wired the ramdisk entry. Tasks 7 fill the rest, and this
-        // assertion is what tells them the seam moved.
+        // Task 6 wired the ramdisk entry and Task 7 wires the stub slots behind
+        // their Cargo features, so only the slots still empty report -ENODEV.
         unsafe {
             let mut dev: *mut device = ptr::null_mut();
             assert_eq!(
@@ -1159,17 +1182,32 @@ mod tests {
             assert!(!(*dev).d_op.is_null());
             assert_eq!(ffi_device_module_exit(dev), 0);
 
-            for module in [
-                DeviceModule::Bluedbm,
-                DeviceModule::Zone,
-                DeviceModule::Raspberry,
+            for (module, wired) in [
+                (DeviceModule::Bluedbm, cfg!(feature = "bluedbm")),
+                (DeviceModule::Zone, cfg!(feature = "zone")),
+                (DeviceModule::Raspberry, cfg!(feature = "raspberry")),
             ] {
                 let mut dev: *mut device = ptr::null_mut();
+                if !wired {
+                    assert_eq!(
+                        ffi_device_module_init(module as u64, &mut dev, 0),
+                        -libc::ENODEV
+                    );
+                    assert!(dev.is_null());
+                    continue;
+                }
+
+                // The wired slot holds the Task 7 stub, whose vtable C would
+                // call answers -ENOSYS instead of touching hardware.
                 assert_eq!(
                     ffi_device_module_init(module as u64, &mut dev, 0),
-                    -libc::ENODEV
+                    0,
+                    "{module:?} should install its stub"
                 );
-                assert!(dev.is_null());
+                assert!(!dev.is_null());
+                let open = (*(*dev).d_op).open.unwrap();
+                assert_eq!(open(dev, ptr::null(), 0), -libc::ENOSYS);
+                assert_eq!(ffi_device_module_exit(dev), 0);
             }
 
             let mut dev: *mut device = ptr::null_mut();
