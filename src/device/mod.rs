@@ -16,6 +16,13 @@
 //! their C names (a `#[repr(C)]` type is not subject to
 //! `non_camel_case_types`). Type aliases are camel-cased as in `src/lru.rs`.
 //!
+//! Two layers live here. The C ABI layer (the `#[repr(C)]` mirrors, the `ffi_*`
+//! entry points and the vtable) is what C calls until the cutover. The native
+//! layer ([`device_address`] helpers, [`DeviceDirection`], [`Request`] and the
+//! accessors on [`device_request`] and [`device`]) is what Rust callers use, so
+//! the FTL port (Tasks 8-13) does not hand-roll raw pointers, `errno` or
+//! atomics.
+//!
 //! Symbols carry the `ffi_` prefix so they can coexist with `device/device.c`
 //! while both implementations are linked. The cutover is Task 14.
 //!
@@ -52,7 +59,11 @@
 
 use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::mem::MaybeUninit;
+use core::ops::{Deref, DerefMut};
 use core::ptr;
+use core::slice;
+use std::fmt;
+use std::io;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use libc::{pthread_cond_t, pthread_mutex_t};
@@ -121,6 +132,25 @@ pub enum DeviceDirection {
     Erase = 2,
 }
 
+impl DeviceDirection {
+    /// Map the `flag` word of a request to a direction, or `None` for a value C
+    /// does not define.
+    pub const fn from_flag(flag: c_uint) -> Option<Self> {
+        match flag {
+            0 => Some(DeviceDirection::Write),
+            1 => Some(DeviceDirection::Read),
+            2 => Some(DeviceDirection::Erase),
+            _ => None,
+        }
+    }
+}
+
+impl From<DeviceDirection> for c_uint {
+    fn from(direction: DeviceDirection) -> Self {
+        direction as c_uint
+    }
+}
+
 /// Mirrors `struct device_address` in `include/device.h`.
 ///
 /// C declares it as a union of bitfield views over one `uint32_t`. Rust keeps
@@ -173,6 +203,34 @@ impl device_address {
     }
 }
 
+impl From<u32> for device_address {
+    fn from(lpn: u32) -> Self {
+        Self { lpn }
+    }
+}
+
+impl From<device_address> for u32 {
+    fn from(address: device_address) -> Self {
+        address.lpn
+    }
+}
+
+impl fmt::Display for device_address {
+    /// Print the decoded fields, which is what logs and test failures want.
+    /// `Debug` keeps showing the raw word.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "bus {} chip {} block {} page {} (lpn {:#x})",
+            self.bus(),
+            self.chip(),
+            self.block(),
+            self.page(),
+            self.lpn
+        )
+    }
+}
+
 /// Callback run when the device finishes a request. Mirrors
 /// `device_end_req_fn` in `include/device.h` (renamed for Rust's
 /// `non_camel_case_types`. The ABI is the same nullable function pointer).
@@ -196,6 +254,48 @@ pub struct device_request {
     pub mutex: pthread_mutex_t,
     pub cond: pthread_cond_t,
     pub rq_private: *mut c_void,
+}
+
+impl device_request {
+    /// Direction of this request, or `None` for a value C does not define.
+    /// A zeroed request reads as `Write`, because C's `DEVICE_WRITE` is 0.
+    pub fn direction(&self) -> Option<DeviceDirection> {
+        DeviceDirection::from_flag(self.flag)
+    }
+
+    /// `is_finish` as an atomic.
+    ///
+    /// C touches this word with `__atomic_*` and the allocator uses the same
+    /// `AtomicI32`, so no plain access can race with it.
+    fn finished_flag(&self) -> &AtomicI32 {
+        unsafe { AtomicI32::from_ptr(ptr::addr_of!(self.is_finish) as *mut c_int) }
+    }
+
+    /// Whether the backend finished this request.
+    ///
+    /// Uses a sequentially consistent load, the read side of C's `__atomic_*`
+    /// in `page_ftl_read_end_rq`, so a waiting thread can poll it.
+    pub fn is_finish(&self) -> bool {
+        self.finished_flag().load(Ordering::SeqCst) != 0
+    }
+
+    /// Mark the request finished, the store side of C's `end_rq` callbacks.
+    pub fn mark_finished(&self) {
+        self.finished_flag().store(1, Ordering::SeqCst);
+    }
+
+    /// View `data` as the payload buffer of `data_len` bytes, or `None` when C
+    /// passed a `NULL` data pointer.
+    ///
+    /// # Safety
+    /// `data` points at `data_len` writable bytes that stay valid for as long
+    /// as the returned slice is used.
+    pub unsafe fn buffer_mut(&mut self) -> Option<&mut [u8]> {
+        if self.data.is_null() {
+            return None;
+        }
+        Some(slice::from_raw_parts_mut(self.data as *mut u8, self.data_len))
+    }
 }
 
 /// Mirrors `struct device_page`.
@@ -246,35 +346,35 @@ pub struct device {
 
 impl device {
     /// Number of segments in the flash board (C's `device_get_nr_segments`).
-    pub fn get_nr_segments(&self) -> usize {
+    pub fn nr_segments(&self) -> usize {
         self.info.package.nr_blocks
     }
 
     /// Number of blocks in a segment (C's `device_get_blocks_per_segment`).
-    pub fn get_blocks_per_segment(&self) -> usize {
+    pub fn blocks_per_segment(&self) -> usize {
         self.info.nr_bus * self.info.nr_chips
     }
 
     /// Number of pages in a segment (C's `device_get_pages_per_segment`).
-    pub fn get_pages_per_segment(&self) -> usize {
-        self.get_blocks_per_segment() * self.info.package.block.nr_pages
+    pub fn pages_per_segment(&self) -> usize {
+        self.blocks_per_segment() * self.info.package.block.nr_pages
     }
 
     /// NAND page size in bytes (C's `device_get_page_size`).
-    pub fn get_page_size(&self) -> usize {
+    pub fn page_size(&self) -> usize {
         self.info.package.block.page.size
     }
 
     /// Total size of the flash board in bytes (C's `device_get_total_size`).
-    pub fn get_total_size(&self) -> usize {
-        self.get_nr_segments() * self.get_pages_per_segment() * self.get_page_size()
+    pub fn total_size(&self) -> usize {
+        self.nr_segments() * self.pages_per_segment() * self.page_size()
     }
 
     /// Total number of pages in the flash board (C's `device_get_total_pages`).
     ///
     /// Panics when the page size is zero. C divides by zero there.
-    pub fn get_total_pages(&self) -> usize {
-        self.get_total_size() / self.get_page_size()
+    pub fn total_pages(&self) -> usize {
+        self.total_size() / self.page_size()
     }
 }
 
@@ -520,6 +620,53 @@ pub unsafe extern "C" fn ffi_device_free_request(request: *mut device_request) {
     let _ = libc::pthread_mutex_destroy(&mut request.mutex);
 }
 
+/// RAII owner of a request allocated by [`ffi_device_alloc_request`].
+///
+/// Native callers get the request's lifetime tied to this value instead of
+/// calling [`ffi_device_free_request`] by hand. It is deliberately neither
+/// `Send` nor `Sync`: the raw pointer is handed to a backend, whose `end_rq`
+/// callback runs on the backend's thread.
+pub struct Request {
+    ptr: *mut device_request,
+}
+
+impl Request {
+    /// Allocate a request, mirroring C's `device_alloc_request` with an
+    /// `io::Error` built from `errno` instead of a bare `NULL`.
+    pub fn new() -> io::Result<Self> {
+        let ptr = unsafe { ffi_device_alloc_request(DEVICE_DEFAULT_REQUEST) };
+        if ptr.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { ptr })
+    }
+
+    /// The raw request pointer, for handing to C or to a backend.
+    pub fn as_ptr(&self) -> *mut device_request {
+        self.ptr
+    }
+}
+
+impl Deref for Request {
+    type Target = device_request;
+
+    fn deref(&self) -> &device_request {
+        unsafe { &*self.ptr }
+    }
+}
+
+impl DerefMut for Request {
+    fn deref_mut(&mut self) -> &mut device_request {
+        unsafe { &mut *self.ptr }
+    }
+}
+
+impl Drop for Request {
+    fn drop(&mut self) {
+        unsafe { ffi_device_free_request(self.ptr) }
+    }
+}
+
 /// Tear a device down: run the backend's exit routine, destroy the mutex and
 /// release the structure. Mirrors the body of C's `device_module_exit`.
 ///
@@ -668,13 +815,13 @@ mod tests {
         dev.info.package.block.nr_pages = 1 << DEVICE_NR_PAGES_BITS;
         dev.info.package.block.page.size = DEVICE_PAGE_SIZE;
 
-        assert_eq!(dev.get_nr_segments(), 64);
-        assert_eq!(dev.get_blocks_per_segment(), 16);
-        assert_eq!(dev.get_pages_per_segment(), 16 * 128);
-        assert_eq!(dev.get_page_size(), DEVICE_PAGE_SIZE);
+        assert_eq!(dev.nr_segments(), 64);
+        assert_eq!(dev.blocks_per_segment(), 16);
+        assert_eq!(dev.pages_per_segment(), 16 * 128);
+        assert_eq!(dev.page_size(), DEVICE_PAGE_SIZE);
         // The Makefile's default build is the 1GiB ramdisk.
-        assert_eq!(dev.get_total_size(), 1 << 30);
-        assert_eq!(dev.get_total_pages(), (1 << 30) / DEVICE_PAGE_SIZE);
+        assert_eq!(dev.total_size(), 1 << 30);
+        assert_eq!(dev.total_pages(), (1 << 30) / DEVICE_PAGE_SIZE);
     }
 
     #[test]
@@ -781,6 +928,49 @@ mod tests {
             ffi_device_free_request(request);
             ffi_device_free_request(ptr::null_mut());
         }
+    }
+
+    #[test]
+    fn native_request_surface() {
+        unsafe {
+            let mut request = Request::new().expect("allocate a request");
+            assert!(!request.is_finish());
+            // C's DEVICE_WRITE is 0, so a fresh request reads as Write.
+            assert_eq!(request.direction(), Some(DeviceDirection::Write));
+            assert!(request.buffer_mut().is_none());
+
+            request.flag = DeviceDirection::Read.into();
+            assert_eq!(request.direction(), Some(DeviceDirection::Read));
+            request.flag = 3;
+            assert_eq!(request.direction(), None);
+
+            // The native buffer view is the payload C would copy.
+            let mut payload = [0u8; 32];
+            request.data = payload.as_mut_ptr() as *mut c_void;
+            request.data_len = payload.len();
+            let buffer = request.buffer_mut().expect("data is set");
+            assert_eq!(buffer.len(), 32);
+            buffer[0] = 0xab;
+            assert_eq!(payload[0], 0xab);
+            request.data = ptr::null_mut();
+
+            request.mark_finished();
+            assert!(request.is_finish());
+            assert!(!request.as_ptr().is_null());
+        }
+    }
+
+    #[test]
+    fn native_address_and_direction_surface() {
+        let addr = device_address::new(1, 2, 3, 4);
+        assert_eq!(u32::from(addr), addr.lpn);
+        assert_eq!(device_address::from(addr.lpn), addr);
+        assert_eq!(addr.to_string(), "bus 1 chip 2 block 3 page 4 (lpn 0x1849)");
+
+        assert_eq!(DeviceDirection::from_flag(0), Some(DeviceDirection::Write));
+        assert_eq!(DeviceDirection::from_flag(2), Some(DeviceDirection::Erase));
+        assert_eq!(DeviceDirection::from_flag(3), None);
+        assert_eq!(c_uint::from(DeviceDirection::Read), 1);
     }
 
     /// Backend used to drive the trait, the vtable bridge and the dispatch.
