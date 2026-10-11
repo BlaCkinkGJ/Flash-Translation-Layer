@@ -4,12 +4,12 @@
 //! of the C structs, the `nil` sentinel is embedded in the cache exactly as
 //! in C (so `head` points *inside* the cache allocation), and C reads
 //! `cache->capacity` / `cache->size` directly (`lru_get_evict_size` inline in
-//! the header, `test/lru-test.c`) — those offsets are the contract, pinned on
+//! the header, `test/lru-test.c`), and those offsets are the contract, pinned on
 //! both sides by `layout_matches_c` here and the `LRU_STATIC_ASSERT`s in
 //! `include/lru.h`.
 //!
 //! Symbols carry the `ffi_` prefix so they can coexist with `util/lru.c`
-//! while both implementations are linked; the cutover is Task 14.
+//! while both implementations are linked. The cutover is Task 14.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -17,7 +17,7 @@
 //!   `Box` aborts on OOM, as in `src/list.rs`.
 //! - Eviction stops (and logs) when the list is empty while `size` still says
 //!   otherwise. C unlinks the sentinel there, hands it to the dealloc
-//!   callback and `free()`s it — heap corruption. Reachable in both
+//!   callback and `free()`s it, which corrupts the heap. Reachable in both
 //!   implementations by the same route: a failing dealloc callback returns
 //!   early and skips the `size` decrement. See
 //!   `eviction_on_desynced_size_does_not_free_the_sentinel`.
@@ -31,11 +31,11 @@
 //! - `get` is O(1) via a `HashMap` index keyed on the newest node, the issue's
 //!   requested improvement over C's linear scan. It is equivalent: eviction
 //!   takes the tail (oldest) first, so of two nodes sharing a key the newer
-//!   one — the one the index points at, and the one the C scan would return —
+//!   one (the one the index points at, and the one the C scan would return)
 //!   always outlives the older one.
 //! - The eviction policy is C's, not a standard evict-one: a `put` into a full
 //!   cache evicts `capacity` entries, i.e. drains it. Pinned by
-//!   `eviction_drains_whole_cache_when_full`; the issue raised this as an open
+//!   `eviction_drains_whole_cache_when_full`. The issue raised this as an open
 //!   question and the port keeps C behaviour so the cutover stays invisible.
 
 use crate::{pr_debug, pr_err};
@@ -44,13 +44,13 @@ use std::os::raw::c_int;
 use std::ptr;
 
 /// Callback invoked once per evicted / freed entry. Mirrors `lru_dealloc_fn`
-/// in `include/lru.h` (renamed for Rust's `non_camel_case_types`; the ABI is
-/// the same nullable function pointer). `0` means the entry was released
+/// in `include/lru.h` (renamed for Rust's `non_camel_case_types`, same ABI as
+/// the nullable function pointer). `0` means the entry was released
 /// successfully.
 pub type LruDeallocFn = Option<unsafe extern "C" fn(u64, usize) -> c_int>;
 
-/// Mirrors `struct lru_node` in `include/lru.h`. Layout is the C contract;
-/// see `layout_matches_c`.
+/// Mirrors `struct lru_node` in `include/lru.h`. Layout is the C contract.
+/// See `layout_matches_c`.
 #[repr(C)]
 pub struct lru_node {
     pub key: u64,
@@ -63,7 +63,7 @@ pub struct lru_node {
 ///
 /// `index` sits after the C fields, so the C-visible prefix keeps its offsets
 /// while `sizeof(struct lru_cache)` no longer matches. C must therefore not
-/// size-allocate it — only `util/lru.c`'s `malloc` ever did, and that dies
+/// size-allocate it. Only `util/lru.c`'s `malloc` ever did, and that dies
 /// with the C implementation at Task 14.
 ///
 /// The embedded `nil` is self-referential: never move an `lru_cache` by value
@@ -72,9 +72,10 @@ pub struct lru_node {
 pub struct lru_cache {
     /// Total number of entries before a `put` triggers eviction.
     pub capacity: usize,
-    /// Current number of entries; C reads this directly.
+    /// Current number of entries. C reads this directly.
     pub size: usize,
-    /// Sentinel node living in `nil`; `head->next` is MRU, `head->prev` LRU.
+    /// Sentinel node living in `nil`, with `head->next` MRU and `head->prev`
+    /// LRU.
     pub head: *mut lru_node,
     /// Entry release callback, `None` when C passed `NULL`.
     pub deallocate: LruDeallocFn,
@@ -87,7 +88,7 @@ pub struct lru_cache {
 /// Insert `newnode` directly after `node`, as C's `lru_node_insert`.
 ///
 /// # Safety
-/// `node` and `newnode` are live nodes of the same cache; `node->next` is
+/// `node` and `newnode` are live nodes of the same cache. `node->next` is
 /// non-`NULL` (only the embedded sentinel satisfies that unconditionally).
 unsafe fn insert_after(node: *mut lru_node, newnode: *mut lru_node) {
     (*newnode).prev = node;
@@ -107,7 +108,7 @@ unsafe fn unlink(node: *mut lru_node) {
 }
 
 /// Evict the least recently used entry. Mirrors C's `__lru_do_evict`: unlink,
-/// drop the index entry, run the callback, release the node — in that order,
+/// drop the index entry, run the callback, release the node, in that order,
 /// and the node is released even when the callback reports failure.
 ///
 /// # Safety
@@ -140,7 +141,7 @@ unsafe fn evict(cache: &mut lru_cache, nr_evict: usize) -> c_int {
         let head = cache.head;
         if (*head).next == head {
             // C would target the sentinel here, call the dealloc callback with
-            // it and free() it. Stop instead; the accounting stays as C left
+            // it and free() it. Stop instead. The accounting stays as C left
             // it (see the module docs).
             pr_debug!("eviction skipped: list is empty (size: {})", cache.size);
             break;
@@ -212,7 +213,7 @@ pub unsafe extern "C" fn ffi_lru_put(
             cache.size,
             cache.capacity
         );
-        // C ignores this return value; mirror that.
+        // C ignores this return value, so mirror that.
         let _ = evict(cache, cache.capacity);
     }
 
@@ -369,7 +370,7 @@ mod tests {
             "lru_node size"
         );
 
-        // C-visible prefix of `lru_cache`; C never reads past `nil`, and the
+        // C-visible prefix of `lru_cache`. C never reads past `nil`, and the
         // Rust-only `index` tail is intentionally not asserted against C's
         // sizeof.
         assert_eq!(offset_of!(lru_cache, capacity), 0);
@@ -472,7 +473,7 @@ mod tests {
 
     #[test]
     fn duplicate_keys_keep_c_behaviour() {
-        // C inserts a second node for a repeated key; `get` returns the newest
+        // C inserts a second node for a repeated key. `get` returns the newest
         // one (its scan starts at the head, and the index points at the same
         // node), and eviction still takes the older node first. No dealloc
         // callback here, so this test shares no state with the recording one.
@@ -499,7 +500,7 @@ mod tests {
     fn eviction_on_desynced_size_does_not_free_the_sentinel() {
         // Two failing callbacks leave `size` ahead of the list, exactly as C's
         // early return does. The next full `put` then runs out of real nodes
-        // mid-eviction — C's `__lru_do_evict` would unlink the sentinel, call
+        // mid-eviction. C's `__lru_do_evict` would unlink the sentinel, call
         // the callback with it and free() it. The port must stop instead.
         FAILURE_CALLS.store(0, Ordering::SeqCst);
         FAILURE_SENTINELS.store(0, Ordering::SeqCst);

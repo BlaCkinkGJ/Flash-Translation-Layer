@@ -11,7 +11,7 @@
 
 use std::io::Write;
 
-/// Install `env_logger` with JSON output. Safe to call repeatedly;
+/// Install `env_logger` with JSON output. Safe to call repeatedly.
 /// `try_init` no-ops after the first successful install.
 pub fn init() {
     let _ = env_logger::Builder::from_env(
@@ -87,7 +87,7 @@ macro_rules! pr_err {
 macro_rules! pr_err { ($($arg:tt)*) => {}; }
 
 /// `pr_debug!` is filtered by the `log` crate via `RUST_LOG=debug`.
-/// The macro itself is not gated by `debug_assertions` — release
+/// The macro itself is not gated by `debug_assertions`, so release
 /// builds with the right filter will see debug output.
 #[macro_export]
 macro_rules! pr_debug {

@@ -7,7 +7,7 @@
 //! `->data` directly, so the node layout is part of the contract.
 //!
 //! Symbols carry the `ffi_` prefix so they can coexist with `util/list.c`
-//! while both implementations are linked; the cutover is Task 14.
+//! while both implementations are linked. The cutover is Task 14.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -17,16 +17,16 @@
 //!   instead of dereferencing `NULL`.
 //! - `ffi_list_sort` re-stitches a scratch `Vec<*mut list_node_t>` with
 //!   `sort_by` (stable, like C's merge sort, so equal elements keep their
-//!   order). ponytail: O(n) transient memory on the GC-time sort only —
+//!   order). ponytail: O(n) transient memory on the GC-time sort only,
 //!   swap for an in-place merge if the sort ever lands on the write path.
 
 use std::os::raw::{c_int, c_void};
 
 /// Mirrors `list_node_t` in `include/list.h`. Field order and types are the
-/// C contract; see `node_layout_matches_c`.
+/// C contract. See `node_layout_matches_c`.
 #[repr(C)]
 pub struct list_node_t {
-    /// Opaque payload owned by the caller; never read or freed here.
+    /// Opaque payload owned by the caller, never read or freed here.
     pub data: *mut c_void,
     /// Next node towards the tail, `NULL` at the tail.
     pub next: *mut list_node_t,
@@ -56,7 +56,8 @@ pub unsafe extern "C" fn ffi_list_prepend(
 }
 
 /// Remove the first node whose `data` pointer equals `data` (pointer
-/// equality, not payload equality — the FTL stores LPNs as fake pointers).
+/// equality, not payload equality, because the FTL stores LPNs as fake
+/// pointers).
 /// Returns the head, unchanged if no node matched.
 ///
 /// # Safety
