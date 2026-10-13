@@ -546,17 +546,17 @@ mod raspberry;
 mod zone;
 
 #[cfg(feature = "bluedbm")]
-const BLUEDBM_INIT: Option<SubmoduleInitFn> = Some(bluedbm::bluedbm_device_init);
+const BLUEDBM_INIT: Option<SubmoduleInitFn> = Some(bluedbm::ffi_bluedbm_device_init);
 #[cfg(not(feature = "bluedbm"))]
 const BLUEDBM_INIT: Option<SubmoduleInitFn> = None;
 
 #[cfg(feature = "zone")]
-const ZONE_INIT: Option<SubmoduleInitFn> = Some(zone::zone_device_init);
+const ZONE_INIT: Option<SubmoduleInitFn> = Some(zone::ffi_zone_device_init);
 #[cfg(not(feature = "zone"))]
 const ZONE_INIT: Option<SubmoduleInitFn> = None;
 
 #[cfg(feature = "raspberry")]
-const RASPBERRY_INIT: Option<SubmoduleInitFn> = Some(raspberry::raspberry_device_init);
+const RASPBERRY_INIT: Option<SubmoduleInitFn> = Some(raspberry::ffi_raspberry_device_init);
 #[cfg(not(feature = "raspberry"))]
 const RASPBERRY_INIT: Option<SubmoduleInitFn> = None;
 

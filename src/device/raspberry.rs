@@ -47,17 +47,19 @@ impl DeviceOperations for RaspberryBackend {
 ///
 /// # Safety
 /// C's `submodule_init[]` contract: `dev` is a zeroed device.
-pub unsafe extern "C" fn raspberry_device_init(dev: *mut device, _flags: u64) -> c_int {
+#[no_mangle]
+pub unsafe extern "C" fn ffi_raspberry_device_init(dev: *mut device, _flags: u64) -> c_int {
     (*dev).install_backend(RaspberryBackend);
-    (*dev).d_submodule_exit = Some(raspberry_device_exit);
+    (*dev).d_submodule_exit = Some(ffi_raspberry_device_exit);
     0
 }
 
 /// Exit routine of the raspberry module, C's `raspberry_device_exit`.
 ///
 /// # Safety
-/// `dev` was initialized by [`raspberry_device_init`].
-pub unsafe extern "C" fn raspberry_device_exit(dev: *mut device) -> c_int {
+/// `dev` was initialized by [`ffi_raspberry_device_init`].
+#[no_mangle]
+pub unsafe extern "C" fn ffi_raspberry_device_exit(dev: *mut device) -> c_int {
     (*dev).uninstall_backend::<RaspberryBackend>();
     0
 }
@@ -89,10 +91,10 @@ mod tests {
             assert_eq!(backend.close(ptr::null_mut()), -ENOSYS);
 
             let mut dev = zeroed_device();
-            assert_eq!(raspberry_device_init(&mut dev, 0), 0);
+            assert_eq!(ffi_raspberry_device_init(&mut dev, 0), 0);
             assert!(!dev.d_op.is_null());
             assert!(!dev.d_private.is_null());
-            assert_eq!(raspberry_device_exit(&mut dev), 0);
+            assert_eq!(ffi_raspberry_device_exit(&mut dev), 0);
             assert!(dev.d_op.is_null());
             assert!(dev.d_private.is_null());
         }

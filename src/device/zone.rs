@@ -41,17 +41,19 @@ impl DeviceOperations for ZoneBackend {
 ///
 /// # Safety
 /// C's `submodule_init[]` contract: `dev` is a zeroed device.
-pub unsafe extern "C" fn zone_device_init(dev: *mut device, _flags: u64) -> c_int {
+#[no_mangle]
+pub unsafe extern "C" fn ffi_zone_device_init(dev: *mut device, _flags: u64) -> c_int {
     (*dev).install_backend(ZoneBackend);
-    (*dev).d_submodule_exit = Some(zone_device_exit);
+    (*dev).d_submodule_exit = Some(ffi_zone_device_exit);
     0
 }
 
 /// Exit routine of the zone module, C's `zone_device_exit`.
 ///
 /// # Safety
-/// `dev` was initialized by [`zone_device_init`].
-pub unsafe extern "C" fn zone_device_exit(dev: *mut device) -> c_int {
+/// `dev` was initialized by [`ffi_zone_device_init`].
+#[no_mangle]
+pub unsafe extern "C" fn ffi_zone_device_exit(dev: *mut device) -> c_int {
     (*dev).uninstall_backend::<ZoneBackend>();
     0
 }
@@ -83,10 +85,10 @@ mod tests {
             assert_eq!(backend.close(ptr::null_mut()), -ENOSYS);
 
             let mut dev = zeroed_device();
-            assert_eq!(zone_device_init(&mut dev, 0), 0);
+            assert_eq!(ffi_zone_device_init(&mut dev, 0), 0);
             assert!(!dev.d_op.is_null());
             assert!(!dev.d_private.is_null());
-            assert_eq!(zone_device_exit(&mut dev), 0);
+            assert_eq!(ffi_zone_device_exit(&mut dev), 0);
             assert!(dev.d_op.is_null());
             assert!(dev.d_private.is_null());
         }
