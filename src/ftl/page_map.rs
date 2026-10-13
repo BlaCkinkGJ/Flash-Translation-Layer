@@ -2,21 +2,19 @@
 //!
 //! [`get_free_page`] hands out a physical page for the next write using the
 //! same round-robin cursor (`pgftl->alloc_segnum`) and first-zero-bit scan as
-//! C. [`update_map`] writes one L2P entry. Both are exposed as `ffi_`-prefixed
+//! C. [`update_map`] writes one L2P entry. Both are exported as `ffi_`-prefixed
 //! C-ABI entry points so they can coexist with the still-linked C versions
-//! until the Task 14 cutover, and as the native methods
-//! [`PageFtl::get_free_page`] / [`PageFtl::update_map`] for Rust callers.
+//! until the Task 14 cutover, and as native functions for Rust callers.
 //!
 //! The free-page path mirrors C's `__ATOMIC_SEQ_CST` updates of
 //! `nr_free_pages` and `nr_valid_pages` and its `find_first_zero_bit` scan. It
 //! keeps C's "skip and retry" behaviour when the free counter and the bitmap
 //! disagree (C logs a warning and moves to the next segment).
 //!
-//! One more deviation from C: C packs the segment number as
-//! `paddr.format.block = (uint16_t)segnum` (16-bit truncation) while
-//! `device_address::new` masks with the 19-bit `BLOCK_MASK`. The two agree for
-//! `segnum < 65536`, which is outside the design envelope (the ramdisk has 64
-//! segments), and C is already broken past that point.
+//! The packed address mirrors C exactly: `paddr.format.block = (uint16_t)segnum`
+//! then `paddr.lpn |= page`, so the segment number truncates to 16 bits the
+//! same way C's cast does, and the low (bus + chip + page) bits carry the
+//! page-within-segment index.
 
 use core::ffi::c_int;
 use core::sync::atomic::Ordering;
@@ -80,9 +78,9 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> device_address {
             continue;
         }
 
-        // C: `paddr.lpn = 0; paddr.format.block = segnum; paddr.lpn |= page;`.
-        // The low (bus + chip + page) bits carry the page-within-segment index.
-        let mut paddr = device_address::new(0, 0, segnum as u32, 0);
+        // C: `paddr.lpn = 0; paddr.format.block = (uint16_t)segnum; paddr.lpn |= page;`.
+        // The cast truncates the segment number to 16 bits, matching C.
+        let mut paddr = device_address::new(0, 0, (segnum as u16) as u32, 0);
         paddr.lpn |= page as u32;
 
         unsafe { segment.set_use_bit(page) };
