@@ -22,10 +22,10 @@
 //!
 //! - The structs use Rust names ([`PageFtl`] / [`PageFtlSegment`]). Only the
 //!   layout matters to C, and Rust naming keeps them out of `#[allow]`s.
-//! - The `rwlock` field is omitted. C adds it only under
-//!   `PAGE_FTL_USE_GLOBAL_RWLOCK`, which the Makefile sets for the non-default
-//!   `USE_ZONE_DEVICE` build. This port mirrors the default (ramdisk) layout,
-//!   same as [`crate::device`] omits the raspberry address view.
+//! - The `rwlock` field is behind the `page_ftl_global_rwlock` cargo feature,
+//!   mirroring C's `PAGE_FTL_USE_GLOBAL_RWLOCK` (the Makefile sets it for the
+//!   non-default `USE_ZONE_DEVICE` build). The default layout omits it, and
+//!   `layout_matches_c` asserts both the present and absent offsets.
 //! - The header's `static inline` helpers are safe methods here, not exported
 //!   C-ABI symbols. The C inlines stay live until the cutover.
 //! - `nr_free_pages` and `nr_valid_pages` stay plain `c_int` fields at the ABI
@@ -118,6 +118,10 @@ pub struct PageFtl {
     pub mutex: pthread_mutex_t,
     pub gc_mutex: pthread_mutex_t,
     pub bus_rwlock: *mut pthread_rwlock_t,
+    /// Present only under `-DPAGE_FTL_USE_GLOBAL_RWLOCK` in C. Enable the
+    /// `page_ftl_global_rwlock` cargo feature to match that layout.
+    #[cfg(feature = "page_ftl_global_rwlock")]
+    pub rwlock: pthread_rwlock_t,
     pub gc_thread: pthread_t,
     pub o_flags: core::ffi::c_int,
     pub gc_list: *mut list_node_t,
@@ -173,16 +177,6 @@ impl PageFtl {
             free_pages += segment.free_pages() as usize;
         }
         free_pages
-    }
-
-    /// C's `page_ftl_get_free_page` from `ftl/page/page-map.c`.
-    pub fn get_free_page(&mut self) -> crate::device::device_address {
-        page_map::get_free_page(self)
-    }
-
-    /// C's `page_ftl_update_map` from `ftl/page/page-map.c`.
-    pub fn update_map(&mut self, sector: usize, ppn: u32) -> core::ffi::c_int {
-        page_map::update_map(self, sector, ppn)
     }
 }
 
@@ -246,6 +240,20 @@ mod tests {
             offset_of!(PageFtl, bus_rwlock),
             offset_of!(PageFtl, gc_mutex) + size_of::<pthread_mutex_t>()
         );
+        // `rwlock` sits between `bus_rwlock` and `gc_thread` only under the
+        // C `PAGE_FTL_USE_GLOBAL_RWLOCK` build.
+        #[cfg(feature = "page_ftl_global_rwlock")]
+        {
+            assert_eq!(
+                offset_of!(PageFtl, rwlock),
+                offset_of!(PageFtl, bus_rwlock) + PTR
+            );
+            assert_eq!(
+                offset_of!(PageFtl, gc_thread),
+                offset_of!(PageFtl, rwlock) + size_of::<pthread_rwlock_t>()
+            );
+        }
+        #[cfg(not(feature = "page_ftl_global_rwlock"))]
         assert_eq!(
             offset_of!(PageFtl, gc_thread),
             offset_of!(PageFtl, bus_rwlock) + PTR
