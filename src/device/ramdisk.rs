@@ -25,8 +25,8 @@
 //!   OOM, as `Box` does in the rest of the port. The small `badseg_bitmap`
 //!   `calloc` keeps the `-ENOMEM` path, because `fd->badseg_bitmap` is a raw C
 //!   pointer that C still reads (`ftl/page/page-map.c`).
-//! - Re-opening allocates a fresh buffer. C overwrites `ramdisk->buffer` and
-//!   leaks the previous one.
+//! - Re-opening releases the previous buffers instead of leaking them. C
+//!   overwrites `ramdisk->buffer` and `dev->badseg_bitmap` and leaks both.
 //! - The `ffi_ramdisk_{open,write,read,erase,close}` wrappers dispatch through
 //!   `dev->d_op` instead of reinterpreting `dev->d_private`. C's free functions
 //!   assume `d_private` is a `struct ramdisk`, which is wrong for a device C
@@ -69,10 +69,11 @@ pub struct Ramdisk {
     is_used: UnsafeCell<Vec<u64>>,
 }
 
-// C's ramdisk is reachable from any thread with no synchronization, and the
-// device layer does not add a bound. Sharing `&Ramdisk` across threads is
-// therefore sound only if callers do not issue overlapping requests, the same
-// contract C has. The `UnsafeCell`s are what would otherwise make this `!Sync`.
+// Every method that touches the cells above is `unsafe`, so safe code cannot
+// race through a shared `&Ramdisk`. The marker states the backend contract from
+// `DeviceOperations`: a backend is callable from any thread, and it is the
+// caller's job not to issue overlapping requests, the same deal C's ramdisk
+// makes. `UnsafeCell` is what would otherwise make this `!Sync`.
 unsafe impl Sync for Ramdisk {}
 
 impl Ramdisk {
@@ -82,12 +83,6 @@ impl Ramdisk {
             buffer: UnsafeCell::new(Vec::new()),
             is_used: UnsafeCell::new(Vec::new()),
         }
-    }
-}
-
-impl Default for Ramdisk {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -110,6 +105,12 @@ impl DeviceOperations for Ramdisk {
         let is_used = vec![0u64; total_pages.div_ceil(BITS_PER_UINT64)];
 
         let nr_segments = (*dev).nr_segments();
+        // C leaks the previous bitmap when `open` runs twice. Release it here
+        // the way `close` does, so the two paths cannot disagree.
+        if !(*dev).badseg_bitmap.is_null() {
+            libc::free((*dev).badseg_bitmap as *mut c_void);
+            (*dev).badseg_bitmap = ptr::null_mut();
+        }
         let badseg = libc::calloc(
             nr_segments.div_ceil(BITS_PER_UINT64),
             size_of::<u64>(),
@@ -216,7 +217,7 @@ impl DeviceOperations for Ramdisk {
         let lpn = (*request).paddr.lpn as usize;
         let data_len = (*request).data_len;
         let start = lpn * page_size;
-        let buffer = &mut *self.buffer.get();
+        let buffer = &*self.buffer.get();
         let dst = slice::from_raw_parts_mut((*request).data as *mut u8, data_len);
         dst.copy_from_slice(&buffer[start..start + data_len]);
 
@@ -417,6 +418,10 @@ mod tests {
         assert_eq!(ret, 0, "ramdisk module init");
         assert!(!dev.is_null());
         dev
+    }
+
+    fn zeroed_device() -> device {
+        unsafe { core::mem::MaybeUninit::<device>::zeroed().assume_init() }
     }
 
     unsafe fn open(dev: *mut device) {
@@ -685,6 +690,29 @@ mod tests {
 
             assert_eq!(ffi_ramdisk_close(dev), 0);
             assert_eq!(ffi_device_module_exit(dev), 0);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn out_of_range_lpn_panics_instead_of_corrupting() {
+        // C's `memcpy(&ramdisk->buffer[addr.lpn * page_size], ...)` runs off
+        // the buffer. The Rust port bounds-checks. Call the trait method
+        // directly so the panic unwinds into the harness instead of aborting
+        // across the `extern "C"` shim.
+        unsafe {
+            let mut dev = zeroed_device();
+            let ramdisk = Ramdisk::new();
+            assert_eq!(ramdisk.open(&mut dev, ptr::null(), 0), 0);
+
+            let mut request = Request::new().expect("allocate a request");
+            let mut page = vec![0u8; dev.page_size()];
+            request.paddr = device_address::from(dev.total_pages() as u32);
+            request.data_len = page.len();
+            request.flag = DeviceDirection::Write.into();
+            request.data = page.as_mut_ptr() as *mut c_void;
+            request.end_rq = None;
+            ramdisk.write(&mut dev, request.as_ptr());
         }
     }
 }
