@@ -52,10 +52,12 @@
 //!   the raspberry build's bit counts, and the Pi NAND path is out of scope, so
 //!   it lands with the raspberry backend (Task 7) instead of carrying a
 //!   constant that is wrong for its own target. See [`device_address`].
-//! - `ffi_device_module_init` dispatches through an all-`None` backend table:
-//!   the Rust backends arrive with Tasks 6 (ramdisk) and 7 (stubs), and C's
-//!   `device/device.c` keeps its own table and stays the live path for C
-//!   callers until the cutover, so nothing regresses meanwhile.
+//! - `ffi_device_module_init` dispatches through a backend table where only
+//!   the ramdisk entry is wired (Task 6). The other three arrive with Task 7,
+//!   and C's `device/device.c` keeps its own table and stays the live path for
+//!   C callers until the cutover, so nothing regresses meanwhile.
+
+pub mod ramdisk;
 
 use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::mem::MaybeUninit;
@@ -538,12 +540,16 @@ pub type SubmoduleInitFn = unsafe extern "C" fn(*mut device, u64) -> c_int;
 
 /// C's `submodule_init[]`, indexed by [`DeviceModule`].
 ///
-/// Every slot is `None` in this task: the Rust backends arrive with Tasks 6
-/// (ramdisk) and 7 (stubs). C's `device/device.c` keeps its own table and stays
-/// the live path for C callers until the Task 14 cutover, so no C caller
-/// regresses while the Rust table is still empty.
-static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] =
-    [None; DEVICE_MODULE_COUNT];
+/// Task 6 wired the ramdisk entry and Task 7 fills the remaining three. C's
+/// `device/device.c` keeps its own table and stays the live path for C callers
+/// until the Task 14 cutover, so no C caller regresses while the Rust table is
+/// still being filled.
+static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] = [
+    Some(ramdisk::ffi_ramdisk_device_init),
+    None,
+    None,
+    None,
+];
 
 /// Set `errno`, the way C's failure paths do before returning a negative value.
 ///
@@ -1141,15 +1147,32 @@ mod tests {
 
     #[test]
     fn exported_module_init_reports_unported_backends() {
-        // The exported table is still empty: Tasks 6 and 7 fill it, and this
+        // Task 6 wired the ramdisk entry. Tasks 7 fill the rest, and this
         // assertion is what tells them the seam moved.
         unsafe {
             let mut dev: *mut device = ptr::null_mut();
             assert_eq!(
                 ffi_device_module_init(DeviceModule::Ramdisk as u64, &mut dev, 0),
-                -libc::ENODEV
+                0
             );
-            assert!(dev.is_null());
+            assert!(!dev.is_null());
+            assert!(!(*dev).d_op.is_null());
+            assert_eq!(ffi_device_module_exit(dev), 0);
+
+            for module in [
+                DeviceModule::Bluedbm,
+                DeviceModule::Zone,
+                DeviceModule::Raspberry,
+            ] {
+                let mut dev: *mut device = ptr::null_mut();
+                assert_eq!(
+                    ffi_device_module_init(module as u64, &mut dev, 0),
+                    -libc::ENODEV
+                );
+                assert!(dev.is_null());
+            }
+
+            let mut dev: *mut device = ptr::null_mut();
             assert_eq!(
                 ffi_device_module_init(DEVICE_MODULE_COUNT as u64, &mut dev, 0),
                 -libc::EINVAL
