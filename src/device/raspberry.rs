@@ -14,7 +14,7 @@
 
 use core::ffi::{c_char, c_int};
 
-use libc::ENOSYS;
+use libc::{EINVAL, ENOSYS};
 
 use crate::device::{device, device_request, DeviceOperations};
 
@@ -46,9 +46,12 @@ impl DeviceOperations for RaspberryBackend {
 /// Init routine of the raspberry module, C's `raspberry_device_init`.
 ///
 /// # Safety
-/// C's `submodule_init[]` contract: `dev` is a zeroed device.
+/// `dev` is `NULL` or a live device with no backend installed yet.
 #[no_mangle]
 pub unsafe extern "C" fn ffi_raspberry_device_init(dev: *mut device, _flags: u64) -> c_int {
+    if dev.is_null() {
+        return -EINVAL;
+    }
     (*dev).install_backend(RaspberryBackend);
     (*dev).d_submodule_exit = Some(ffi_raspberry_device_exit);
     0
@@ -57,9 +60,13 @@ pub unsafe extern "C" fn ffi_raspberry_device_init(dev: *mut device, _flags: u64
 /// Exit routine of the raspberry module, C's `raspberry_device_exit`.
 ///
 /// # Safety
-/// `dev` was initialized by [`ffi_raspberry_device_init`].
+/// `dev` is `NULL` or a device whose backend is a [`RaspberryBackend`] from
+/// [`ffi_raspberry_device_init`].
 #[no_mangle]
 pub unsafe extern "C" fn ffi_raspberry_device_exit(dev: *mut device) -> c_int {
+    if dev.is_null() || (*dev).d_private.is_null() {
+        return 0;
+    }
     (*dev).uninstall_backend::<RaspberryBackend>();
     0
 }
@@ -89,6 +96,9 @@ mod tests {
             );
             assert_eq!(backend.erase(ptr::null_mut(), ptr::null_mut()), -ENOSYS);
             assert_eq!(backend.close(ptr::null_mut()), -ENOSYS);
+
+            assert_eq!(ffi_raspberry_device_init(ptr::null_mut(), 0), -EINVAL);
+            assert_eq!(ffi_raspberry_device_exit(ptr::null_mut()), 0);
 
             let mut dev = zeroed_device();
             assert_eq!(ffi_raspberry_device_init(&mut dev, 0), 0);

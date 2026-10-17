@@ -46,8 +46,9 @@
 //! - The bit counts and `DEVICE_PAGE_SIZE` are the default (ramdisk)
 //!   `DEVICE_INFO` from the Makefile. The non-default backends compile C with
 //!   different `-DDEVICE_NR_*_BITS` (zoned `3/3/5/21`, raspberry `1/1/4/24`
-//!   with a 2048 byte page). Their Rust ports (Task 7) must bring the matching
-//!   configuration with them.
+//!   with a 2048 byte page). The Task 7 stubs deliberately set no geometry
+//!   because every operation returns `-ENOSYS`, and the hardware ports bring
+//!   the matching bit counts when they replace the stubs.
 //! - C's `raspberry` address view is not ported: it only means something under
 //!   the raspberry build's bit counts, and the Pi NAND path is out of scope, so
 //!   it lands with the raspberry backend (Task 7) instead of carrying a
@@ -165,7 +166,8 @@ impl From<DeviceDirection> for c_uint {
 /// `page` field for the Pi NAND API (`device/raspberry/raspberry.c` reads
 /// `addr.raspberry.page` and `.block`). It is only meaningful under the
 /// raspberry build's bit counts, which this port does not express, so it lands
-/// with the raspberry backend (Task 7). C's `raspberry_converter` view is a
+/// with the raspberry hardware port (the Task 7 work shipped stubs only, so
+/// nothing landed there yet). C's `raspberry_converter` view is a
 /// field-by-field copy of `format` and needs no helper here.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
