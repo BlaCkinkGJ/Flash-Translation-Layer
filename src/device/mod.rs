@@ -51,12 +51,13 @@
 //!   the matching bit counts when they replace the stubs.
 //! - C's `raspberry` address view is not ported: it only means something under
 //!   the raspberry build's bit counts, and the Pi NAND path is out of scope, so
-//!   it lands with the raspberry backend (Task 7) instead of carrying a
-//!   constant that is wrong for its own target. See [`device_address`].
-//! - `ffi_device_module_init` dispatches through a backend table where only
-//!   the ramdisk entry is wired (Task 6). The other three arrive with Task 7,
-//!   and C's `device/device.c` keeps its own table and stays the live path for
-//!   C callers until the cutover, so nothing regresses meanwhile.
+//!   it lands with the raspberry hardware port instead of carrying a constant
+//!   that is wrong for its own target. See [`device_address`].
+//! - `ffi_device_module_init` dispatches through a backend table where the
+//!   ramdisk entry is wired (Task 6) and the three stub slots are wired behind
+//!   their Cargo features (Task 7). C's `device/device.c` keeps its own table
+//!   and stays the live path for C callers until the cutover, so nothing
+//!   regresses meanwhile.
 
 pub mod ramdisk;
 
