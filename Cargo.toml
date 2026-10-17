@@ -11,6 +11,14 @@ crate-type = ["staticlib"]
 # Mirrors C `-DENABLE_LOG_SILENT` (Makefile `USE_LOG_SILENT=1`).
 silent = []
 
+# Hardware-specific device backends. Each gates the matching `src/device/*.rs`
+# stub and its `SUBMODULE_INIT` entry, so the default build links no backend
+# that needs libmemio / libzbd / libnand. Full implementations land once the
+# hardware is available.
+bluedbm = []
+raspberry = []
+zone = []
+
 [dependencies]
 # Standard logging facade. Backend-agnostic — swap env_logger for
 # tracing-subscriber / Loki exporter when observability story lands.

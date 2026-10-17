@@ -46,16 +46,18 @@
 //! - The bit counts and `DEVICE_PAGE_SIZE` are the default (ramdisk)
 //!   `DEVICE_INFO` from the Makefile. The non-default backends compile C with
 //!   different `-DDEVICE_NR_*_BITS` (zoned `3/3/5/21`, raspberry `1/1/4/24`
-//!   with a 2048 byte page). Their Rust ports (Task 7) must bring the matching
-//!   configuration with them.
+//!   with a 2048 byte page). The Task 7 stubs deliberately set no geometry
+//!   because every operation returns `-ENOSYS`, and the hardware ports bring
+//!   the matching bit counts when they replace the stubs.
 //! - C's `raspberry` address view is not ported: it only means something under
 //!   the raspberry build's bit counts, and the Pi NAND path is out of scope, so
-//!   it lands with the raspberry backend (Task 7) instead of carrying a
-//!   constant that is wrong for its own target. See [`device_address`].
-//! - `ffi_device_module_init` dispatches through a backend table where only
-//!   the ramdisk entry is wired (Task 6). The other three arrive with Task 7,
-//!   and C's `device/device.c` keeps its own table and stays the live path for
-//!   C callers until the cutover, so nothing regresses meanwhile.
+//!   it lands with the raspberry hardware port instead of carrying a constant
+//!   that is wrong for its own target. See [`device_address`].
+//! - `ffi_device_module_init` dispatches through a backend table where the
+//!   ramdisk entry is wired (Task 6) and the three stub slots are wired behind
+//!   their Cargo features (Task 7). C's `device/device.c` keeps its own table
+//!   and stays the live path for C callers until the cutover, so nothing
+//!   regresses meanwhile.
 
 pub mod ramdisk;
 
@@ -165,7 +167,8 @@ impl From<DeviceDirection> for c_uint {
 /// `page` field for the Pi NAND API (`device/raspberry/raspberry.c` reads
 /// `addr.raspberry.page` and `.block`). It is only meaningful under the
 /// raspberry build's bit counts, which this port does not express, so it lands
-/// with the raspberry backend (Task 7). C's `raspberry_converter` view is a
+/// with the raspberry hardware port (the Task 7 work shipped stubs only, so
+/// nothing landed there yet). C's `raspberry_converter` view is a
 /// field-by-field copy of `format` and needs no helper here.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -538,17 +541,40 @@ impl device {
 /// Init routine of a device backend, C's `submodule_init[]` element type.
 pub type SubmoduleInitFn = unsafe extern "C" fn(*mut device, u64) -> c_int;
 
+#[cfg(feature = "bluedbm")]
+mod bluedbm;
+#[cfg(feature = "raspberry")]
+mod raspberry;
+#[cfg(feature = "zone")]
+mod zone;
+
+#[cfg(feature = "bluedbm")]
+const BLUEDBM_INIT: Option<SubmoduleInitFn> = Some(bluedbm::ffi_bluedbm_device_init);
+#[cfg(not(feature = "bluedbm"))]
+const BLUEDBM_INIT: Option<SubmoduleInitFn> = None;
+
+#[cfg(feature = "zone")]
+const ZONE_INIT: Option<SubmoduleInitFn> = Some(zone::ffi_zone_device_init);
+#[cfg(not(feature = "zone"))]
+const ZONE_INIT: Option<SubmoduleInitFn> = None;
+
+#[cfg(feature = "raspberry")]
+const RASPBERRY_INIT: Option<SubmoduleInitFn> = Some(raspberry::ffi_raspberry_device_init);
+#[cfg(not(feature = "raspberry"))]
+const RASPBERRY_INIT: Option<SubmoduleInitFn> = None;
+
 /// C's `submodule_init[]`, indexed by [`DeviceModule`].
 ///
-/// Task 6 wired the ramdisk entry and Task 7 fills the remaining three. C's
+/// Task 6 wired the ramdisk entry and Task 7 wires the bluedbm / zone /
+/// raspberry stub slots, each enabled by its Cargo feature. C's
 /// `device/device.c` keeps its own table and stays the live path for C callers
 /// until the Task 14 cutover, so no C caller regresses while the Rust table is
 /// still being filled.
 static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] = [
     Some(ramdisk::ffi_ramdisk_device_init),
-    None,
-    None,
-    None,
+    BLUEDBM_INIT,
+    ZONE_INIT,
+    RASPBERRY_INIT,
 ];
 
 /// Set `errno`, the way C's failure paths do before returning a negative value.
@@ -1147,8 +1173,8 @@ mod tests {
 
     #[test]
     fn exported_module_init_reports_unported_backends() {
-        // Task 6 wired the ramdisk entry. Tasks 7 fill the rest, and this
-        // assertion is what tells them the seam moved.
+        // Task 6 wired the ramdisk entry and Task 7 wires the stub slots behind
+        // their Cargo features, so only the slots still empty report -ENODEV.
         unsafe {
             let mut dev: *mut device = ptr::null_mut();
             assert_eq!(
@@ -1159,17 +1185,32 @@ mod tests {
             assert!(!(*dev).d_op.is_null());
             assert_eq!(ffi_device_module_exit(dev), 0);
 
-            for module in [
-                DeviceModule::Bluedbm,
-                DeviceModule::Zone,
-                DeviceModule::Raspberry,
+            for (module, wired) in [
+                (DeviceModule::Bluedbm, cfg!(feature = "bluedbm")),
+                (DeviceModule::Zone, cfg!(feature = "zone")),
+                (DeviceModule::Raspberry, cfg!(feature = "raspberry")),
             ] {
                 let mut dev: *mut device = ptr::null_mut();
+                if !wired {
+                    assert_eq!(
+                        ffi_device_module_init(module as u64, &mut dev, 0),
+                        -libc::ENODEV
+                    );
+                    assert!(dev.is_null());
+                    continue;
+                }
+
+                // The wired slot holds the Task 7 stub, whose vtable C would
+                // call answers -ENOSYS instead of touching hardware.
                 assert_eq!(
                     ffi_device_module_init(module as u64, &mut dev, 0),
-                    -libc::ENODEV
+                    0,
+                    "{module:?} should install its stub"
                 );
-                assert!(dev.is_null());
+                assert!(!dev.is_null());
+                let open = (*(*dev).d_op).open.unwrap();
+                assert_eq!(open(dev, ptr::null(), 0), -libc::ENOSYS);
+                assert_eq!(ffi_device_module_exit(dev), 0);
             }
 
             let mut dev: *mut device = ptr::null_mut();
