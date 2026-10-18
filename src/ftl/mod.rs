@@ -219,14 +219,30 @@
 //!   sleep aborts the process there, while the port resumes the pause.
 //! - The checkpoint is the port's own addition: C never persists the mapping
 //!   table and leaves recovery as a `@todo` (`ftl/page/page-core.c:238`).
-//!   `page_core::close` writes the L2P table, `alloc_segnum` and a CRC32 over
-//!   the entries to `<device name>.ckpt`, and `page_core::open` loads it back
-//!   and rebuilds the segment counters, the `use_bits` bits and the GC lists
-//!   from it. A missing, foreign, truncated or checksum-failing file leaves
-//!   C's empty mapping in place, an unreadable file is a warning, and a failed
-//!   write never turns a successful close into a failure. The path cannot ride
-//!   in `struct page_ftl`, whose layout is pinned, so it is keyed by FTL in a
-//!   static map that `close` clears.
+//!   `page_core::close` writes the magic and version, `alloc_segnum`, the
+//!   device's segment and page counts, the L2P table and each segment's free
+//!   page count to `<device name>.ckpt`, and `page_core::open` loads it back.
+//!   The path cannot ride in `struct page_ftl`, whose layout is pinned, so it
+//!   is keyed by FTL in a static map that `close` clears.
+//! - The checkpoint's `use_bits` bits come from the segment free page counts,
+//!   not from the mapping: a page whose mapping an overwrite invalidated is
+//!   still programmed and still counted until the erase
+//!   (`ftl/page/page-write.c:43-47`), so a mapping alone would present it as free
+//!   and the next allocation would program it twice. The programmed pages are
+//!   the prefix below the free count, because the allocator takes the lowest
+//!   zero bit (`ftl/page/page-map.c:71`) and only an erase clears a bit
+//!   (`ftl/page/page-core.c:110-124`). An entry outside the segment array, on a
+//!   page that is not programmed, or on a page an earlier entry claimed is
+//!   dropped, which C does not have to do because it never reads a file.
+//! - The checkpoint's checksum covers the header as well as the body, and the
+//!   file is written to a sibling and renamed over the target, so a corrupted
+//!   `alloc_segnum` is caught rather than trusted and a save that cannot
+//!   complete leaves the last good file intact. A missing, foreign, truncated,
+//!   oversized, other-geometry, other-size, checksum-failing or otherwise
+//!   inconsistent file leaves C's empty mapping in place, an unreadable file is
+//!   a warning, and a failed write never turns a successful close into a
+//!   failure. The load reads the header first and sizes the body from the
+//!   device, so a foreign file cannot decide an allocation here.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
