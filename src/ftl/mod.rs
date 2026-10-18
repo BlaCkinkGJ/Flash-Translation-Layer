@@ -1,54 +1,44 @@
-//! Page-mapping FTL types ported from `include/page.h`.
+//! Page-mapping FTL types, ported from the deleted C `include/page.h`.
 //!
-//! Two layers live here, following the split in [`crate::device`]:
+//! [`PageFtl`] and [`PageFtlSegment`] are plain Rust types. C used to read them
+//! by offset (`pgftl->trans_map`, `pgftl->alloc_segnum`, `pgftl->segments`,
+//! `segment->use_bits`, ...), which pinned `#[repr(C)]` here and a matching
+//! `PAGE_FTL_STATIC_ASSERT` block in the header. Task 16b removed both: C now
+//! reaches the FTL through `page_interface::ffi_page_ftl_module_init` and the
+//! `flash_operations` table, so the fields are free to change.
 //!
-//! - The C ABI layer: [`PageFtl`] and [`PageFtlSegment`] are `#[repr(C)]`
-//!   mirrors of `struct page_ftl` / `struct page_ftl_segment`. C reads these by
-//!   offset (`pgftl->trans_map`, `pgftl->alloc_segnum`, `pgftl->segments`,
-//!   `pgftl->dev`, `segment->nr_free_pages`, `segment->use_bits`, ...), so the
-//!   layout is the contract. It is pinned on both sides: `layout_matches_c`
-//!   here, and the `PAGE_FTL_STATIC_ASSERT` block next to the C `struct`
-//!   definitions. Both assert the same offset formulas, so either side
-//!   drifting breaks a build.
-//! - The native layer: safe accessors on [`PageFtl`] (`map_size`, `lpn`,
-//!   `page_offset`, `segment_number`, `free_pages`) plus the address mapping
-//!   in [`page_map`]. Rust callers (Tasks 9-13) use these and never touch raw
-//!   pointers or `__atomic_*` builtins.
+//! The safe accessors on [`PageFtl`] (`map_size`, `lpn`, `page_offset`,
+//! `segment_number`, `free_pages`) and the address mapping in [`page_map`] are
+//! the native layer. Callers use these and never touch raw pointers or
+//! `__atomic_*` builtins.
 //!
 //! `page_ftl_get_free_page` and `page_ftl_update_map` from `ftl/page/page-map.c`
-//! live in [`page_map`], with `ffi_`-prefixed entry points so they can coexist
-//! with the still-linked C implementations until the cutover. The read, write,
-//! garbage collection and core lifecycle paths live in [`page_read`],
-//! [`page_write`], [`page_gc`] and [`page_core`] the same way, and
-//! [`page_interface`] is the flash operations bridge over them, C's
-//! `ftl/page/page-interface.c`.
+//! live in [`page_map`]. The read, write, garbage collection and core lifecycle
+//! paths live in [`page_read`], [`page_write`], [`page_gc`] and [`page_core`]
+//! the same way, and [`page_interface`] is the flash operations bridge over
+//! them, C's `ftl/page/page-interface.c`.
 //!
 //! Deliberate deviations from the C original:
 //!
-//! - The structs use Rust names ([`PageFtl`] / [`PageFtlSegment`]). Only the
-//!   layout matters to C, and Rust naming keeps them out of `#[allow]`s.
 //! - The `rwlock` field is behind the `page_ftl_global_rwlock` cargo feature,
 //!   mirroring C's `PAGE_FTL_USE_GLOBAL_RWLOCK` (the Makefile sets it for the
-//!   non-default `USE_ZONE_DEVICE` build). The default layout omits it, and
-//!   `layout_matches_c` asserts both the present and absent offsets.
-//! - The header's `static inline` helpers are safe methods here, not exported
-//!   C-ABI symbols. The C inlines stay live until the cutover.
+//!   non-default `USE_ZONE_DEVICE` build). Nothing in Rust reads the field, and
+//!   issue #88 owns both switches.
 //! - C's `pgftl->mutex` and `pgftl->gc_mutex` become the `&mut PageFtl` borrow
-//!   everywhere inside the native layer, so the C ABI layer has to hold the
-//!   real mutex for that borrow to exclude a second caller. Every entry point
-//!   two C threads can reach takes [`PageFtlLock`] across the whole operation:
-//!   the three `page_interface` flash hooks, the `ffi_` mirrors of
+//!   everywhere inside the native layer, so an entry point has to hold the real
+//!   mutex for that borrow to exclude a second caller. Every entry point two C
+//!   threads can reach takes [`PageFtlLock`] across the whole operation: the
+//!   three `page_interface` flash hooks and the `ffi_` entry points of
 //!   `page_core::submit_request`, `page_read::read_page`,
-//!   `page_write::write_page`, `page_gc::do_gc`, `page_gc::gc_from_list`, and
+//!   `page_write::write_page`, `page_gc::do_gc`, `page_gc::gc_from_list`, plus
 //!   the GC thread's iteration. C's regions are narrower, three small ones per
 //!   write (`ftl/page/page-write.c:187-189`, `:201-203`, `:226-228`), so a
 //!   Rust entry serializes the whole operation instead. `page_core::open` and
 //!   `page_core::close` create and destroy the mutex and hold nothing.
-//! - `nr_free_pages` and `nr_valid_pages` are `AtomicI32` fields. C reaches
-//!   them only through `__atomic_*` builtins, and `AtomicI32` has the same size
-//!   and alignment as `int`, so the offsets hold and Rust cannot touch them
-//!   non-atomically. `is_gc` stays a plain `c_int` because no C code reads or
-//!   writes it.
+//! - `nr_free_pages` and `nr_valid_pages` are `AtomicI32` fields, because the
+//!   GC thread and the callers' threads both reach them. C touched them through
+//!   `__atomic_*` builtins. `is_gc` existed only to hold `use_bits` at C's
+//!   offset 16 and nothing read it, so it is gone.
 //! - When a segment's `nr_free_pages` and its `use_bits` bitmap disagree, the
 //!   port refuses the out-of-range page C hands out. C's `find_first_zero_bit`
 //!   (`include/bits.h:63`, called from `ftl/page/page-map.c:71` as
@@ -217,10 +207,9 @@
 //!   `close` (`ftl/page/page-core.c:462-465`), where C calls through the
 //!   missing entry, and `page_core::open` reports `-EINVAL` for a device
 //!   without an `open` (`:267-272`), where C calls a `NULL` function pointer.
-//! - The core lifecycle's C-ABI entry points refuse a `NULL` FTL, device,
-//!   request or segment with `-EINVAL`, where C dereferences them and asserts
-//!   on the device (`ftl/page/page-core.c:252`). `ffi_page_ftl_close` keeps C's
-//!   0 for a `NULL` FTL (`:418-421`).
+//! - The core lifecycle refuses a `NULL` FTL, device, request or segment with
+//!   `-EINVAL`, where C dereferences them and asserts on the device
+//!   (`ftl/page/page-core.c:252`).
 //! - C's GC thread loop body is a block inside the loop
 //!   (`ftl/page/page-core.c:55-71`). The port splits it into
 //!   `page_core::gc_thread_iteration` and `page_core::gc_pass`, so a test can
@@ -235,8 +224,9 @@
 //!   `page_core::close` writes the magic and version, `alloc_segnum`, the
 //!   device's segment and page counts, the L2P table and each segment's free
 //!   page count to `<device name>.ckpt`, and `page_core::open` loads it back.
-//!   The path cannot ride in `struct page_ftl`, whose layout is pinned, so it
-//!   is keyed by FTL in a static map that `close` clears.
+//!   C had no field for the name, because its layout was pinned, so the port
+//!   first keyed the path by FTL in a static map. The path now rides in
+//!   [`PageFtl::checkpoint`], which `open` sets and `close` takes.
 //! - The checkpoint's `use_bits` bits come from the segment free page counts,
 //!   not from the mapping: a page whose mapping an overwrite invalidated is
 //!   still programmed and still counted until the erase
@@ -311,6 +301,7 @@
 //!   spins on the current offset forever (`integration-test.c:60-65`), so a
 //!   lost block fails the suite instead of hanging the CI job.
 
+use core::mem::MaybeUninit;
 use core::ptr;
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -329,48 +320,35 @@ pub mod page_write;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-/// C's `PAGE_FTL_CACHE_SIZE`, the write-back cache slot count (unused while
-/// `PAGE_FTL_USE_CACHE` stays commented out in the header).
-pub const PAGE_FTL_CACHE_SIZE: usize = 1 << 10;
-
-/// C's `PAGE_FTL_GC_RATIO`: maximum fraction of segments one GC pass collects.
+/// Maximum fraction of the segments one GC pass collects, C's
+/// `PAGE_FTL_GC_RATIO`.
 pub const PAGE_FTL_GC_RATIO: f64 = 10.0 / 100.0;
 
-/// C's `PAGE_FTL_GC_ALL`: collect every dirty segment.
+/// Collect every dirty segment, C's `PAGE_FTL_GC_ALL`.
 pub const PAGE_FTL_GC_ALL: f64 = 1.0;
 
-/// C's `PAGE_FTL_GC_THRESHOLD`: GC triggers once the free-page fraction drops
-/// below this.
+/// GC triggers once the free-page fraction drops below this, C's
+/// `PAGE_FTL_GC_THRESHOLD`.
 pub const PAGE_FTL_GC_THRESHOLD: f64 = 20.0 / 100.0;
 
-/// C's `enum { PAGE_FTL_IOCTL_TRIM = 0 }`.
+/// C's `enum { PAGE_FTL_IOCTL_TRIM = 0 }`, the ioctl C still issues.
 pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;
 
-/// Mirrors `struct page_ftl_segment` in `include/page.h`.
+/// One segment (block) of the FTL.
 ///
-/// One entry per segment (block). `use_bits` is a bitmap of `pages_per_segment`
-/// bits owned by the FTL, `lpn_list` links the valid pages for GC. Both are
-/// borrowed raw pointers here because C allocates and frees them: see
-/// `page_ftl_segment_data_init` in `ftl/page/page-core.c`, now
-/// [`page_core::segment_data_init`], which frees the list and clears the
-/// bitmap.
+/// One entry per segment. `use_bits` is a bitmap of `pages_per_segment` bits
+/// owned by the FTL, `lpn_list` links the valid pages for GC. Both are borrowed
+/// raw pointers here because the FTL allocates and frees them: see
+/// [`page_core::segment_data_init`], which frees the list and clears the bitmap.
 ///
-/// The two counters are `AtomicI32` because C reaches them only through
-/// `__atomic_load_n`, `__atomic_fetch_add`, `__atomic_fetch_sub` and
-/// `__atomic_store_n` (see `page-map.c`, `page-write.c`, `page-gc.c`,
-/// `page-core.c`). `AtomicI32` has the same size and alignment as `int`, which
-/// `layout_matches_c` asserts, so the mirror keeps C's offsets. A plain field
-/// would let Rust write them non-atomically and race with C.
-///
-/// `is_gc` is an `int` because nothing reads or writes it: the C sources never
-/// touch `segment->is_gc`, and it is kept only because it is part of the C
-/// layout (`use_bits` lands at 16 because of it).
-#[repr(C)]
+/// The two counters are `AtomicI32` because the GC thread and the callers'
+/// threads both reach them, which C did through `__atomic_load_n`,
+/// `__atomic_fetch_add`, `__atomic_fetch_sub` and `__atomic_store_n` (see
+/// `page-map.c`, `page-write.c`, `page-gc.c`, `page-core.c`).
 #[derive(Debug)]
 pub struct PageFtlSegment {
     pub nr_free_pages: AtomicI32,
     pub nr_valid_pages: AtomicI32,
-    pub is_gc: core::ffi::c_int,
     pub use_bits: *mut u64,
     pub lpn_list: *mut list_node_t,
 }
@@ -403,14 +381,19 @@ impl PageFtlSegment {
     }
 }
 
-/// Mirrors `struct page_ftl` in `include/page.h`.
+/// The page FTL: the mapping table, the segment array and the lifecycle state.
 ///
 /// `trans_map` is the page-level L2P table (`uint32_t` per logical page),
 /// `segments` a contiguous array of `nr_segments` [`PageFtlSegment`] entries,
-/// and `alloc_segnum` the round-robin cursor. C reads `trans_map`,
-/// `alloc_segnum`, `segments` and `dev` directly, so their offsets are pinned
-/// by `layout_matches_c`.
-#[repr(C)]
+/// and `alloc_segnum` the round-robin cursor.
+///
+/// The `pthread_*` fields and `o_flags` are still C's: the two mutexes are what
+/// [`PageFtlLock`] takes, `gc_thread` is the id [`page_core::close`] joins, and
+/// `bus_rwlock` is the per-bus lock array. Issue #88 replaces them.
+///
+/// `checkpoint` is the file [`page_core::close`] writes the mapping to, set by
+/// [`page_core::open`] from the name it was handed. C had no room for it: its
+/// layout was pinned, so the path lived in a table keyed by the FTL address.
 pub struct PageFtl {
     pub trans_map: *mut u32,
     pub alloc_segnum: u64,
@@ -419,17 +402,40 @@ pub struct PageFtl {
     pub mutex: pthread_mutex_t,
     pub gc_mutex: pthread_mutex_t,
     pub bus_rwlock: *mut pthread_rwlock_t,
-    /// Present only under `-DPAGE_FTL_USE_GLOBAL_RWLOCK` in C. Enable the
-    /// `page_ftl_global_rwlock` cargo feature to match that layout.
+    /// Present only under C's `-DPAGE_FTL_USE_GLOBAL_RWLOCK`, which the
+    /// `page_ftl_global_rwlock` cargo feature mirrors. Nothing reads it.
     #[cfg(feature = "page_ftl_global_rwlock")]
     pub rwlock: pthread_rwlock_t,
     pub gc_thread: pthread_t,
     pub o_flags: core::ffi::c_int,
     pub gc_list: *mut list_node_t,
     pub gc_seg_bits: *mut u64,
+    /// The checkpoint file `close` writes the mapping to, or `None` when `open`
+    /// was handed no name. It is a boxed slice and not a `String` because the
+    /// path needs no spare capacity, which keeps the field two words smaller.
+    /// [`PageFtl::zeroed`] sets it explicitly, so nothing here depends on the
+    /// layout of a zeroed `Option`.
+    pub checkpoint: Option<Box<str>>,
 }
 
 impl PageFtl {
+    /// A zeroed FTL: C's `malloc(sizeof(struct page_ftl))` plus `memset(0)`.
+    ///
+    /// Every field is left at zero, which is a null pointer, an empty array or
+    /// an uninitialized lock for all of them, and `checkpoint` is written as
+    /// `None` instead of being left to those bytes, so no field depends on the
+    /// layout of a zeroed `Option`.
+    pub fn zeroed() -> PageFtl {
+        let mut pgftl = MaybeUninit::<PageFtl>::zeroed();
+        // SAFETY: `checkpoint` is the only field whose zeroed bytes are not
+        // known to be a valid value, and it is written before the structure is
+        // taken as initialized.
+        unsafe {
+            ptr::addr_of_mut!((*pgftl.as_mut_ptr()).checkpoint).write(None);
+            pgftl.assume_init()
+        }
+    }
+
     /// Borrow the backing device. Panics when `dev` is null, which C would
     /// dereference anyway.
     fn dev(&self) -> &device {
@@ -534,106 +540,7 @@ impl Drop for PageFtlLock<'_> {
 mod tests {
     use super::*;
     use crate::device::DEVICE_PAGE_SIZE;
-    use core::mem::{align_of, offset_of, size_of, MaybeUninit};
-
-    const PTR: usize = size_of::<*const core::ffi::c_void>();
-
-    fn zeroed_pgftl() -> PageFtl {
-        unsafe { MaybeUninit::<PageFtl>::zeroed().assume_init() }
-    }
-
-    #[test]
-    fn layout_matches_c() {
-        // The counters are `AtomicI32` in Rust and `int` in C. std guarantees
-        // the size, and the alignment must match too or the offsets below move.
-        assert_eq!(size_of::<AtomicI32>(), size_of::<core::ffi::c_int>());
-        assert_eq!(align_of::<AtomicI32>(), align_of::<core::ffi::c_int>());
-
-        // struct page_ftl_segment: 3 ints, then use_bits, lpn_list.
-        assert_eq!(offset_of!(PageFtlSegment, nr_free_pages), 0);
-        assert_eq!(
-            offset_of!(PageFtlSegment, nr_valid_pages),
-            size_of::<core::ffi::c_int>()
-        );
-        assert_eq!(
-            offset_of!(PageFtlSegment, is_gc),
-            2 * size_of::<core::ffi::c_int>()
-        );
-        assert_eq!(
-            offset_of!(PageFtlSegment, use_bits),
-            (3 * size_of::<core::ffi::c_int>()).next_multiple_of(PTR)
-        );
-        assert_eq!(
-            offset_of!(PageFtlSegment, lpn_list),
-            offset_of!(PageFtlSegment, use_bits) + PTR
-        );
-        assert_eq!(
-            size_of::<PageFtlSegment>(),
-            offset_of!(PageFtlSegment, lpn_list) + PTR
-        );
-
-        // struct page_ftl: trans_map, alloc_segnum, segments, dev, mutex,
-        // gc_mutex, bus_rwlock, gc_thread, o_flags, gc_list, gc_seg_bits.
-        assert_eq!(offset_of!(PageFtl, trans_map), 0);
-        assert_eq!(offset_of!(PageFtl, alloc_segnum), PTR);
-        assert_eq!(offset_of!(PageFtl, segments), PTR + size_of::<u64>());
-        assert_eq!(offset_of!(PageFtl, dev), offset_of!(PageFtl, segments) + PTR);
-        assert_eq!(
-            offset_of!(PageFtl, mutex),
-            (offset_of!(PageFtl, dev) + PTR).next_multiple_of(align_of::<pthread_mutex_t>())
-        );
-        assert_eq!(
-            offset_of!(PageFtl, gc_mutex),
-            offset_of!(PageFtl, mutex) + size_of::<pthread_mutex_t>()
-        );
-        assert_eq!(
-            offset_of!(PageFtl, bus_rwlock),
-            offset_of!(PageFtl, gc_mutex) + size_of::<pthread_mutex_t>()
-        );
-        // `rwlock` sits between `bus_rwlock` and `gc_thread` only under the
-        // C `PAGE_FTL_USE_GLOBAL_RWLOCK` build.
-        #[cfg(feature = "page_ftl_global_rwlock")]
-        {
-            assert_eq!(
-                offset_of!(PageFtl, rwlock),
-                offset_of!(PageFtl, bus_rwlock) + PTR
-            );
-            assert_eq!(
-                offset_of!(PageFtl, gc_thread),
-                offset_of!(PageFtl, rwlock) + size_of::<pthread_rwlock_t>()
-            );
-        }
-        #[cfg(not(feature = "page_ftl_global_rwlock"))]
-        assert_eq!(
-            offset_of!(PageFtl, gc_thread),
-            offset_of!(PageFtl, bus_rwlock) + PTR
-        );
-        assert_eq!(
-            offset_of!(PageFtl, o_flags),
-            offset_of!(PageFtl, gc_thread) + size_of::<pthread_t>()
-        );
-        assert_eq!(
-            offset_of!(PageFtl, gc_list),
-            (offset_of!(PageFtl, o_flags) + size_of::<core::ffi::c_int>())
-                .next_multiple_of(PTR)
-        );
-        assert_eq!(
-            offset_of!(PageFtl, gc_seg_bits),
-            offset_of!(PageFtl, gc_list) + PTR
-        );
-        assert_eq!(
-            size_of::<PageFtl>(),
-            (offset_of!(PageFtl, gc_seg_bits) + PTR).next_multiple_of(align_of::<PageFtl>())
-        );
-
-        // PAGE_FTL_CACHE_SIZE is a bit shift, and the GC ratios are the exact
-        // fractions the header spells out.
-        assert_eq!(PAGE_FTL_CACHE_SIZE, 1024);
-        assert_eq!(PAGE_FTL_GC_RATIO, 0.1);
-        assert_eq!(PAGE_FTL_GC_ALL, 1.0);
-        assert_eq!(PAGE_FTL_GC_THRESHOLD, 0.2);
-        assert_eq!(PAGE_FTL_IOCTL_TRIM, 0);
-    }
+    use core::mem::MaybeUninit;
 
     #[test]
     fn geometry_helpers_match_c() {
@@ -644,7 +551,7 @@ mod tests {
         dev.info.package.block.nr_pages = 128;
         dev.info.package.block.page.size = DEVICE_PAGE_SIZE;
 
-        let mut pgftl = zeroed_pgftl();
+        let mut pgftl = PageFtl::zeroed();
         pgftl.dev = &mut dev;
 
         // 4 segments * (2*2*128) pages * 8192 bytes.
@@ -662,7 +569,6 @@ mod tests {
         let mut segments = [PageFtlSegment {
             nr_free_pages: AtomicI32::new(0),
             nr_valid_pages: AtomicI32::new(0),
-            is_gc: 0,
             use_bits: use_bits.as_mut_ptr(),
             lpn_list: core::ptr::null_mut(),
         }];
@@ -671,7 +577,7 @@ mod tests {
         let mut dev = unsafe { MaybeUninit::<device>::zeroed().assume_init() };
         dev.info.package.nr_blocks = 1;
 
-        let mut pgftl = zeroed_pgftl();
+        let mut pgftl = PageFtl::zeroed();
         pgftl.dev = &mut dev;
         pgftl.segments = segments.as_mut_ptr();
 

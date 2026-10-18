@@ -7,11 +7,9 @@
 //! `gc_ratio * nr_segments` times. [`gc_list_cmp`], [`erase_end_rq`],
 //! [`pick_gc_target`], [`segment_erase`], [`read_valid_page`],
 //! [`write_valid_page`] and [`valid_page_copy`] mirror the file's static
-//! helpers. The C-ABI entry points [`ffi_page_ftl_do_gc`] and
-//! [`ffi_page_ftl_gc_from_list`] carry the `ffi_` prefix so they can coexist
-//! with the still linked C `page_ftl_do_gc` and `page_ftl_gc_from_list` until
-//! the Task 14 cutover. C does not declare `page_ftl_gc_list_cmp` in a header,
-//! so its port stays private.
+//! helpers. The C-ABI entry points are [`ffi_page_ftl_do_gc`] and
+//! [`ffi_page_ftl_gc_from_list`]. C does not declare `page_ftl_gc_list_cmp` in
+//! a header, so its port stays private.
 //!
 //! The loop's request dispatch is
 //! [`crate::ftl::page_core::submit_request`], C's `page_ftl_submit_request`,

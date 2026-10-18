@@ -72,14 +72,12 @@ impl Fixture {
             .map(|segnum| PageFtlSegment {
                 nr_free_pages: AtomicI32::new(pages_per_segment as i32),
                 nr_valid_pages: AtomicI32::new(0),
-                is_gc: 0,
                 use_bits: unsafe { use_bits.as_mut_ptr().add(segnum * WORDS_PER_SEGMENT) },
                 lpn_list: ptr::null_mut(),
             })
             .collect();
 
-        let mut pgftl =
-            Box::new(unsafe { core::mem::MaybeUninit::<PageFtl>::zeroed().assume_init() });
+        let mut pgftl = Box::new(PageFtl::zeroed());
         pgftl.dev = dev;
         pgftl.trans_map = trans_map.as_mut_ptr();
         pgftl.segments = segments.as_ptr() as *mut PageFtlSegment;
@@ -301,8 +299,7 @@ impl CoreFixture {
             (*dev).info.package.block.nr_pages = pages_per_segment;
         }
 
-        let mut pgftl =
-            Box::new(unsafe { core::mem::MaybeUninit::<PageFtl>::zeroed().assume_init() });
+        let mut pgftl = Box::new(PageFtl::zeroed());
         pgftl.dev = dev;
 
         let saved_ops = unsafe { (*dev).d_op };
