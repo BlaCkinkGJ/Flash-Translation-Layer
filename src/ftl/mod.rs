@@ -110,6 +110,11 @@
 //!   keeping the negated errno for a negative one.
 //! - `page_write::ffi_page_ftl_write` returns `-EINVAL` for a `NULL` FTL or
 //!   request, where C dereferences them.
+//! - `page_write::write_page` refuses a logical page at the last table slot
+//!   with `lpn >= map_entries()`, where C writes `lpn > nr_entries`
+//!   (`ftl/page/page-write.c:175-179`) and lets that slot through, which then
+//!   reads `trans_map` one entry past its end. The port uses the bound
+//!   `update_map` already applies.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
