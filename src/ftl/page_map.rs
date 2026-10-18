@@ -34,7 +34,7 @@ use crate::{pr_err, pr_warn};
 /// [`PADDR_EMPTY`] word. Use [`PageFtl`] with its mutex held: this takes
 /// `&mut` because C reads `alloc_segnum` and the counters concurrently.
 pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
-    if pgftl.segments.is_null() {
+    if pgftl.segments.is_empty() {
         pr_err!("fatal error detected: segment array is NULL");
         return None;
     }
@@ -43,7 +43,6 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
     let nr_segments = dev.nr_segments();
     let pages_per_segment = dev.pages_per_segment();
     let badseg_bitmap = dev.badseg_bitmap;
-    let bits_len = pages_per_segment.div_ceil(64);
 
     let mut idx = 0usize;
     loop {
@@ -62,22 +61,17 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
             }
         }
 
-        let segment = unsafe { &mut *pgftl.segments.add(segnum) };
-        let nr_free_pages = segment.free_pages();
+        let nr_free_pages = pgftl.segments[segnum].free_pages();
         if nr_free_pages == 0 {
             continue;
         }
         pgftl.alloc_segnum = segnum as u64;
 
-        // A zero-length map must not build a slice from a possibly null
-        // pointer. An empty slice gives C's `find_first_zero_bit(bits, 0, 0)`
-        // result (`BITS_NOT_FOUND`) without the undefined behaviour.
-        let bits: &[u64] = if bits_len == 0 {
-            &[]
-        } else {
-            unsafe { core::slice::from_raw_parts(segment.use_bits, bits_len) }
-        };
-        let page = find_first_zero_bit(bits, pages_per_segment as u64, 0);
+        let page = find_first_zero_bit(
+            &pgftl.segments[segnum].use_bits,
+            pages_per_segment as u64,
+            0,
+        );
         if page == BITS_NOT_FOUND {
             pr_warn!(
                 "nr_free_pages and use_bits bitmap are not synchronized(nr_free_pages: {}, page: {})",
@@ -90,9 +84,13 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
         // C: `paddr.lpn = 0; paddr.format.block = (uint16_t)segnum; paddr.lpn |= page;`.
         let paddr = device_address::from_segment_page(segnum as u16, page as u32);
 
-        unsafe { segment.set_use_bit(page) };
-        segment.nr_free_pages.fetch_sub(1, Ordering::SeqCst);
-        segment.nr_valid_pages.fetch_add(1, Ordering::SeqCst);
+        pgftl.segments[segnum].set_use_bit(page);
+        pgftl.segments[segnum]
+            .nr_free_pages
+            .fetch_sub(1, Ordering::SeqCst);
+        pgftl.segments[segnum]
+            .nr_valid_pages
+            .fetch_add(1, Ordering::SeqCst);
 
         return Some(paddr);
     }
@@ -115,7 +113,7 @@ pub fn update_map(pgftl: &mut PageFtl, sector: usize, ppn: u32) -> io::Result<()
         return Err(io::Error::from_raw_os_error(libc::EINVAL));
     }
 
-    unsafe { *pgftl.trans_map.add(lpn as usize) = ppn };
+    pgftl.trans_map[lpn as usize] = ppn;
     Ok(())
 }
 
@@ -169,14 +167,13 @@ mod tests {
     use crate::device::{device, DEVICE_PAGE_SIZE};
     use crate::ftl::PageFtlSegment;
     use core::mem::MaybeUninit;
-    use core::sync::atomic::AtomicI32;
 
     /// Small but valid geometry: 3 segments of 16 pages each.
+    ///
+    /// The L2P table, the segment array and its `use_bits` bitmaps belong to
+    /// the FTL, so the tests read them through `f.pgftl`.
     struct Fixture {
         dev: Box<device>,
-        use_bits: Vec<u64>,
-        segments: Vec<PageFtlSegment>,
-        trans_map: Vec<u32>,
         badseg: Vec<u64>,
         pgftl: PageFtl,
     }
@@ -191,45 +188,30 @@ mod tests {
             dev.info.package.block.nr_pages = 4;
             dev.info.package.block.page.size = DEVICE_PAGE_SIZE;
 
-            let mut use_bits = vec![0u64; 3];
             let mut badseg = vec![0u64; 1];
-            let segments: Vec<PageFtlSegment> = (0..3)
-                .map(|i| PageFtlSegment {
-                    nr_free_pages: AtomicI32::new(16),
-                    nr_valid_pages: AtomicI32::new(0),
-                    use_bits: unsafe { use_bits.as_mut_ptr().add(i) },
-                    lpn_list: core::ptr::null_mut(),
-                })
-                .collect();
-
             let total = dev.total_size();
-            let mut trans_map = vec![u32::MAX; total / DEVICE_PAGE_SIZE + 1];
+
+            let mut pgftl = PageFtl::empty();
+            pgftl.dev = &mut *dev;
+            pgftl.trans_map = vec![u32::MAX; total / DEVICE_PAGE_SIZE + 1];
+            // One `u64` per segment: `pages_per_segment` is 16 here.
+            pgftl.segments = (0..3)
+                .map(|_| PageFtlSegment::empty(vec![0u64; 1], 16))
+                .collect();
 
             dev.badseg_bitmap = badseg.as_mut_ptr();
 
-            let mut pgftl = PageFtl::zeroed();
-            pgftl.dev = &mut *dev;
-            pgftl.segments = segments.as_ptr() as *mut PageFtlSegment;
-            pgftl.trans_map = trans_map.as_mut_ptr();
-
-            Fixture {
-                dev,
-                use_bits,
-                segments,
-                trans_map,
-                badseg,
-                pgftl,
-            }
+            Fixture { dev, badseg, pgftl }
         }
 
         fn set_free(&mut self, segnum: usize, n: i32) {
-            self.segments[segnum]
+            self.pgftl.segments[segnum]
                 .nr_free_pages
                 .store(n, Ordering::SeqCst);
         }
 
         fn free(&self, segnum: usize) -> i32 {
-            self.segments[segnum].free_pages()
+            self.pgftl.segments[segnum].free_pages()
         }
     }
 
@@ -268,15 +250,15 @@ mod tests {
             f.set_free(segnum, 0);
         }
         // Pages 0 and 1 used, page 2 free.
-        set_bit(&mut f.use_bits[0..1], 0);
-        set_bit(&mut f.use_bits[0..1], 1);
+        set_bit(&mut f.pgftl.segments[0].use_bits, 0);
+        set_bit(&mut f.pgftl.segments[0].use_bits, 1);
 
         let addr = get_free_page(&mut f.pgftl).expect("segment 0 has a free page");
         assert_eq!(addr.block(), 0);
         assert_eq!(addr.lpn & 0x7ff, 2);
         assert_eq!(f.free(0), 1);
-        assert_eq!(f.segments[0].nr_valid_pages.load(Ordering::SeqCst), 1);
-        assert!(unsafe { f.segments[0].use_bit(2) });
+        assert_eq!(f.pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst), 1);
+        assert!(f.pgftl.segments[0].use_bit(2));
     }
 
     #[test]
@@ -298,15 +280,15 @@ mod tests {
         let mut f = Fixture::new();
 
         assert!(update_map(&mut f.pgftl, 7, 0xabcd).is_ok());
-        assert_eq!(f.trans_map[0], 0xabcd);
+        assert_eq!(f.pgftl.trans_map[0], 0xabcd);
 
         // Second page of the device.
         let sector = DEVICE_PAGE_SIZE + 3;
         assert!(update_map(&mut f.pgftl, sector, 0x1234).is_ok());
-        assert_eq!(f.trans_map[1], 0x1234);
+        assert_eq!(f.pgftl.trans_map[1], 0x1234);
 
         // Past the end of the table.
-        let last = f.trans_map.len() - 1;
+        let last = f.pgftl.trans_map.len() - 1;
         let overflow = (last + 1) * DEVICE_PAGE_SIZE;
         let err = update_map(&mut f.pgftl, overflow, 1).unwrap_err();
         assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
@@ -321,7 +303,7 @@ mod tests {
             f.set_free(segnum, 1);
         }
         for bit in 0..16 {
-            set_bit(&mut f.use_bits[0..1], bit);
+            set_bit(&mut f.pgftl.segments[0].use_bits, bit);
         }
 
         let addr = get_free_page(&mut f.pgftl).expect("segment 1 has a free page");
@@ -355,7 +337,7 @@ mod tests {
         assert_eq!(f.pgftl.alloc_segnum, 0);
         // Nothing was handed out: no counter moved and no bit was set.
         assert_eq!(f.free(0), 16);
-        assert_eq!(f.segments[0].nr_valid_pages.load(Ordering::SeqCst), 0);
+        assert_eq!(f.pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -381,10 +363,10 @@ mod tests {
         let addr = unsafe { ffi_page_ftl_get_free_page(&mut f.pgftl) };
         assert_eq!(addr.block(), 0);
         assert_eq!(unsafe { ffi_page_ftl_update_map(&mut f.pgftl, 0, 99) }, 0);
-        assert_eq!(f.trans_map[0], 99);
+        assert_eq!(f.pgftl.trans_map[0], 99);
 
         // The native `Err` crosses the ABI as the negated `errno`.
-        let last = f.trans_map.len() - 1;
+        let last = f.pgftl.trans_map.len() - 1;
         let overflow = (last + 1) * DEVICE_PAGE_SIZE;
         assert_eq!(
             unsafe { ffi_page_ftl_update_map(&mut f.pgftl, overflow, 1) },

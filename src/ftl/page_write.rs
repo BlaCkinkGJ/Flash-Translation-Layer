@@ -18,7 +18,6 @@
 
 use core::ffi::c_void;
 use core::mem;
-use core::slice;
 use core::sync::atomic::Ordering;
 use std::io;
 
@@ -29,8 +28,7 @@ use crate::device::{
 };
 use crate::ftl::page_map::{get_free_page, update_map};
 use crate::ftl::page_read::read_page;
-use crate::ftl::{PageFtl, PageFtlLock, PageFtlSegment};
-use crate::list::{ffi_list_prepend, ffi_list_remove};
+use crate::ftl::{PageFtl, PageFtlLock};
 use crate::{pr_debug, pr_err};
 
 /// C's `page_ftl_write_end_rq`: release the scratch page and the request that
@@ -59,22 +57,23 @@ unsafe extern "C" fn write_end_rq(request: *mut device_request) {
 /// keeps its meaning (a page that was written once is still "used" and is
 /// reclaimed by an erase, not by an invalidation).
 fn invalidate(pgftl: &mut PageFtl, lpn: usize) {
-    let paddr = device_address::from(unsafe { *pgftl.trans_map.add(lpn) });
+    let paddr = device_address::from(pgftl.trans_map[lpn]);
     let segnum = paddr.block() as usize;
-    let segment = unsafe { &mut *pgftl.segments.add(segnum) };
+    let segment = &mut pgftl.segments[segnum];
 
-    segment.lpn_list = unsafe { ffi_list_remove(segment.lpn_list, lpn as *mut c_void) };
+    // C's `list_remove(segment->lpn_list, (void *)lpn)`, a no-op when the LPN
+    // is not on the list.
+    if let Some(index) = segment.lpn_list.iter().position(|&entry| entry == lpn) {
+        segment.lpn_list.remove(index);
+    }
     segment.nr_valid_pages.fetch_sub(1, Ordering::SeqCst);
     let nr_free_pages = segment.free_pages();
 
-    unsafe { *pgftl.trans_map.add(lpn) = PADDR_EMPTY };
+    pgftl.trans_map[lpn] = PADDR_EMPTY;
 
-    let gc_bits = unsafe { slice::from_raw_parts_mut(pgftl.gc_seg_bits, segnum / 64 + 1) };
-    if nr_free_pages == 0 && !get_bit(gc_bits, segnum as u64) {
-        pgftl.gc_list = unsafe {
-            ffi_list_prepend(pgftl.gc_list, segment as *mut PageFtlSegment as *mut c_void)
-        };
-        set_bit(gc_bits, segnum as u64);
+    if nr_free_pages == 0 && !get_bit(&pgftl.gc_seg_bits, segnum as u64) {
+        pgftl.gc_list.insert(0, segnum);
+        set_bit(&mut pgftl.gc_seg_bits, segnum as u64);
     }
 }
 
@@ -118,17 +117,12 @@ fn read_for_overwrite(pgftl: &mut PageFtl, lpn: usize, buffer: &mut [u8]) -> io:
 /// `paddr`, dropping and queueing the mapping it replaces.
 fn update_metadata(pgftl: &mut PageFtl, paddr: device_address, sector: usize) {
     let lpn = pgftl.lpn(sector);
-    if unsafe { *pgftl.trans_map.add(lpn) } != PADDR_EMPTY {
+    if pgftl.trans_map[lpn] != PADDR_EMPTY {
         invalidate(pgftl, lpn);
-        pr_debug!(
-            "invalidate address: {} => {}",
-            lpn,
-            unsafe { *pgftl.trans_map.add(lpn) }
-        );
+        pr_debug!("invalidate address: {} => {}", lpn, pgftl.trans_map[lpn]);
     }
 
-    let segment = unsafe { &mut *pgftl.segments.add(paddr.block() as usize) };
-    segment.lpn_list = unsafe { ffi_list_prepend(segment.lpn_list, lpn as *mut c_void) };
+    pgftl.segments[paddr.block() as usize].lpn_list.push(lpn);
 
     // C discards `page_ftl_update_map`'s result here
     // (`ftl/page/page-write.c:133`), so an out of range mapping is not
@@ -138,7 +132,7 @@ fn update_metadata(pgftl: &mut PageFtl, paddr: device_address, sector: usize) {
     pr_debug!(
         "new address: {} => {} (seg: {})",
         lpn,
-        unsafe { *pgftl.trans_map.add(lpn) },
+        pgftl.trans_map[lpn],
         paddr.block()
     );
 }
@@ -194,7 +188,7 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
 
     let mut buffer = vec![0u8; page_size];
 
-    let is_exist = unsafe { *pgftl.trans_map.add(lpn) } != PADDR_EMPTY;
+    let is_exist = pgftl.trans_map[lpn] != PADDR_EMPTY;
     if is_exist {
         read_for_overwrite(pgftl, lpn, &mut buffer)?;
     }
@@ -310,7 +304,7 @@ mod tests {
 
         // The LPN maps to the first page of segment 0, which counted the page
         // valid and put the LPN on its list.
-        assert_eq!(f.trans_map[0], 0);
+        assert_eq!(f.pgftl.trans_map[0], 0);
         assert_eq!(f.pgftl.alloc_segnum, 0);
         assert_eq!(f.free(0), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(f.valid(0), 1);
@@ -335,7 +329,7 @@ mod tests {
         let first: Vec<u8> = (0..16u8).map(|i| 0x10 + i).collect();
         let mut payload = first.clone();
         assert_eq!(write_at(&mut f, 100, &mut payload).unwrap(), 16);
-        assert_eq!(f.trans_map[0], 0);
+        assert_eq!(f.pgftl.trans_map[0], 0);
 
         // Overwriting four bytes in the middle of the page must keep the rest
         // of the previous page, so the write path reads it first.
@@ -346,7 +340,7 @@ mod tests {
         // The LPN moved to a new page, the old one was invalidated, and its
         // segment still has free pages, so nothing is queued for GC.
         let new_ppn = device_address::from_segment_page(0, 1).lpn;
-        assert_eq!(f.trans_map[0], new_ppn);
+        assert_eq!(f.pgftl.trans_map[0], new_ppn);
         assert_eq!(f.valid(0), 1);
         assert_eq!(f.free(0), PAGES_PER_SEGMENT as i32 - 2);
         assert_eq!(f.lpn_list_len(0), 1);
@@ -380,7 +374,7 @@ mod tests {
                 write_at(&mut f, lpn * DEVICE_PAGE_SIZE, &mut payload).unwrap(),
                 8
             );
-            assert_eq!(f.trans_map[lpn], lpn as u32);
+            assert_eq!(f.pgftl.trans_map[lpn], lpn as u32);
         }
 
         // Segment 0 has no free page left, and a write never queues a segment:
@@ -395,15 +389,11 @@ mod tests {
         let mut payload = vec![0xeeu8; 8];
         assert_eq!(write_at(&mut f, 0, &mut payload).unwrap(), 8);
 
-        let seg0 = &f.segments[0] as *const PageFtlSegment;
-        assert!(core::ptr::eq(
-            unsafe { (*f.pgftl.gc_list).data } as *const PageFtlSegment,
-            seg0
-        ));
+        assert!(core::ptr::eq(f.gc_list_head(), f.segment_ptr(0)));
         assert_eq!(f.gc_list_len(), 1);
         assert!(f.gc_bit(0));
         assert!(!f.gc_bit(1));
-        assert_eq!(f.trans_map[0], device_address::from_segment_page(1, 0).lpn);
+        assert_eq!(f.pgftl.trans_map[0], device_address::from_segment_page(1, 0).lpn);
         assert_eq!(f.valid(0), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(f.lpn_list_len(0), PAGES_PER_SEGMENT - 1);
         assert_eq!(f.free(1), PAGES_PER_SEGMENT as i32 - 1);
@@ -435,7 +425,7 @@ mod tests {
         let mut payload = vec![0x99u8; 8];
         let err = write_at(&mut f, 0, &mut payload).unwrap_err();
         assert_eq!(err.raw_os_error(), Some(libc::EFAULT));
-        assert_eq!(f.trans_map[0], 0);
+        assert_eq!(f.pgftl.trans_map[0], 0);
         assert_eq!(f.valid(0), PAGES_PER_SEGMENT as i32);
         assert_eq!(f.gc_list_len(), 0);
     }
@@ -466,7 +456,7 @@ mod tests {
         // runs before the free page lookup.
         assert_eq!(f.free(0), PAGES_PER_SEGMENT as i32);
         assert_eq!(f.valid(0), 0);
-        assert!(f.trans_map.iter().all(|entry| *entry == PADDR_EMPTY));
+        assert!(f.pgftl.trans_map.iter().all(|entry| *entry == PADDR_EMPTY));
         assert_eq!(f.gc_list_len(), 0);
     }
 
@@ -476,7 +466,7 @@ mod tests {
 
         let mut nothing = [0u8; 0];
         assert_eq!(write_at(&mut f, 0, &mut nothing).unwrap(), 0);
-        assert_eq!(f.trans_map[0], 0);
+        assert_eq!(f.pgftl.trans_map[0], 0);
         assert_eq!(f.valid(0), 1);
 
         let mut page = vec![0xffu8; 16];
@@ -500,7 +490,7 @@ mod tests {
 
         // The guard sits where C splices, so the free page was already taken
         // and stays taken. The map and the segment's LPN list are untouched.
-        assert_eq!(f.trans_map[0], PADDR_EMPTY);
+        assert_eq!(f.pgftl.trans_map[0], PADDR_EMPTY);
         assert_eq!(f.free(0), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(f.valid(0), 1);
         assert_eq!(f.lpn_list_len(0), 0);
@@ -524,7 +514,7 @@ mod tests {
         // The mapping is untouched. The page the allocator handed out stays
         // taken, which is what C does when the device write fails
         // (`page-write.c:220-225`).
-        assert_eq!(f.trans_map[0], PADDR_EMPTY);
+        assert_eq!(f.pgftl.trans_map[0], PADDR_EMPTY);
         assert_eq!(f.free(0), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(f.valid(0), 1);
         assert_eq!(f.lpn_list_len(0), 0);
@@ -577,7 +567,7 @@ mod tests {
 
         // The LPN still points at the first page. The page the allocator took
         // is gone, which is what C does when the read for overwrite fails.
-        assert_eq!(f.trans_map[0], 0);
+        assert_eq!(f.pgftl.trans_map[0], 0);
         assert_eq!(f.free(0), PAGES_PER_SEGMENT as i32 - 2);
         assert_eq!(f.valid(0), 2);
         assert_eq!(f.lpn_list_len(0), 1);
@@ -595,7 +585,7 @@ mod tests {
         assert_eq!(err.raw_os_error(), Some(libc::EIO));
 
         unsafe { (*f.dev).d_op = saved };
-        assert_eq!(f.trans_map[0], PADDR_EMPTY);
+        assert_eq!(f.pgftl.trans_map[0], PADDR_EMPTY);
     }
 
     #[test]
@@ -622,7 +612,7 @@ mod tests {
             (*request).data_len = payload.len();
             (*request).data = payload.as_mut_ptr() as *mut c_void;
             assert_eq!(ffi_page_ftl_write(f.pgftl.as_mut(), request), 8);
-            assert_eq!(f.trans_map[0], 0);
+            assert_eq!(f.pgftl.trans_map[0], 0);
             // `request` was freed by `ffi_page_ftl_write`, so it is not touched.
 
             // The bytes the splice copied are where the caller put them.

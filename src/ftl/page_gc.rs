@@ -4,12 +4,12 @@
 //! fewest valid pages, copies those pages into free pages elsewhere, erases the
 //! segment and reinitializes its metadata. [`gc_from_list`] mirrors
 //! `page_ftl_gc_from_list`, the loop that runs `do_gc` up to
-//! `gc_ratio * nr_segments` times. [`gc_list_cmp`], [`erase_end_rq`],
-//! [`pick_gc_target`], [`segment_erase`], [`read_valid_page`],
-//! [`write_valid_page`] and [`valid_page_copy`] mirror the file's static
-//! helpers. The C-ABI entry points are [`ffi_page_ftl_do_gc`] and
-//! [`ffi_page_ftl_gc_from_list`]. C does not declare `page_ftl_gc_list_cmp` in
-//! a header, so its port stays private.
+//! `gc_ratio * nr_segments` times. [`erase_end_rq`], [`pick_gc_target`],
+//! [`segment_erase`], [`read_valid_page`], [`write_valid_page`] and
+//! [`valid_page_copy`] mirror the file's static helpers. The C-ABI entry points
+//! are [`ffi_page_ftl_do_gc`] and [`ffi_page_ftl_gc_from_list`]. C's
+//! `page_ftl_gc_list_cmp`, which `page_ftl_pick_gc_target` sorted the queue
+//! with, is the sort key [`pick_gc_target`] uses instead.
 //!
 //! The loop's request dispatch is
 //! [`crate::ftl::page_core::submit_request`], C's `page_ftl_submit_request`,
@@ -26,9 +26,7 @@
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
-use core::ffi::c_int;
 use core::ffi::c_void;
-use core::slice;
 use core::sync::atomic::Ordering;
 use std::io;
 
@@ -40,22 +38,8 @@ use crate::device::{
 use crate::ftl::page_core::{segment_data_init, submit_request};
 use crate::ftl::page_read::read_page;
 use crate::ftl::page_write::write_page;
-use crate::ftl::{PageFtl, PageFtlLock, PageFtlSegment};
-use crate::list::{ffi_list_remove, ffi_list_sort};
+use crate::ftl::{PageFtl, PageFtlLock};
 use crate::{pr_debug, pr_err};
-
-/// C's `page_ftl_gc_list_cmp`: order two segments by their valid page count,
-/// ascending, so the head of the sorted list is the best victim.
-///
-/// C loads both counters atomically, widens them to `uint64_t`, subtracts and
-/// truncates back to `int`. `wrapping_sub` on `i32` is that same result. The
-/// comparator is not declared in a header and nothing outside `page-gc.c` calls
-/// it, so it stays private.
-unsafe extern "C" fn gc_list_cmp(a: *const c_void, b: *const c_void) -> c_int {
-    let a = unsafe { (*(a as *const PageFtlSegment)).nr_valid_pages.load(Ordering::SeqCst) };
-    let b = unsafe { (*(b as *const PageFtlSegment)).nr_valid_pages.load(Ordering::SeqCst) };
-    a.wrapping_sub(b)
-}
 
 /// C's `page_ftl_erase_end_rq`: release the request the erase was submitted
 /// with. Runs on the device's completion path, so it only touches the request
@@ -71,25 +55,32 @@ unsafe extern "C" fn erase_end_rq(request: *mut device_request) {
 /// it, then pin the victim's free page count to 0 so the copy that follows
 /// cannot allocate a page inside the segment it is draining.
 ///
-/// Returns the segment pointer, or `None` when the list is empty.
-fn pick_gc_target(pgftl: &mut PageFtl) -> Option<*mut PageFtlSegment> {
-    if pgftl.gc_list.is_null() {
+/// Returns the index of the victim segment, or `None` when the list is empty.
+/// C's list holds a pointer to the segment and orders the nodes by
+/// `page_ftl_gc_list_cmp`, a stable ascending comparison over the valid page
+/// count, so `sort_by_key` here is that sort and the head is the best victim.
+fn pick_gc_target(pgftl: &mut PageFtl) -> Option<usize> {
+    if pgftl.gc_list.is_empty() {
         return None;
     }
 
-    pgftl.gc_list = unsafe { ffi_list_sort(pgftl.gc_list, Some(gc_list_cmp)) };
-    let segment = unsafe { (*pgftl.gc_list).data as *mut PageFtlSegment };
+    let segments = &pgftl.segments;
+    pgftl
+        .gc_list
+        .sort_by_key(|&segnum| segments[segnum].nr_valid_pages.load(Ordering::SeqCst));
+    let segnum = pgftl.gc_list.remove(0);
 
     pr_debug!(
         "gc target: {} (valid: {}) => {:p}",
-        unsafe { pgftl.segment_number(segment) },
-        unsafe { (*segment).nr_valid_pages.load(Ordering::SeqCst) },
-        segment
+        segnum,
+        pgftl.segments[segnum].nr_valid_pages.load(Ordering::SeqCst),
+        &pgftl.segments[segnum]
     );
 
-    pgftl.gc_list = unsafe { ffi_list_remove(pgftl.gc_list, segment as *mut c_void) };
-    unsafe { (*segment).nr_free_pages.store(0, Ordering::SeqCst) };
-    Some(segment)
+    pgftl.segments[segnum]
+        .nr_free_pages
+        .store(0, Ordering::SeqCst);
+    Some(segnum)
 }
 
 /// C's `page_ftl_segment_erase`: hand an erase request for `paddr` to the
@@ -210,21 +201,18 @@ fn write_valid_page(pgftl: &mut PageFtl, lpn: usize, buffer: &mut [u8]) -> io::R
 /// C's `page_ftl_valid_page_copy`: move every valid page of `segment` to a free
 /// page elsewhere.
 ///
-/// The walk captures the next node before each copy, because the copy's write
-/// path invalidates the mapping it replaces and that unlinks and frees the node
-/// the walk is sitting on (`ftl/page/page-write.c:40-41`). The captured node is
-/// untouched by that removal.
+/// The walk reads the head of the LPN list each turn, because the copy's write
+/// path invalidates the mapping it replaces and that unlinks the LPN the walk
+/// is sitting on (`ftl/page/page-write.c:40-41`), so the entry that follows it
+/// becomes the head. C captures the next node before each copy to the same
+/// effect. The entry only stays when the write failed, and that path returns
+/// below.
 ///
 /// # Errors
 /// Propagates the first read or write failure, which stops the walk where it
 /// is.
-fn valid_page_copy(pgftl: &mut PageFtl, segment: *mut PageFtlSegment) -> io::Result<()> {
-    let mut list = unsafe { (*segment).lpn_list };
-
-    while !list.is_null() {
-        let next = unsafe { (*list).next };
-        let lpn = unsafe { (*list).data } as usize;
-
+fn valid_page_copy(pgftl: &mut PageFtl, segnum: usize) -> io::Result<()> {
+    while let Some(&lpn) = pgftl.segments[segnum].lpn_list.last() {
         let mut buffer = match read_valid_page(pgftl, lpn) {
             Ok(buffer) => buffer,
             Err(err) => {
@@ -236,8 +224,10 @@ fn valid_page_copy(pgftl: &mut PageFtl, segment: *mut PageFtlSegment) -> io::Res
             pr_err!("write valid page failed");
             return Err(err);
         }
-
-        list = next;
+        // The copy unlinked `lpn` from the victim. Should a later change stop
+        // that, the walk would spin on the same LPN instead, which is worth a
+        // test failure rather than a hang.
+        debug_assert!(!pgftl.segments[segnum].lpn_list.contains(&lpn));
     }
     Ok(())
 }
@@ -254,14 +244,13 @@ fn valid_page_copy(pgftl: &mut PageFtl, segment: *mut PageFtlSegment) -> io::Res
 /// unlinked from the GC list and its `gc_seg_bits` bit set, as C does, because
 /// the bit is only cleared after the erase.
 pub fn do_gc(pgftl: &mut PageFtl) -> io::Result<()> {
-    let Some(segment) = pick_gc_target(pgftl) else {
+    let Some(segnum) = pick_gc_target(pgftl) else {
         pr_debug!("gc target segment doesn't exist");
         return Ok(());
     };
-    let segnum = unsafe { pgftl.segment_number(segment) };
     pr_debug!("current segnum: {}", segnum);
 
-    if let Err(err) = valid_page_copy(pgftl, segment) {
+    if let Err(err) = valid_page_copy(pgftl, segnum) {
         pr_err!("valid page copy failed");
         return Err(err);
     }
@@ -273,11 +262,8 @@ pub fn do_gc(pgftl: &mut PageFtl) -> io::Result<()> {
         return Err(err);
     }
 
-    unsafe { segment_data_init(pgftl, segment) };
-    reset_bit(
-        unsafe { slice::from_raw_parts_mut(pgftl.gc_seg_bits, segnum / 64 + 1) },
-        segnum as u64,
-    );
+    segment_data_init(pgftl, segnum);
+    reset_bit(&mut pgftl.gc_seg_bits, segnum as u64);
 
     Ok(())
 }
@@ -314,7 +300,7 @@ pub fn gc_from_list(
             pr_err!("garbage collection from list failed");
             return Ok(ret);
         }
-        if pgftl.gc_list.is_null() {
+        if pgftl.gc_list.is_empty() {
             break;
         }
         idx += 1;
@@ -375,7 +361,6 @@ mod tests {
     use crate::ftl::test_support::{
         read_at, read_physical_page, write_at, write_physical_page, Fixture,
     };
-    use crate::list::ffi_list_prepend;
     use core::ptr;
 
     /// Four segments of four pages each: enough for two full victim segments, a
@@ -467,9 +452,8 @@ mod tests {
     /// page left, so this is the state a segment reaches through any other
     /// producer of the list.
     fn queue_segment(f: &mut Fixture, segnum: usize) {
-        let segment = f.segment_ptr(segnum) as *mut PageFtlSegment as *mut c_void;
-        f.pgftl.gc_list = unsafe { ffi_list_prepend(f.pgftl.gc_list, segment) };
-        set_bit(&mut f.gc_seg_bits, segnum as u64);
+        f.pgftl.gc_list.insert(0, segnum);
+        set_bit(&mut f.pgftl.gc_seg_bits, segnum as u64);
     }
 
     /// An erase request, the flag C's callers set before
@@ -527,7 +511,7 @@ mod tests {
         assert_eq!(f.valid(1), PAGES_PER_SEGMENT as i32);
         assert_eq!(f.lpn_list_len(1), PAGES_PER_SEGMENT);
         for lpn in 0..PAGES_PER_SEGMENT {
-            assert_eq!(device_address::from(f.trans_map[lpn]).block(), 1);
+            assert_eq!(device_address::from(f.pgftl.trans_map[lpn]).block(), 1);
             assert_page_payload(&mut f, lpn);
         }
 
@@ -572,7 +556,7 @@ mod tests {
         assert_eq!(f.free(3), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(f.valid(3), 1);
         assert_eq!(
-            f.trans_map[7],
+            f.pgftl.trans_map[7],
             device_address::from_segment_page(3, 0).lpn
         );
         assert_page_payload(&mut f, 7);
@@ -649,7 +633,7 @@ mod tests {
         request.data_len = LEN;
         request.data = payload.as_mut_ptr() as *mut c_void;
         assert_eq!(gc_from_list(&mut f.pgftl, &mut request, 1.0).unwrap(), 16);
-        assert_eq!(f.trans_map[0], 0);
+        assert_eq!(f.pgftl.trans_map[0], 0);
         assert_eq!(f.valid(0), 1);
 
         let mut buf = vec![0u8; LEN];
@@ -711,7 +695,7 @@ mod tests {
         // Nothing was relocated: both LPNs still point into segment 0.
         for lpn in 0..2 {
             assert_eq!(
-                f.trans_map[lpn],
+                f.pgftl.trans_map[lpn],
                 device_address::from_segment_page(0, lpn as u32).lpn
             );
         }
@@ -751,7 +735,7 @@ mod tests {
         assert_eq!(f.free(1), 0);
         assert_eq!(f.use_bits_word(1), 0b1111);
         assert_eq!(
-            f.trans_map[7],
+            f.pgftl.trans_map[7],
             device_address::from_segment_page(1, 3).lpn
         );
 
@@ -784,7 +768,7 @@ mod tests {
         // The victim's valid page moved to segment 3, its list and counter
         // drained by the copy.
         assert_eq!(
-            f.trans_map[7],
+            f.pgftl.trans_map[7],
             device_address::from_segment_page(3, 0).lpn
         );
         assert_page_payload(&mut f, 7);

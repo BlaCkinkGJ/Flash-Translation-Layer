@@ -2,10 +2,10 @@
 //!
 //! The write and GC paths share the same setup: a real ramdisk through
 //! the device layer, narrowed to a geometry small enough that a handful of
-//! writes fills a segment, plus the page FTL state those paths read and write
-//! (the L2P table, the segment array, the `use_bits` bitmaps and the
-//! `gc_seg_bits` / `gc_list` bookkeeping). The state lives in the fixture and
-//! reaches the FTL by raw pointer, which is how C owns it too.
+//! writes fills a segment. The page FTL state those paths read and write (the
+//! L2P table, the segment array, the `use_bits` bitmaps and the `gc_seg_bits` /
+//! `gc_list` bookkeeping) is the FTL's own, built here the way `page_ftl_open`
+//! builds it.
 //!
 //! Geometry: the ramdisk sizes its store from the 1GiB geometry `open`
 //! installs. The fixture then narrows `dev.info` to the requested geometry so a
@@ -16,7 +16,7 @@
 
 use core::ffi::{c_char, c_int};
 use core::ptr;
-use core::sync::atomic::{AtomicI32, Ordering};
+use core::sync::atomic::Ordering;
 use std::io;
 
 use crate::bits::get_bit;
@@ -28,21 +28,19 @@ use crate::device::{
 use crate::ftl::page_read::read_page;
 use crate::ftl::page_write::write_page;
 use crate::ftl::{PageFtl, PageFtlSegment};
-use crate::list::{ffi_list_free, ffi_list_length};
 
-/// `u64` words reserved for one segment's `use_bits` bitmap, so each segment
-/// gets its own region of the shared allocation. C sizes the bitmap with
-/// `BITS_TO_UINT64_ALIGN(pages_per_segment)` and this is comfortably past it
-/// for every geometry a test uses.
+/// `u64` words reserved for one segment's `use_bits` bitmap. C sizes the bitmap
+/// with `BITS_TO_UINT64_ALIGN(pages_per_segment)` and this is comfortably past
+/// it for every geometry a test uses, so a test can narrow the geometry after
+/// the fixture is built.
 const WORDS_PER_SEGMENT: usize = 64;
 
 /// A real ramdisk device plus the page FTL state the page paths need.
 pub struct Fixture {
     pub dev: *mut device,
-    pub trans_map: Vec<u32>,
-    pub segments: Vec<PageFtlSegment>,
-    pub use_bits: Vec<u64>,
-    pub gc_seg_bits: Vec<u64>,
+    /// The FTL's L2P table, segment array, `use_bits` bitmaps and the
+    /// `gc_seg_bits` / `gc_list` bookkeeping are the FTL's own, so the tests
+    /// read them through [`Fixture::pgftl`].
     pub pgftl: Box<PageFtl>,
 }
 
@@ -65,23 +63,15 @@ impl Fixture {
             (*dev).info.package.block.nr_pages = pages_per_segment;
         }
 
-        let mut trans_map = vec![PADDR_EMPTY; nr_segments * pages_per_segment + 1];
-        let mut use_bits = vec![0u64; nr_segments * WORDS_PER_SEGMENT];
-        let mut gc_seg_bits = vec![0u64; nr_segments.div_ceil(64)];
-        let segments: Vec<PageFtlSegment> = (0..nr_segments)
-            .map(|segnum| PageFtlSegment {
-                nr_free_pages: AtomicI32::new(pages_per_segment as i32),
-                nr_valid_pages: AtomicI32::new(0),
-                use_bits: unsafe { use_bits.as_mut_ptr().add(segnum * WORDS_PER_SEGMENT) },
-                lpn_list: ptr::null_mut(),
+        let mut pgftl = Box::new(PageFtl::empty());
+        pgftl.dev = dev;
+        pgftl.trans_map = vec![PADDR_EMPTY; nr_segments * pages_per_segment + 1];
+        pgftl.segments = (0..nr_segments)
+            .map(|_| {
+                PageFtlSegment::empty(vec![0u64; WORDS_PER_SEGMENT], pages_per_segment as i32)
             })
             .collect();
-
-        let mut pgftl = Box::new(PageFtl::zeroed());
-        pgftl.dev = dev;
-        pgftl.trans_map = trans_map.as_mut_ptr();
-        pgftl.segments = segments.as_ptr() as *mut PageFtlSegment;
-        pgftl.gc_seg_bits = gc_seg_bits.as_mut_ptr();
+        pgftl.gc_seg_bits = vec![0u64; nr_segments.div_ceil(64)];
         // `page_ftl_open` initializes this mutex and the C ABI entry points
         // lock it. The fixture stands in for `open`, so it initializes it too.
         assert_eq!(
@@ -89,50 +79,46 @@ impl Fixture {
             0
         );
 
-        Fixture {
-            dev,
-            trans_map,
-            segments,
-            use_bits,
-            gc_seg_bits,
-            pgftl,
-        }
+        Fixture { dev, pgftl }
     }
 
     /// The raw pointer to segment `segnum`, for identity assertions against
-    /// the pointer a list holds.
+    /// the segment the GC queue names.
     pub fn segment_ptr(&self, segnum: usize) -> *const PageFtlSegment {
-        &self.segments[segnum] as *const PageFtlSegment
+        &self.pgftl.segments[segnum] as *const PageFtlSegment
     }
 
-    /// The pointer held by the GC list head's node.
+    /// The pointer to the segment at the head of the GC queue, which is the
+    /// segment C's list node would hold.
     pub fn gc_list_head(&self) -> *const PageFtlSegment {
-        unsafe { (*self.pgftl.gc_list).data as *const PageFtlSegment }
+        self.segment_ptr(self.pgftl.gc_list[0])
     }
 
     pub fn free(&self, segnum: usize) -> i32 {
-        self.segments[segnum].free_pages()
+        self.pgftl.segments[segnum].free_pages()
     }
 
     pub fn valid(&self, segnum: usize) -> i32 {
-        self.segments[segnum].nr_valid_pages.load(Ordering::SeqCst)
+        self.pgftl.segments[segnum]
+            .nr_valid_pages
+            .load(Ordering::SeqCst)
     }
 
     pub fn lpn_list_len(&self, segnum: usize) -> usize {
-        unsafe { ffi_list_length(self.segments[segnum].lpn_list) }
+        self.pgftl.segments[segnum].lpn_list.len()
     }
 
     pub fn gc_list_len(&self) -> usize {
-        unsafe { ffi_list_length(self.pgftl.gc_list) }
+        self.pgftl.gc_list.len()
     }
 
     pub fn gc_bit(&self, segnum: usize) -> bool {
-        get_bit(&self.gc_seg_bits, segnum as u64)
+        get_bit(&self.pgftl.gc_seg_bits, segnum as u64)
     }
 
     /// The first `u64` of a segment's `use_bits` bitmap.
     pub fn use_bits_word(&self, segnum: usize) -> u64 {
-        self.use_bits[segnum * WORDS_PER_SEGMENT]
+        self.pgftl.segments[segnum].use_bits[0]
     }
 
     /// Run `body` with the device's read operation failing, then restore the
@@ -299,7 +285,7 @@ impl CoreFixture {
             (*dev).info.package.block.nr_pages = pages_per_segment;
         }
 
-        let mut pgftl = Box::new(PageFtl::zeroed());
+        let mut pgftl = Box::new(PageFtl::empty());
         pgftl.dev = dev;
 
         let saved_ops = unsafe { (*dev).d_op };
@@ -361,7 +347,7 @@ impl Drop for CoreFixture {
         unsafe {
             // A test that opened and did not close leaves the FTL's state to
             // this teardown, which is also what releases the thread.
-            if !self.pgftl.trans_map.is_null() || !self.pgftl.segments.is_null() {
+            if !self.pgftl.trans_map.is_empty() || !self.pgftl.segments.is_empty() {
                 let _ = crate::ftl::page_core::close(&mut self.pgftl);
             }
             (*self.dev).d_op = self.saved_ops;
@@ -374,10 +360,6 @@ impl Drop for CoreFixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         unsafe {
-            ffi_list_free(self.pgftl.gc_list);
-            for segment in &mut self.segments {
-                ffi_list_free(segment.lpn_list);
-            }
             assert_eq!(
                 libc::pthread_mutex_destroy(ptr::addr_of_mut!(self.pgftl.mutex)),
                 0

@@ -8,9 +8,8 @@
 //! `flash_operations` table, so the fields are free to change.
 //!
 //! The safe accessors on [`PageFtl`] (`map_size`, `lpn`, `page_offset`,
-//! `segment_number`, `free_pages`) and the address mapping in [`page_map`] are
-//! the native layer. Callers use these and never touch raw pointers or
-//! `__atomic_*` builtins.
+//! `free_pages`) and the address mapping in [`page_map`] are the native layer.
+//! Callers use these and never touch raw pointers or `__atomic_*` builtins.
 //!
 //! `page_ftl_get_free_page` and `page_ftl_update_map` from `ftl/page/page-map.c`
 //! live in [`page_map`]. The read, write, garbage collection and core lifecycle
@@ -192,17 +191,22 @@
 //!   every other FTL's collector, and an `open` that runs between another FTL's
 //!   close and the thread's next turn leaves that thread waiting for a request
 //!   that never comes.
-//! - `page_core::init_segment` saturates the `sizeof(segment) * nr_segments`
-//!   product (`ftl/page/page-core.c:142-146`), which C wraps, so an absurd
-//!   geometry reports `-ENOMEM` there instead of taking a short allocation the
-//!   loop then writes past.
+//! - `page_core::init_segment` builds the segment array and the per-segment
+//!   `use_bits` bitmaps as owning `Vec`s, so C's wrap of the
+//!   `sizeof(segment) * nr_segments` product (`ftl/page/page-core.c:142-146`)
+//!   is gone: `Vec::try_reserve_exact` reports the overloaded count as
+//!   `-ENOMEM` instead of taking a short allocation the loop then writes past.
+//!   Every other buffer C allocated with `malloc` keeps the same trade, so a
+//!   refused reservation is the `-ENOMEM` C returned
+//!   (`ftl/page/page-core.c:85-100`, `:213-221`, `:291-296`).
 //! - The partial allocation paths reclaim what they took. C leaves the segment
 //!   array and the bitmaps already handed out unreachable when a later bitmap
 //!   fails, because `pgftl->segments` is only assigned after the loop
 //!   (`ftl/page/page-core.c:148-183`), and it destroys and frees an
-//!   uninitialized rwlock array on the error path (`:452-460`). The port
-//!   installs each array in the FTL before anything is handed out and zeroes
-//!   it, so `close` reclaims every allocation and sees zeroed locks.
+//!   uninitialized rwlock array on the error path (`:452-460`). The segment
+//!   array, its bitmaps and the L2P table are owned here, so a failed `open`
+//!   drops them with the local the loop was filling, and the rwlock array is
+//!   zeroed before `close` sees it.
 //! - `page_core::close` reports `-ENODEV` when the device has no `d_op` or no
 //!   `close` (`ftl/page/page-core.c:462-465`), where C calls through the
 //!   missing entry, and `page_core::open` reports `-EINVAL` for a device
@@ -308,7 +312,6 @@ use core::sync::atomic::{AtomicI32, Ordering};
 use libc::{pthread_mutex_t, pthread_rwlock_t, pthread_t};
 
 use crate::device::device;
-use crate::list::list_node_t;
 
 pub mod page_core;
 pub mod page_gc;
@@ -337,9 +340,13 @@ pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;
 /// One segment (block) of the FTL.
 ///
 /// One entry per segment. `use_bits` is a bitmap of `pages_per_segment` bits
-/// owned by the FTL, `lpn_list` links the valid pages for GC. Both are borrowed
-/// raw pointers here because the FTL allocates and frees them: see
-/// [`page_core::segment_data_init`], which frees the list and clears the bitmap.
+/// and `lpn_list` the logical pages whose current mapping lands in the segment,
+/// oldest first. Both are owned `Vec`s here, where C allocated them with
+/// `malloc` and reached them through `segment->use_bits` / `segment->lpn_list`
+/// (see `page_ftl_segment_data_init` in `ftl/page/page-core.c`, now
+/// [`page_core::segment_data_init`]). The last element of `lpn_list` is C's
+/// list head, the page written most recently, which is the end the GC walk
+/// reads first.
 ///
 /// The two counters are `AtomicI32` because the GC thread and the callers'
 /// threads both reach them, which C did through `__atomic_load_n`,
@@ -349,29 +356,31 @@ pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;
 pub struct PageFtlSegment {
     pub nr_free_pages: AtomicI32,
     pub nr_valid_pages: AtomicI32,
-    pub use_bits: *mut u64,
-    pub lpn_list: *mut list_node_t,
+    pub use_bits: Vec<u64>,
+    pub lpn_list: Vec<usize>,
 }
 
 impl PageFtlSegment {
+    /// A segment with `use_bits` as its bitmap, `free_pages` free pages and no
+    /// valid page: the state C's `page_ftl_segment_data_init` leaves a segment
+    /// in.
+    pub fn empty(use_bits: Vec<u64>, free_pages: i32) -> Self {
+        PageFtlSegment {
+            nr_free_pages: AtomicI32::new(free_pages),
+            nr_valid_pages: AtomicI32::new(0),
+            use_bits,
+            lpn_list: Vec::new(),
+        }
+    }
+
     /// Set the bit for `page` in this segment's `use_bits` bitmap.
-    ///
-    /// # Safety
-    /// `use_bits` points to at least `page / 64 + 1` writable `u64`s.
-    pub unsafe fn set_use_bit(&mut self, page: u64) {
-        let bucket = (page / 64) as usize;
-        let bits = core::slice::from_raw_parts_mut(self.use_bits, bucket + 1);
-        crate::bits::set_bit(bits, page);
+    pub fn set_use_bit(&mut self, page: u64) {
+        crate::bits::set_bit(&mut self.use_bits, page);
     }
 
     /// Return whether `page` is marked used in this segment.
-    ///
-    /// # Safety
-    /// `use_bits` points to at least `page / 64 + 1` readable `u64`s.
-    pub unsafe fn use_bit(&self, page: u64) -> bool {
-        let bucket = (page / 64) as usize;
-        let bits = core::slice::from_raw_parts(self.use_bits, bucket + 1);
-        crate::bits::get_bit(bits, page)
+    pub fn use_bit(&self, page: u64) -> bool {
+        crate::bits::get_bit(&self.use_bits, page)
     }
 
     /// Atomically read `nr_free_pages`, mirroring C's `__atomic_load_n(...,
@@ -383,9 +392,12 @@ impl PageFtlSegment {
 
 /// The page FTL: the mapping table, the segment array and the lifecycle state.
 ///
-/// `trans_map` is the page-level L2P table (`uint32_t` per logical page),
-/// `segments` a contiguous array of `nr_segments` [`PageFtlSegment`] entries,
-/// and `alloc_segnum` the round-robin cursor.
+/// `trans_map` is the page-level L2P table, `segments` the segment array and
+/// `alloc_segnum` the round-robin cursor. `gc_list` names the segments queued
+/// for collection, most recently queued first, so its first element is C's list
+/// head, and `gc_seg_bits` is the bitmap that says which of them are already
+/// queued. All four are owned here, where C allocated them with `malloc` and
+/// freed them in `page_ftl_close` ([`page_core::close`]).
 ///
 /// The `pthread_*` fields and `o_flags` are still C's: the two mutexes are what
 /// [`PageFtlLock`] takes, `gc_thread` is the id [`page_core::close`] joins, and
@@ -395,9 +407,9 @@ impl PageFtlSegment {
 /// [`page_core::open`] from the name it was handed. C had no room for it: its
 /// layout was pinned, so the path lived in a table keyed by the FTL address.
 pub struct PageFtl {
-    pub trans_map: *mut u32,
+    pub trans_map: Vec<u32>,
     pub alloc_segnum: u64,
-    pub segments: *mut PageFtlSegment,
+    pub segments: Vec<PageFtlSegment>,
     pub dev: *mut device,
     pub mutex: pthread_mutex_t,
     pub gc_mutex: pthread_mutex_t,
@@ -408,31 +420,42 @@ pub struct PageFtl {
     pub rwlock: pthread_rwlock_t,
     pub gc_thread: pthread_t,
     pub o_flags: core::ffi::c_int,
-    pub gc_list: *mut list_node_t,
-    pub gc_seg_bits: *mut u64,
+    pub gc_list: Vec<usize>,
+    pub gc_seg_bits: Vec<u64>,
     /// The checkpoint file `close` writes the mapping to, or `None` when `open`
     /// was handed no name. It is a boxed slice and not a `String` because the
     /// path needs no spare capacity, which keeps the field two words smaller.
-    /// [`PageFtl::zeroed`] sets it explicitly, so nothing here depends on the
-    /// layout of a zeroed `Option`.
+    /// [`PageFtl::empty`] sets it to `None` explicitly, so nothing here depends
+    /// on the layout of a zeroed `Option`.
     pub checkpoint: Option<Box<str>>,
 }
 
 impl PageFtl {
-    /// A zeroed FTL: C's `malloc(sizeof(struct page_ftl))` plus `memset(0)`.
-    ///
-    /// Every field is left at zero, which is a null pointer, an empty array or
-    /// an uninitialized lock for all of them, and `checkpoint` is written as
-    /// `None` instead of being left to those bytes, so no field depends on the
-    /// layout of a zeroed `Option`.
-    pub fn zeroed() -> PageFtl {
-        let mut pgftl = MaybeUninit::<PageFtl>::zeroed();
-        // SAFETY: `checkpoint` is the only field whose zeroed bytes are not
-        // known to be a valid value, and it is written before the structure is
-        // taken as initialized.
-        unsafe {
-            ptr::addr_of_mut!((*pgftl.as_mut_ptr()).checkpoint).write(None);
-            pgftl.assume_init()
+    /// An FTL with no buffers, no device and no lock held: C's `memset(0)` of
+    /// `struct page_ftl`, with the empty buffers Rust needs where C had `NULL`
+    /// pointers. [`page_core::open`] and the test fixtures build from here.
+    pub fn empty() -> PageFtl {
+        PageFtl {
+            trans_map: Vec::new(),
+            alloc_segnum: 0,
+            segments: Vec::new(),
+            dev: ptr::null_mut(),
+            // SAFETY: zeroed bytes are a valid `pthread_mutex_t`, C's state
+            // before `pthread_mutex_init`.
+            mutex: unsafe { MaybeUninit::<pthread_mutex_t>::zeroed().assume_init() },
+            // SAFETY: zeroed bytes are a valid `pthread_mutex_t`, C's state
+            // before `pthread_mutex_init`.
+            gc_mutex: unsafe { MaybeUninit::<pthread_mutex_t>::zeroed().assume_init() },
+            bus_rwlock: ptr::null_mut(),
+            // SAFETY: zeroed bytes are a valid `pthread_rwlock_t`, C's state
+            // before `pthread_rwlock_init`.
+            #[cfg(feature = "page_ftl_global_rwlock")]
+            rwlock: unsafe { MaybeUninit::<pthread_rwlock_t>::zeroed().assume_init() },
+            gc_thread: 0,
+            o_flags: 0,
+            gc_list: Vec::new(),
+            gc_seg_bits: Vec::new(),
+            checkpoint: None,
         }
     }
 
@@ -469,28 +492,9 @@ impl PageFtl {
         sector % self.dev().page_size()
     }
 
-    /// C's `page_ftl_get_segment_number`: index of `segment` within the
-    /// `segments` array. Undefined for a pointer outside that array, as in C.
-    ///
-    /// # Safety
-    /// `segment` points into the `segments` array.
-    pub unsafe fn segment_number(&self, segment: *const PageFtlSegment) -> usize {
-        (segment as usize - self.segments as usize) / core::mem::size_of::<PageFtlSegment>()
-    }
-
     /// C's `page_ftl_get_free_pages`: sum of every segment's free-page count.
-    ///
-    /// # Safety
-    /// `dev` and `segments` are live and `segments` holds `dev.nr_segments()`
-    /// entries.
-    pub unsafe fn free_pages(&self) -> usize {
-        let nr_segments = self.dev().nr_segments();
-        let mut free_pages = 0usize;
-        for segnum in 0..nr_segments {
-            let segment = &*self.segments.add(segnum);
-            free_pages += segment.free_pages() as usize;
-        }
-        free_pages
+    pub fn free_pages(&self) -> usize {
+        self.segments.iter().map(|seg| seg.free_pages() as usize).sum()
     }
 }
 
@@ -551,7 +555,7 @@ mod tests {
         dev.info.package.block.nr_pages = 128;
         dev.info.package.block.page.size = DEVICE_PAGE_SIZE;
 
-        let mut pgftl = PageFtl::zeroed();
+        let mut pgftl = PageFtl::empty();
         pgftl.dev = &mut dev;
 
         // 4 segments * (2*2*128) pages * 8192 bytes.
@@ -565,28 +569,16 @@ mod tests {
 
     #[test]
     fn free_pages_sums_segments_and_sets_use_bit() {
-        let mut use_bits = [0u64; 2];
-        let mut segments = [PageFtlSegment {
-            nr_free_pages: AtomicI32::new(0),
-            nr_valid_pages: AtomicI32::new(0),
-            use_bits: use_bits.as_mut_ptr(),
-            lpn_list: core::ptr::null_mut(),
-        }];
-        segments[0].nr_free_pages.store(3, Ordering::SeqCst);
-
         let mut dev = unsafe { MaybeUninit::<device>::zeroed().assume_init() };
         dev.info.package.nr_blocks = 1;
 
-        let mut pgftl = PageFtl::zeroed();
+        let mut pgftl = PageFtl::empty();
         pgftl.dev = &mut dev;
-        pgftl.segments = segments.as_mut_ptr();
+        pgftl.segments = vec![PageFtlSegment::empty(vec![0u64; 1], 3)];
 
-        unsafe {
-            assert_eq!(pgftl.free_pages(), 3);
-            segments[0].set_use_bit(5);
-            assert!(segments[0].use_bit(5));
-            assert!(!segments[0].use_bit(6));
-            assert_eq!(pgftl.segment_number(&segments[0]), 0);
-        }
+        assert_eq!(pgftl.free_pages(), 3);
+        pgftl.segments[0].set_use_bit(5);
+        assert!(pgftl.segments[0].use_bit(5));
+        assert!(!pgftl.segments[0].use_bit(6));
     }
 }

@@ -346,7 +346,7 @@ pub unsafe extern "C" fn ffi_page_ftl_module_init(flash: *mut flash_device, flag
     (*flash).f_op = &PAGE_FOPS;
 
     // C's `malloc(sizeof(struct page_ftl))` plus the `memset(0)`.
-    let mut pgftl = Box::new(PageFtl::zeroed());
+    let mut pgftl = Box::new(PageFtl::empty());
 
     let mut dev: *mut device = ptr::null_mut();
     let err = ffi_device_module_init(flags, &mut dev, 0);
@@ -473,7 +473,6 @@ mod tests {
     use crate::bits::set_bit;
     use crate::device::{device_address, DeviceModule, PADDR_EMPTY, DEVICE_PAGE_SIZE};
     use crate::ftl::test_support::Fixture;
-    use crate::list::ffi_list_prepend;
     use crate::module::{ffi_module_exit, ffi_module_init, PAGE_FTL_MODULE};
     use core::sync::atomic::Ordering;
 
@@ -593,7 +592,7 @@ mod tests {
 
         let mut blocks = Vec::new();
         for lpn in 0..=last_lpn {
-            let paddr = device_address::from(unsafe { *f.pgftl.trans_map.add(lpn) });
+            let paddr = device_address::from(f.pgftl.trans_map[lpn]);
             if lpn < first_lpn {
                 assert_eq!(paddr.lpn, PADDR_EMPTY, "lpn {} stays unmapped", lpn);
                 continue;
@@ -797,10 +796,9 @@ mod tests {
         // An exhausted segment on the GC list, the state `invalidate` queues a
         // segment in. It has no valid page to relocate, so the collection
         // erases it and resets its counters.
-        f.segments[1].nr_free_pages.store(0, Ordering::SeqCst);
-        let segment = f.segment_ptr(1) as *mut c_void;
-        f.pgftl.gc_list = unsafe { ffi_list_prepend(f.pgftl.gc_list, segment) };
-        set_bit(&mut f.gc_seg_bits, 1);
+        f.pgftl.segments[1].nr_free_pages.store(0, Ordering::SeqCst);
+        f.pgftl.gc_list.insert(0, 1);
+        set_bit(&mut f.pgftl.gc_seg_bits, 1);
         assert_eq!(f.gc_list_len(), 1);
 
         // The one segment it erased is the one the count does not report
@@ -878,10 +876,10 @@ mod tests {
             payload.len() as ssize_t
         );
 
-        assert_eq!(f.segments[0].free_pages(), 0);
-        assert_eq!(f.segments[1].free_pages(), PAGES_PER_SEGMENT as i32 - 1);
+        assert_eq!(f.pgftl.segments[0].free_pages(), 0);
+        assert_eq!(f.pgftl.segments[1].free_pages(), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(
-            unsafe { *f.pgftl.trans_map.add(PAGES_PER_SEGMENT) },
+            f.pgftl.trans_map[PAGES_PER_SEGMENT],
             device_address::from_segment_page(1, 0).lpn
         );
     }
