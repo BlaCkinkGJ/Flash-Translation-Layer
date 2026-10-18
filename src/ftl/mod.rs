@@ -17,8 +17,9 @@
 //!
 //! `page_ftl_get_free_page` and `page_ftl_update_map` from `ftl/page/page-map.c`
 //! live in [`page_map`], with `ffi_`-prefixed entry points so they can coexist
-//! with the still-linked C implementations until the cutover. The read and
-//! write paths live in [`page_read`] and [`page_write`] the same way.
+//! with the still-linked C implementations until the cutover. The read, write
+//! and garbage collection paths live in [`page_read`], [`page_write`] and
+//! [`page_gc`] the same way.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -115,6 +116,54 @@
 //!   (`ftl/page/page-write.c:175-179`) and lets the first slot past the table
 //!   through, which then reads `trans_map` one entry past its end. The port
 //!   uses the bound `update_map` already applies.
+//! - `page_gc::do_gc` takes `&mut PageFtl` for the whole call, where C drops
+//!   `pgftl->mutex` around the valid page copy and the erase
+//!   (`ftl/page/page-gc.c:259-261`, `:283-290`). The exclusive borrow is what
+//!   keeps the copy's `read_page` / `write_page` calls from interleaving with
+//!   another writer, the same trade the read and write paths make.
+//! - C's `page_ftl_submit_request` serializes the GC loop's erase dispatch with
+//!   `pgftl->gc_mutex` (`ftl/page/page-core.c:360-369`). The private
+//!   `page_gc::submit_request` replaces that lock with the `&mut PageFtl`
+//!   borrow. It is a local mirror of the dispatch until the `page-core.c` port
+//!   (Task 12) owns the real one.
+//! - `page_gc::read_valid_page` returns an owned `Vec<u8>` and
+//!   `page_gc::write_valid_page` a `Result`, instead of C's buffer
+//!   out-parameter plus length return, so the page buffer and the request are
+//!   reclaimed on every path. C leaks both when the read or write comes back
+//!   short (`ftl/page/page-gc.c:148-152`, `:198-202`) and the buffer when the
+//!   write path fails (`ftl/page/page-write.c:220-224`), because each site
+//!   returns before its own cleanup: the read helper ahead of its `exception`
+//!   label, the write helper ahead of the `free(buffer)` on the next line, and
+//!   `page_ftl_write` ahead of the end callback that normally frees it
+//!   (`ftl/page/page-write.c:59-63`). C also hands the request to
+//!   `page_ftl_read` / `page_ftl_write`, which free it themselves
+//!   (`ftl/page/page-read.c:85`, `:135`, `ftl/page/page-write.c:59-63`).
+//! - The GC copy's scratch page is a `vec!`, which aborts on out of memory like
+//!   the rest of the port, so C's `-ENOMEM` from the page `malloc`
+//!   (`ftl/page/page-gc.c:127-132`) has no Rust equivalent. The request
+//!   allocations keep the `-ENOMEM` path (`:135-140`, `:186-190`, `:88-92`).
+//! - `page_gc::read_valid_page` and `page_gc::write_valid_page` keep C's
+//!   collapse of every read or write failure, device errors included, to
+//!   `-EFAULT` (`ftl/page/page-gc.c:148-152`, `:198-202`).
+//! - C returns the erase's value verbatim and leaks the request when the
+//!   backend fails without running the completion callback
+//!   (`ftl/page/page-gc.c:97-101`). `page_gc::segment_erase` reclaims the
+//!   request there and reports `EIO` for a non-negative failure, keeping the
+//!   negated errno for a negative one.
+//! - `page_gc::segment_data_init` mirrors `page_ftl_segment_data_init`, the one
+//!   piece of `page-core.c` the reset step needs (`ftl/page/page-core.c:110`).
+//!   It returns `()`, because the C function returns 0 unconditionally, so the
+//!   error branch C checks at `ftl/page/page-gc.c:285-288` cannot be taken.
+//! - `page_gc::gc_from_list` builds the segment count with Rust's saturating
+//!   float to `usize` cast, where C's cast of the same product is undefined for
+//!   a negative or out of range `gc_ratio` (`ftl/page/page-gc.c:310`). The
+//!   return value keeps both of C's quirks: a call that drains the list reports
+//!   one fewer segment than it erased (`:317-321`), and a request the dispatch
+//!   sends to the read or write path reports that path's byte count
+//!   (`:312-316`).
+//! - `page_gc::ffi_page_ftl_do_gc` and `page_gc::ffi_page_ftl_gc_from_list`
+//!   return `-EINVAL` for a `NULL` FTL or request, where C dereferences them
+//!   (`ftl/page/page-gc.c:260`, `:309-312`).
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -123,9 +172,13 @@ use libc::{pthread_mutex_t, pthread_rwlock_t, pthread_t};
 use crate::device::device;
 use crate::list::list_node_t;
 
+pub mod page_gc;
 pub mod page_map;
 pub mod page_read;
 pub mod page_write;
+
+#[cfg(test)]
+pub(crate) mod test_support;
 
 /// C's `PAGE_FTL_CACHE_SIZE`, the write-back cache slot count (unused while
 /// `PAGE_FTL_USE_CACHE` stays commented out in the header).
