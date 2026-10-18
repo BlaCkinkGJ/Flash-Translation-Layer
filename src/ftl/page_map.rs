@@ -21,7 +21,7 @@ use core::sync::atomic::Ordering;
 
 use crate::bits::{find_first_zero_bit, get_bit, BITS_NOT_FOUND};
 use crate::device::{device_address, PADDR_EMPTY};
-use crate::ftl::{atomic_i32, PageFtl};
+use crate::ftl::PageFtl;
 use crate::{pr_err, pr_warn};
 
 /// C's `page_ftl_get_free_page`: pick the next free physical page.
@@ -67,7 +67,14 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> device_address {
         }
         pgftl.alloc_segnum = segnum as u64;
 
-        let bits = unsafe { core::slice::from_raw_parts(segment.use_bits, bits_len) };
+        // A zero-length map must not build a slice from a possibly null
+        // pointer. An empty slice gives C's `find_first_zero_bit(bits, 0, 0)`
+        // result (`BITS_NOT_FOUND`) without the undefined behaviour.
+        let bits: &[u64] = if bits_len == 0 {
+            &[]
+        } else {
+            unsafe { core::slice::from_raw_parts(segment.use_bits, bits_len) }
+        };
         let page = find_first_zero_bit(bits, pages_per_segment as u64, 0);
         if page == BITS_NOT_FOUND {
             pr_warn!(
@@ -84,8 +91,8 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> device_address {
         paddr.lpn |= page as u32;
 
         unsafe { segment.set_use_bit(page) };
-        atomic_i32(core::ptr::addr_of!(segment.nr_free_pages)).fetch_sub(1, Ordering::SeqCst);
-        atomic_i32(core::ptr::addr_of!(segment.nr_valid_pages)).fetch_add(1, Ordering::SeqCst);
+        segment.nr_free_pages_atomic().fetch_sub(1, Ordering::SeqCst);
+        segment.nr_valid_pages_atomic().fetch_add(1, Ordering::SeqCst);
 
         return paddr;
     }
@@ -211,7 +218,8 @@ mod tests {
         }
 
         fn set_free(&mut self, segnum: usize, n: i32) {
-            atomic_i32(core::ptr::addr_of!(self.segments[segnum].nr_free_pages))
+            self.segments[segnum]
+                .nr_free_pages_atomic()
                 .store(n, Ordering::SeqCst);
         }
 
@@ -321,6 +329,26 @@ mod tests {
         assert_eq!(f.pgftl.alloc_segnum, 1);
         // The desynced segment keeps its stale free-page counter, exactly like C.
         assert_eq!(f.free(0), 1);
+    }
+
+    #[test]
+    fn zero_page_segments_report_no_free_page() {
+        let mut f = Fixture::new();
+        // A degenerate geometry: no pages in any segment, so every bitmap is
+        // zero bits long. C scans nothing, warns, and ends with PADDR_EMPTY.
+        f.dev.info.package.block.nr_pages = 0;
+
+        assert_eq!(
+            get_free_page(&mut f.pgftl),
+            device_address::from(PADDR_EMPTY)
+        );
+        // C assigns `alloc_segnum` before the scan and `goto retry` walks on,
+        // so the cursor ends on the segment whose scan failed last (0, 1, 0
+        // for three segments), not on the last one visited.
+        assert_eq!(f.pgftl.alloc_segnum, 0);
+        // Nothing was handed out: no counter moved and no bit was set.
+        assert_eq!(f.free(0), 16);
+        assert_eq!(f.segments[0].nr_valid_pages, 0);
     }
 
     #[test]

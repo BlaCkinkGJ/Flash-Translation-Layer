@@ -6,9 +6,10 @@
 //!   mirrors of `struct page_ftl` / `struct page_ftl_segment`. C reads these by
 //!   offset (`pgftl->trans_map`, `pgftl->alloc_segnum`, `pgftl->segments`,
 //!   `pgftl->dev`, `segment->nr_free_pages`, `segment->use_bits`, ...), so the
-//!   layout is the contract. It is pinned by `layout_matches_c` here. The C
-//!   side keeps its own `struct` definitions (`include/page.h` is untouched),
-//!   so the matching `_Static_assert`s land with the Task 14 cutover.
+//!   layout is the contract. It is pinned on both sides: `layout_matches_c`
+//!   here, and the `PAGE_FTL_STATIC_ASSERT` block next to the C `struct`
+//!   definitions. Both assert the same offset formulas, so either side
+//!   drifting breaks a build.
 //! - The native layer: safe accessors on [`PageFtl`] (`map_size`, `lpn`,
 //!   `page_offset`, `segment_number`, `free_pages`) plus the address mapping
 //!   in [`page_map`]. Rust callers (Tasks 9-13) use these and never touch raw
@@ -65,7 +66,7 @@ pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;
 /// borrowed raw pointers here because C allocates and frees them: see
 /// `page_ftl_segment_data_init` in `ftl/page/page-core.c` (Task 9+).
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct PageFtlSegment {
     pub nr_free_pages: core::ffi::c_int,
     pub nr_valid_pages: core::ffi::c_int,
@@ -95,10 +96,21 @@ impl PageFtlSegment {
         crate::bits::get_bit(bits, page)
     }
 
+    /// View `nr_free_pages` as an atomic, the way C's `__atomic_*` calls do.
+    /// The returned reference borrows `self`, so it cannot outlive the field.
+    pub fn nr_free_pages_atomic(&self) -> &AtomicI32 {
+        unsafe { AtomicI32::from_ptr(core::ptr::addr_of!(self.nr_free_pages) as *mut i32) }
+    }
+
+    /// View `nr_valid_pages` as an atomic, like [`Self::nr_free_pages_atomic`].
+    pub fn nr_valid_pages_atomic(&self) -> &AtomicI32 {
+        unsafe { AtomicI32::from_ptr(core::ptr::addr_of!(self.nr_valid_pages) as *mut i32) }
+    }
+
     /// Atomically read `nr_free_pages`, mirroring C's `__atomic_load_n(...,
     /// __ATOMIC_SEQ_CST)`.
     pub fn free_pages(&self) -> i32 {
-        atomic_i32(core::ptr::addr_of!(self.nr_free_pages)).load(Ordering::SeqCst)
+        self.nr_free_pages_atomic().load(Ordering::SeqCst)
     }
 }
 
@@ -178,11 +190,6 @@ impl PageFtl {
         }
         free_pages
     }
-}
-
-/// View a mirrored `c_int` field as an atomic, as the C `__atomic_*` calls do.
-pub(crate) fn atomic_i32(field: *const i32) -> &'static AtomicI32 {
-    unsafe { AtomicI32::from_ptr(field as *mut i32) }
 }
 
 #[cfg(test)]
@@ -315,7 +322,9 @@ mod tests {
             use_bits: use_bits.as_mut_ptr(),
             lpn_list: core::ptr::null_mut(),
         }];
-        atomic_i32(core::ptr::addr_of!(segments[0].nr_free_pages)).store(3, Ordering::SeqCst);
+        segments[0]
+            .nr_free_pages_atomic()
+            .store(3, Ordering::SeqCst);
 
         let mut dev = unsafe { MaybeUninit::<device>::zeroed().assume_init() };
         dev.info.package.nr_blocks = 1;

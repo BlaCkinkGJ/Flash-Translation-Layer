@@ -9,6 +9,7 @@
 #define PAGE_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include <pthread.h>
 
 #include <assert.h>
