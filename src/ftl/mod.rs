@@ -55,6 +55,10 @@
 //! - `page_read::read_page` takes `&mut PageFtl`, so the exclusive borrow
 //!   replaces C's `pthread_mutex_lock(&pgftl->mutex)` around the `trans_map`
 //!   read (`ftl/page/page-read.c:76-78`).
+//! - `page_read::read_page` refuses a logical page at or past the L2P table
+//!   with `lpn >= map_entries()`. C reads `trans_map[lpn]` with no bound at all
+//!   (`ftl/page/page-read.c:71-78`), so a sector past the table reads one entry
+//!   past its end. The port uses the bound `update_map` already applies.
 //! - `page_read::read_page` clears the request's `is_finish` word before it
 //!   submits the read, so a request reused across calls cannot return early on
 //!   the previous completion's flag. C frees the request on the zero fill and

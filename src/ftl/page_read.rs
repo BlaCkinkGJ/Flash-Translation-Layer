@@ -105,6 +105,16 @@ pub fn read_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resul
     let lpn = pgftl.lpn(request.sector);
     let offset = pgftl.page_offset(request.sector);
 
+    // C reads `trans_map[lpn]` with no bound at all (`ftl/page/page-read.c:71-78`),
+    // so a sector past the L2P table reads one entry past its end. The port
+    // refuses it with the bound `update_map` already applies, and the C ABI
+    // mirror reports the same `-EINVAL`. See the deviations in `crate::ftl`.
+    let map_entries = pgftl.map_entries();
+    if lpn >= map_entries {
+        pr_err!("invalid lpn detected (lpn: {}, max: {})", lpn, map_entries);
+        return Err(io::Error::from_raw_os_error(libc::EINVAL));
+    }
+
     let paddr = device_address::from(unsafe { *pgftl.trans_map.add(lpn) });
 
     if paddr.lpn == PADDR_EMPTY {
@@ -404,6 +414,29 @@ mod tests {
         let mut buf = vec![0u8; 8];
         let err = read_at(&mut f, DEVICE_PAGE_SIZE - 4, &mut buf).unwrap_err();
         assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+    }
+
+    #[test]
+    fn read_past_the_l2p_table_is_rejected() {
+        let mut f = Fixture::new();
+        program(&mut f, 0);
+        let entries = f.pgftl.map_entries();
+        assert!(entries > 1, "the fixture needs at least one table slot");
+
+        // The last table slot is `entries - 1`, so the slot itself and anything
+        // past it must fail before `trans_map` is read. C has no bound here at
+        // all.
+        let mut buf = vec![0u8; 8];
+        for lpn in [entries, entries + 1] {
+            let err = read_at(&mut f, lpn * DEVICE_PAGE_SIZE, &mut buf).unwrap_err();
+            assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+        }
+
+        // The last valid slot is still reachable and reads zeros, because the
+        // fixture programs only the pages it maps.
+        let n = read_at(&mut f, (entries - 1) * DEVICE_PAGE_SIZE, &mut buf).unwrap();
+        assert_eq!(n, 8);
+        assert!(buf.iter().all(|byte| *byte == 0));
     }
 
     #[test]
