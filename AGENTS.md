@@ -7,7 +7,8 @@ exist in nested `AGENTS.md` files (nearest file wins).
 ## Project Snapshot
 
 - **Domain**: NAND Flash Translation Layer (page-mapping FTL).
-- **Language**: C (core) + Rust (staticlib mixed in via `cargo build`).
+- **Language**: Rust (page FTL and utilities) plus C (device backends and the
+  interface shim).
 - **Targets**: Linux (primary), macOS via Docker only.
 - **Backends**: ramdisk (default), zoned block device, bluedbm, raspberrypi.
 - **Output**: static library `libftl.a` + integration test + benchmark.
@@ -16,11 +17,10 @@ exist in nested `AGENTS.md` files (nearest file wins).
 
 ```
 include/           Public C headers (installed to $(PREFIX)/include/ftl)
-ftl/page/          Page-mapping FTL core (core, gc, map, read, write, interface)
 interface/         Module init/exit (module.c, flash.c)
-device/            Backend drivers (ramdisk/, zone/, bluedbm/, raspberry/)
-util/              Generic helpers (lru.c, list.c)
-src/               Rust sources (cargo staticlib → libftl_rust.a)
+device/            Backend drivers (device.c, zone/, bluedbm/, raspberry/)
+src/               Rust sources (cargo staticlib → libftl_rust.a), including the
+                   page FTL under src/ftl/
 test/              Unity-based unit tests (*-test.c)
 unity/             Vendored Unity test framework
 docker/            Dockerfile for cross-build (macOS / non-Linux)
@@ -64,7 +64,7 @@ make docker-make-all
 gcc -Wall -Wextra -Werror -I include -I unity/src \
     -DDEVICE_NR_BUS_BITS=2 -DDEVICE_NR_CHIPS_BITS=2 \
     -DDEVICE_NR_PAGES_BITS=7 -DDEVICE_NR_BLOCKS_BITS=19 \
-    -O3 -c ftl/page/page-write.c -o /tmp/page-write.o
+    -O3 -c interface/module.c -o /tmp/module.o
 
 # Run a single Unity test
 make USE_LOG_SILENT=1 lru-test.out && ./lru-test.out
@@ -185,10 +185,12 @@ make integration-test                      # end-to-end via integration-test.c
    `<name>-test.out` to `TEST_TARGET`.
 
 ### Adding a new FTL policy
-1. New file under `ftl/page/` (e.g. `page-cache.c`).
-2. Declare the API in `include/page.h` near the related functions.
-3. Wire it in `page-interface.c` or `page-core.c` — keep allocation / GC
-   ownership in one place.
+
+1. New module under `src/ftl/` (e.g. `page_cache.rs`), declared in
+   `src/ftl/mod.rs`.
+2. Register the C ABI entry point in `src/ftl/page_interface.rs` and declare it
+   in `include/page.h` when C calls it.
+3. Keep allocation / GC ownership in one place, the way the C sources did.
 
 ### Mixing Rust
 - New Rust modules go in `src/`, re-exported from `src/lib.rs`.

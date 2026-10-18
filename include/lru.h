@@ -56,7 +56,7 @@ struct lru_cache {
  *
  * The Rust `lru_cache` carries a Rust-only field after `nil`, so its size is
  * larger than this one: never `sizeof(struct lru_cache)` for allocation, only
- * `lru_init` ever did.
+ * `ffi_lru_init` does.
  */
 #if defined(__cplusplus)
 #define LRU_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
@@ -92,15 +92,10 @@ LRU_STATIC_ASSERT(offsetof(struct lru_cache, nil) == 4 * sizeof(size_t),
 
 #undef LRU_STATIC_ASSERT
 
-struct lru_cache *lru_init(const size_t capacity, lru_dealloc_fn deallocate);
-int lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value);
-uintptr_t lru_get(struct lru_cache *cache, const uint64_t key);
-int lru_free(struct lru_cache *cache);
-
 /*
+ * Task 16a: `util/lru.c` is gone, so the `lru_*` prototypes went with it.
  * Task 14 cutover: `src/lru.rs` is the live implementation and these are the
- * entry points the callers use. The C prototypes above stay only as long as
- * `util/lru.c` is still compiled, and go with it.
+ * entry points the callers use.
  */
 struct lru_cache *ffi_lru_init(const size_t capacity,
 			       lru_dealloc_fn deallocate);

@@ -1,4 +1,4 @@
-VPATH = device device/ramdisk device/zone device/bluedbm device/raspberry util ftl/page interface unity/src test
+VPATH = device device/zone device/bluedbm device/raspberry interface unity/src test
 # You can generate the compile_commands.json file by using
 # `make clean -j$(nproc)`
 # `bear make all -j$(nproc)`
@@ -181,7 +181,10 @@ RUST_FEATURES += raspberry
 endif
 RUST_FEATURE_FLAG := $(if $(strip $(RUST_FEATURES)),--features '$(strip $(RUST_FEATURES))')
 
-RAMDISK_SRCS = device/ramdisk/*.c
+# Task 16a: the FTL (`ftl/page/`), the generic helpers (`util/`) and the
+# ramdisk backend (`device/ramdisk/`) come from Rust only, so their C sources
+# are gone. The remaining C is the device module, its optional backends, and
+# the module and flash interface.
 ZONED_SRCS =
 BLUEDBM_SRCS =
 RASPBERRY_SRCS =
@@ -198,21 +201,14 @@ ifeq ($(USE_RASPBERRY_DEVICE), 1)
 RASPBERRY_SRCS += device/raspberry/*.c
 endif
 
-DEVICE_SRCS := $(RAMDISK_SRCS) \
-               $(BLUEDBM_SRCS) \
+DEVICE_SRCS := $(BLUEDBM_SRCS) \
                $(ZONED_SRCS) \
                $(RASPBERRY_SRCS) \
                device/*.c
 
-UTIL_SRCS := util/lru.c util/list.c
-
-FTL_SRCS := ftl/page/*.c
-
 INTERFACE_SRCS := interface/*.c
 
 SRCS := $(DEVICE_SRCS) \
-        $(UTIL_SRCS) \
-        $(FTL_SRCS) \
         $(INTERFACE_SRCS)
 
 OBJS := $(patsubst %.c,%.o,$(sort $(wildcard $(SRCS))))

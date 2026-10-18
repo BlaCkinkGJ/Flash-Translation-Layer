@@ -177,33 +177,11 @@ PAGE_FTL_STATIC_ASSERT(sizeof(struct page_ftl) ==
 #undef PAGE_FTL_ALIGNOF
 #undef PAGE_FTL_ALIGN_UP
 
-/* page-interface.c */
-int page_ftl_open(struct page_ftl *, const char *name, int flags);
-int page_ftl_close(struct page_ftl *);
-
-ssize_t page_ftl_submit_request(struct page_ftl *, struct device_request *);
-ssize_t page_ftl_write(struct page_ftl *, struct device_request *);
-ssize_t page_ftl_read(struct page_ftl *, struct device_request *);
-
-int page_ftl_module_init(struct flash_device *, uint64_t flags);
-int page_ftl_module_exit(struct flash_device *);
-
-/* page-map.c */
-struct device_address page_ftl_get_free_page(struct page_ftl *);
-int page_ftl_update_map(struct page_ftl *, size_t sector, uint32_t ppn);
-
-/* page-core.c */
-int page_ftl_segment_data_init(struct page_ftl *, struct page_ftl_segment *);
-
-/* page-gc.c */
-ssize_t page_ftl_do_gc(struct page_ftl *);
-ssize_t page_ftl_gc_from_list(struct page_ftl *, struct device_request *,
-			      double gc_ratio);
-
 /*
- * Task 14 cutover: the Rust port in `src/ftl/` is the live implementation. The
- * C prototypes above stay only as long as the `ftl/page` C sources are still
- * compiled.
+ * Task 16a: the `page_ftl_*` prototypes went with the `ftl/page` C sources.
+ * `src/ftl/` is the only implementation left, so the header keeps the structs
+ * and the layout assertions the erased C readers used to pin, plus the entry
+ * points below. Task 16b (#86) drops the structs and the assertions.
  */
 int ffi_page_ftl_open(struct page_ftl *, const char *name, int flags);
 int ffi_page_ftl_close(struct page_ftl *);

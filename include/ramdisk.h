@@ -14,30 +14,13 @@
 
 #include "device.h"
 
-/**
- * @brief structure for manage the ramdisk
- */
-struct ramdisk {
-	size_t size;
-	char *buffer;
-	uint64_t *is_used;
-	int o_flags;
-};
-
-int ramdisk_open(struct device *, const char *name, int flags);
-ssize_t ramdisk_write(struct device *, struct device_request *);
-ssize_t ramdisk_read(struct device *, struct device_request *);
-int ramdisk_erase(struct device *, struct device_request *);
-int ramdisk_close(struct device *);
-
-int ramdisk_device_init(struct device *, uint64_t flags);
-int ramdisk_device_exit(struct device *);
-
 /*
- * Task 14 cutover: `src/device/ramdisk.rs` is the live implementation. The
- * init and exit routines are what `submodule_init[]` installs, and the C
- * prototypes above stay only as long as `device/ramdisk/ramdisk.c` is still
- * compiled.
+ * Task 16a: `device/ramdisk/ramdisk.c` is gone, so its prototypes and the
+ * `struct ramdisk` they were written against go with it. `src/device/ramdisk.rs`
+ * keeps its own state and nothing outside the C source ever read the struct.
+ *
+ * Task 14 cutover: `src/device/ramdisk.rs` is the live implementation. The init
+ * and exit routines are what the device module installs.
  */
 int ffi_ramdisk_device_init(struct device *, uint64_t flags);
 int ffi_ramdisk_device_exit(struct device *);
