@@ -114,7 +114,7 @@ pub fn read_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resul
         return Err(io::Error::from_raw_os_error(libc::EINVAL));
     }
 
-    let paddr = device_address::from(unsafe { *pgftl.trans_map.add(lpn) });
+    let paddr = device_address::from(pgftl.trans_map[lpn]);
 
     if paddr.lpn == PADDR_EMPTY {
         pr_warn!("cannot find the mapping information (lpn: {})", lpn);
@@ -235,7 +235,6 @@ mod tests {
     /// A real ramdisk device plus a page FTL L2P table over it.
     struct Fixture {
         dev: *mut device,
-        _trans_map: Vec<u32>,
         pgftl: Box<PageFtl>,
     }
 
@@ -252,16 +251,11 @@ mod tests {
             }
 
             let entries = unsafe { (*dev).total_pages() + 1 };
-            let mut trans_map = vec![PADDR_EMPTY; entries];
-            let mut pgftl = Box::new(PageFtl::zeroed());
+            let mut pgftl = Box::new(PageFtl::empty());
             pgftl.dev = dev;
-            pgftl.trans_map = trans_map.as_mut_ptr();
+            pgftl.trans_map = vec![PADDR_EMPTY; entries];
 
-            Fixture {
-                dev,
-                _trans_map: trans_map,
-                pgftl,
-            }
+            Fixture { dev, pgftl }
         }
     }
 
@@ -500,10 +494,9 @@ mod tests {
             dev.info.package.block.page.size = DEVICE_PAGE_SIZE;
             dev.install_backend(FailingRead);
 
-            let mut trans_map = vec![7u32];
-            let mut pgftl = Box::new(PageFtl::zeroed());
+            let mut pgftl = Box::new(PageFtl::empty());
             pgftl.dev = &mut *dev;
-            pgftl.trans_map = trans_map.as_mut_ptr();
+            pgftl.trans_map = vec![7u32];
 
             let mut buf = vec![0u8; 16];
             let mut request = Request::new().expect("allocate a request");

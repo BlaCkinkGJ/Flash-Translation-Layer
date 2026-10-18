@@ -11,18 +11,19 @@
 //! drive.
 //!
 //! The statics mirror the file's statics: [`alloc_bitmap`], [`init_segment`],
-//! [`init_bus_lock`], [`init_map`], [`free_segments`], [`gc_thread_main`] with
+//! [`init_bus_lock`], [`init_map`], [`gc_thread_main`] with
 //! its [`gc_thread_iteration`] turn and [`gc_pass`] body, and the checkpoint
 //! pair [`checkpoint_save`] / [`checkpoint_load`]. C's
 //! `page_ftl_segment_data_init` lives here as [`segment_data_init`], its C home
-//! (`ftl/page/page-core.c:110`), and [`crate::ftl::page_gc`] calls it.
+//! (`ftl/page/page-core.c:110`), and [`crate::ftl::page_gc`] calls it. C's
+//! `page_ftl_free_segments` has no port: the buffers it freed are owned here,
+//! so [`close`] drops them.
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
 use core::ffi::{c_char, c_int, c_void};
 use core::mem::size_of;
 use core::ptr;
-use core::slice;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
 use std::collections::HashSet;
@@ -41,7 +42,6 @@ use crate::ftl::page_gc::{do_gc, gc_from_list};
 use crate::ftl::page_read::read_page;
 use crate::ftl::page_write::write_page;
 use crate::ftl::{PageFtl, PageFtlLock, PageFtlSegment, PAGE_FTL_GC_RATIO, PAGE_FTL_GC_THRESHOLD};
-use crate::list::{ffi_list_free, ffi_list_prepend};
 use crate::{pr_debug, pr_err, pr_warn};
 
 /// C's `CRC32_INIT` (`include/crc32.h:9`), the seed of the checkpoint's
@@ -132,83 +132,70 @@ fn bits_to_bytes(bits: usize) -> usize {
     (bits / 64 + 1) * size_of::<u64>()
 }
 
-/// C's `malloc` plus the `memset(0)` every bitmap and lock array gets. A null
-/// return is C's allocation failure.
+/// C's `malloc` plus the `memset(0)` the bus rwlock array gets. A null return
+/// is C's allocation failure.
 fn alloc_zeroed(bytes: usize) -> *mut c_void {
     unsafe { libc::calloc(1, bytes) }
 }
 
-/// C's `page_ftl_alloc_bitmap` (`ftl/page/page-core.c:85`).
-///
-/// Returns the zeroed bitmap, or a null pointer where C reports `-ENOMEM`
-/// through its out parameter.
-fn alloc_bitmap(pgftl: &PageFtl) -> *mut u64 {
-    let pages_per_segment = pgftl.dev().pages_per_segment();
-    alloc_zeroed(bits_to_bytes(pages_per_segment)) as *mut u64
+/// C's `page_ftl_alloc_bitmap` (`ftl/page/page-core.c:85`): a zeroed bitmap of
+/// `bits` bits, or `None` where C reports `-ENOMEM` through its out parameter.
+fn alloc_bitmap(bits: usize) -> Option<Vec<u64>> {
+    let words = bits_to_bytes(bits) / size_of::<u64>();
+    let mut bitmap = Vec::new();
+    bitmap.try_reserve_exact(words).ok()?;
+    bitmap.resize(words, 0);
+    Some(bitmap)
 }
 
 /// C's `page_ftl_segment_data_init` (`ftl/page/page-core.c:110`): reset a
 /// segment to empty.
 ///
 /// The free page count goes back to the segment's page count, the valid count
-/// and the `use_bits` bitmap are cleared, and the LPN list is freed.
-///
-/// # Safety
-/// `segment` points into a live segment array and its `use_bits` holds
-/// `pages_per_segment` bits.
-pub unsafe fn segment_data_init(pgftl: &PageFtl, segment: *mut PageFtlSegment) {
+/// and the `use_bits` bitmap are cleared, and the LPN list is dropped.
+pub fn segment_data_init(pgftl: &mut PageFtl, segnum: usize) {
     let pages_per_segment = pgftl.dev().pages_per_segment();
+    let segment = &mut pgftl.segments[segnum];
 
-    unsafe {
-        let segment = &mut *segment;
-        segment
-            .nr_free_pages
-            .store(pages_per_segment as i32, Ordering::SeqCst);
-        segment.nr_valid_pages.store(0, Ordering::SeqCst);
-
-        let words = pages_per_segment / 64 + 1;
-        slice::from_raw_parts_mut(segment.use_bits, words).fill(0);
-
-        if !segment.lpn_list.is_null() {
-            ffi_list_free(segment.lpn_list);
-            segment.lpn_list = ptr::null_mut();
-        }
-    }
+    segment
+        .nr_free_pages
+        .store(pages_per_segment as i32, Ordering::SeqCst);
+    segment.nr_valid_pages.store(0, Ordering::SeqCst);
+    segment.use_bits.fill(0);
+    segment.lpn_list.clear();
 }
 
-/// C's `page_ftl_init_segment` (`ftl/page/page-core.c:134`): allocate the
-/// segment array and one zeroed bitmap per segment.
+/// C's `page_ftl_init_segment` (`ftl/page/page-core.c:134`): build the segment
+/// array with one zeroed bitmap per segment.
 ///
-/// The array goes into the FTL before the bitmaps are handed out, where C keeps
-/// it in a local until the loop ends, so the `-ENOMEM` path here reclaims the
-/// array and the bitmaps allocated so far instead of leaking them.
+/// The array is a local until every bitmap has been built, where C assigns
+/// `pgftl->segments` only after the loop and leaks what the loop had already
+/// handed out when a later bitmap fails. A failing bitmap drops the local
+/// array and with it the bitmaps built so far.
 fn init_segment(pgftl: &mut PageFtl) -> c_int {
     let nr_segments = pgftl.dev().nr_segments();
+    let pages_per_segment = pgftl.dev().pages_per_segment();
 
-    let bytes = size_of::<PageFtlSegment>().saturating_mul(nr_segments);
-    let segments = alloc_zeroed(bytes) as *mut PageFtlSegment;
-    if segments.is_null() {
+    let mut segments: Vec<PageFtlSegment> = Vec::new();
+    if segments.try_reserve_exact(nr_segments).is_err() {
         pr_err!("memory allocation failed");
         return -libc::ENOMEM;
     }
-    pgftl.segments = segments;
 
     for segnum in 0..nr_segments {
-        let bits = alloc_bitmap(pgftl);
-        if bits.is_null() {
+        let Some(use_bits) = alloc_bitmap(pages_per_segment) else {
             pr_err!("initialize the use bitmap failed (segnum: {})", segnum);
             return -libc::ENOMEM;
-        }
-        let segment = unsafe { segments.add(segnum) };
-        unsafe { (*segment).use_bits = bits };
-        unsafe { segment_data_init(pgftl, segment) };
+        };
+        segments.push(PageFtlSegment::empty(use_bits, pages_per_segment as i32));
         pr_debug!(
             "initialize the segment {} (bits: {}, size: {})",
             segnum,
-            pgftl.dev().pages_per_segment(),
-            pgftl.dev().pages_per_segment() / 8
+            pages_per_segment,
+            pages_per_segment / 8
         );
     }
+    pgftl.segments = segments;
 
     0
 }
@@ -245,18 +232,15 @@ fn init_bus_lock(pgftl: &mut PageFtl) -> c_int {
 /// C's `page_ftl_init_map` (`ftl/page/page-core.c:213`): allocate the L2P table
 /// and point every entry at [`PADDR_EMPTY`].
 fn init_map(pgftl: &mut PageFtl) -> c_int {
-    let map_size = pgftl.map_size();
+    let entries = pgftl.map_entries();
 
-    let trans_map = unsafe { libc::malloc(map_size) } as *mut u32;
-    if trans_map.is_null() {
+    let mut trans_map: Vec<u32> = Vec::new();
+    if trans_map.try_reserve_exact(entries).is_err() {
         pr_err!("cannot allocate the memory for mapping table");
         return -libc::ENOMEM;
     }
+    trans_map.resize(entries, PADDR_EMPTY);
     pgftl.trans_map = trans_map;
-
-    for lpn in 0..map_size / size_of::<u32>() {
-        unsafe { *trans_map.add(lpn) = PADDR_EMPTY };
-    }
 
     0
 }
@@ -293,7 +277,7 @@ pub fn submit_request(pgftl: &mut PageFtl, request: &mut device_request) -> io::
 /// `struct device_request`.
 fn gc_pass(pgftl: &mut PageFtl) -> io::Result<isize> {
     let total_pages = pgftl.dev().total_pages();
-    let free_pages = unsafe { pgftl.free_pages() };
+    let free_pages = pgftl.free_pages();
     if free_pages as f64 > total_pages as f64 * PAGE_FTL_GC_THRESHOLD {
         return Ok(0);
     }
@@ -380,7 +364,7 @@ fn checkpoint_save(pgftl: &PageFtl, path: &str) -> io::Result<()> {
     buffer.extend_from_slice(&(entries as u64).to_le_bytes());
     buffer.extend_from_slice(&0u32.to_le_bytes());
     for lpn in 0..entries {
-        buffer.extend_from_slice(&unsafe { *pgftl.trans_map.add(lpn) }.to_le_bytes());
+        buffer.extend_from_slice(&pgftl.trans_map[lpn].to_le_bytes());
     }
     for segnum in 0..nr_segments {
         // The programmed pages of a segment are the pages below its free page
@@ -388,7 +372,7 @@ fn checkpoint_save(pgftl: &PageFtl, path: &str) -> io::Result<()> {
         // into that range, because the load refuses a file outside it and a
         // counter the FTL itself broke must not make every mapping in the file
         // unreadable.
-        let free = unsafe { &*pgftl.segments.add(segnum) }
+        let free = pgftl.segments[segnum]
             .free_pages()
             .clamp(0, pages_per_segment as i32);
         buffer.extend_from_slice(&(free as u32).to_le_bytes());
@@ -560,7 +544,7 @@ fn checkpoint_load(pgftl: &mut PageFtl, path: &str) -> io::Result<bool> {
     for lpn in 0..entries {
         let offset = lpn * size_of::<u32>();
         let entry = u32::from_le_bytes(body[offset..offset + 4].try_into().unwrap());
-        unsafe { *pgftl.trans_map.add(lpn) = entry };
+        pgftl.trans_map[lpn] = entry;
     }
     pgftl.alloc_segnum = alloc_segnum;
     restore_segments(pgftl, &free_pages);
@@ -589,24 +573,20 @@ fn checkpoint_load(pgftl: &mut PageFtl, path: &str) -> io::Result<bool> {
 fn restore_segments(pgftl: &mut PageFtl, free_pages: &[u32]) {
     let pages_per_segment = pgftl.dev().pages_per_segment();
     let nr_segments = pgftl.dev().nr_segments();
-    let words = pages_per_segment / 64 + 1;
     let mut claimed = HashSet::new();
 
     for (segnum, free) in free_pages.iter().enumerate() {
-        let segment = unsafe { pgftl.segments.add(segnum) };
-        unsafe { segment_data_init(pgftl, segment) };
+        segment_data_init(pgftl, segnum);
         let programmed = pages_per_segment as u32 - free;
-        unsafe {
-            (*segment).nr_free_pages.store(*free as i32, Ordering::SeqCst);
-            let bits = slice::from_raw_parts_mut((*segment).use_bits, words);
-            for page in 0..programmed as u64 {
-                set_bit(bits, page);
-            }
+        let segment = &mut pgftl.segments[segnum];
+        segment.nr_free_pages.store(*free as i32, Ordering::SeqCst);
+        for page in 0..programmed as u64 {
+            set_bit(&mut segment.use_bits, page);
         }
     }
 
     for lpn in 0..pgftl.map_entries() {
-        let paddr = unsafe { *pgftl.trans_map.add(lpn) };
+        let paddr = pgftl.trans_map[lpn];
         if paddr == PADDR_EMPTY {
             continue;
         }
@@ -620,18 +600,18 @@ fn restore_segments(pgftl: &mut PageFtl, free_pages: &[u32]) {
         let page = address.segment_page();
         if segnum >= nr_segments || page >= programmed {
             pr_warn!("checkpoint entry {} points outside a programmed page", lpn);
-            unsafe { *pgftl.trans_map.add(lpn) = PADDR_EMPTY };
+            pgftl.trans_map[lpn] = PADDR_EMPTY;
             continue;
         }
         if !claimed.insert(paddr) {
             pr_warn!("checkpoint entry {} repeats page {}", lpn, paddr);
-            unsafe { *pgftl.trans_map.add(lpn) = PADDR_EMPTY };
+            pgftl.trans_map[lpn] = PADDR_EMPTY;
             continue;
         }
 
-        let segment = unsafe { &mut *pgftl.segments.add(segnum) };
+        let segment = &mut pgftl.segments[segnum];
         segment.nr_valid_pages.fetch_add(1, Ordering::SeqCst);
-        segment.lpn_list = unsafe { ffi_list_prepend(segment.lpn_list, lpn as *mut c_void) };
+        segment.lpn_list.push(lpn);
     }
 }
 
@@ -662,7 +642,7 @@ fn load_checkpoint(pgftl: &mut PageFtl, name: *const c_char) {
 /// reports the device's result, and a directory that cannot be written must not
 /// turn a successful close into a failure.
 fn save_checkpoint(pgftl: &mut PageFtl) {
-    if pgftl.trans_map.is_null() {
+    if pgftl.trans_map.is_empty() {
         return;
     }
     let Some(path) = pgftl.checkpoint.take() else {
@@ -730,14 +710,13 @@ pub unsafe fn open(pgftl: &mut PageFtl, name: *const c_char, flags: c_int) -> c_
     if err != 0 {
         return open_failed(pgftl, err);
     }
-    pgftl.gc_list = ptr::null_mut();
+    pgftl.gc_list = Vec::new();
 
     let nr_segments = pgftl.dev().nr_segments();
-    let gc_seg_bits = alloc_zeroed(bits_to_bytes(nr_segments)) as *mut u64;
-    if gc_seg_bits.is_null() {
+    let Some(gc_seg_bits) = alloc_bitmap(nr_segments) else {
         pr_err!("memory allocation failed");
         return open_failed(pgftl, -libc::ENOMEM);
-    }
+    };
     pgftl.gc_seg_bits = gc_seg_bits;
 
     pgftl.o_flags = flags;
@@ -769,32 +748,13 @@ fn open_failed(pgftl: &mut PageFtl, err: c_int) -> c_int {
     err
 }
 
-/// C's `page_ftl_free_segments` (`ftl/page/page-core.c:382`): release every
-/// segment's bitmap and LPN list.
-fn free_segments(pgftl: &PageFtl) {
-    let segments = pgftl.segments;
-    let nr_segments = pgftl.dev().nr_segments();
-
-    for segnum in 0..nr_segments {
-        let segment = unsafe { &mut *segments.add(segnum) };
-        if !segment.use_bits.is_null() {
-            unsafe { libc::free(segment.use_bits as *mut c_void) };
-            segment.use_bits = ptr::null_mut();
-        }
-        if !segment.lpn_list.is_null() {
-            unsafe { ffi_list_free(segment.lpn_list) };
-            segment.lpn_list = ptr::null_mut();
-        }
-    }
-}
-
 /// C's `page_ftl_close` (`ftl/page/page-core.c:414`): save the checkpoint,
 /// stop the GC thread, release every allocation and close the device.
 ///
 /// Returns the device's result, and 0 when there is no device to close.
 ///
 /// # Safety
-/// `pgftl` came from [`open`] or is a zeroed structure, and no other caller
+/// `pgftl` came from [`open`] or is an empty structure, and no other caller
 /// uses it while this runs.
 pub unsafe fn close(pgftl: &mut PageFtl) -> c_int {
     let key = pgftl as *mut PageFtl as usize;
@@ -817,23 +777,14 @@ pub unsafe fn close(pgftl: &mut PageFtl) -> c_int {
         libc::pthread_mutex_destroy(&mut pgftl.gc_mutex);
     }
 
-    if !pgftl.segments.is_null() {
-        free_segments(pgftl);
-        unsafe { libc::free(pgftl.segments as *mut c_void) };
-        pgftl.segments = ptr::null_mut();
-    }
-    if !pgftl.trans_map.is_null() {
-        unsafe { libc::free(pgftl.trans_map as *mut c_void) };
-        pgftl.trans_map = ptr::null_mut();
-    }
-    if !pgftl.gc_list.is_null() {
-        unsafe { ffi_list_free(pgftl.gc_list) };
-        pgftl.gc_list = ptr::null_mut();
-    }
-    if !pgftl.gc_seg_bits.is_null() {
-        unsafe { libc::free(pgftl.gc_seg_bits as *mut c_void) };
-        pgftl.gc_seg_bits = ptr::null_mut();
-    }
+    // C's `page_ftl_free_segments` and its four `free` calls
+    // (`ftl/page/page-core.c:382-405`, `:431-450`), which dropping the
+    // buffers does here: each segment's bitmap and LPN list, the segment
+    // array, the L2P table, the GC list and `gc_seg_bits`.
+    pgftl.segments = Vec::new();
+    pgftl.trans_map = Vec::new();
+    pgftl.gc_list = Vec::new();
+    pgftl.gc_seg_bits = Vec::new();
 
     if !pgftl.dev.is_null() && !pgftl.bus_rwlock.is_null() {
         let nr_bus = unsafe { (*pgftl.dev).info.nr_bus };
@@ -891,8 +842,26 @@ pub unsafe extern "C" fn ffi_page_ftl_segment_data_init(
         pr_err!("page FTL or segment is null detected");
         return -libc::EINVAL;
     }
-    unsafe { segment_data_init(&*pgftl, segment) };
-    0
+
+    let pgftl = unsafe { &mut *pgftl };
+    // The caller's contract puts `segment` in `pgftl.segments`, which is what
+    // C's `segment_number` arithmetic assumed too. The lookup refuses a
+    // pointer from outside the array instead of resetting a segment at some
+    // computed offset.
+    match pgftl
+        .segments
+        .iter()
+        .position(|seg| ptr::eq(seg, segment as *const PageFtlSegment))
+    {
+        Some(segnum) => {
+            segment_data_init(pgftl, segnum);
+            0
+        }
+        None => {
+            pr_err!("segment does not belong to the page FTL");
+            -libc::EINVAL
+        }
+    }
 }
 
 #[cfg(test)]
@@ -900,7 +869,6 @@ mod tests {
     use super::*;
     use crate::device::{Request, DEVICE_PAGE_SIZE};
     use crate::ftl::test_support::{failing_open, CoreFixture};
-    use crate::list::ffi_list_length;
     use core::sync::atomic::AtomicUsize;
 
     /// Two segments of four pages: small enough that a write and an overwrite
@@ -988,18 +956,9 @@ mod tests {
         f
     }
 
-    /// Whether `segment`'s first `use_bits` word is clear.
-    fn use_bits_clear(segment: *const PageFtlSegment) -> bool {
-        unsafe { *(*segment).use_bits == 0 }
-    }
-
-    /// Put `lpn` on `segment`'s LPN list, the state the write path leaves a
-    /// segment in once one of its pages is invalidated.
-    ///
-    /// # Safety
-    /// `segment` points into a live segment array.
-    unsafe fn queue_lpn(segment: *mut PageFtlSegment, lpn: usize) {
-        unsafe { (*segment).lpn_list = ffi_list_prepend(ptr::null_mut(), lpn as *mut c_void) };
+    /// Whether `segment`'s `use_bits` bitmap is clear.
+    fn use_bits_clear(segment: &PageFtlSegment) -> bool {
+        segment.use_bits.iter().all(|&word| word == 0)
     }
 
     #[test]
@@ -1023,17 +982,17 @@ mod tests {
         );
 
         let pgftl = f.pgftl.as_mut();
-        assert!(!pgftl.trans_map.is_null());
+        assert!(!pgftl.trans_map.is_empty());
         assert_eq!(pgftl.map_entries(), NR_SEGMENTS * PAGES_PER_SEGMENT + 1);
-        assert_eq!(unsafe { *pgftl.trans_map }, PADDR_EMPTY);
+        assert_eq!(pgftl.trans_map[0], PADDR_EMPTY);
         assert_eq!(
-            unsafe { *pgftl.trans_map.add(pgftl.map_entries() - 1) },
+            pgftl.trans_map[pgftl.map_entries() - 1],
             PADDR_EMPTY
         );
-        assert!(!pgftl.segments.is_null());
+        assert!(!pgftl.segments.is_empty());
         assert!(!pgftl.bus_rwlock.is_null());
-        assert!(!pgftl.gc_seg_bits.is_null());
-        assert!(pgftl.gc_list.is_null());
+        assert!(!pgftl.gc_seg_bits.is_empty());
+        assert!(pgftl.gc_list.is_empty());
         assert_eq!(pgftl.alloc_segnum, 0);
         assert_eq!(pgftl.o_flags, FLAGS);
         assert_ne!(pgftl.gc_thread, 0, "the GC thread is running");
@@ -1050,11 +1009,11 @@ mod tests {
 
         // Everything the open allocated is gone again and the thread is joined.
         let pgftl = f.pgftl.as_mut();
-        assert!(pgftl.trans_map.is_null());
-        assert!(pgftl.segments.is_null());
+        assert!(pgftl.trans_map.is_empty());
+        assert!(pgftl.segments.is_empty());
         assert!(pgftl.bus_rwlock.is_null());
-        assert!(pgftl.gc_seg_bits.is_null());
-        assert!(pgftl.gc_list.is_null());
+        assert!(pgftl.gc_seg_bits.is_empty());
+        assert!(pgftl.gc_list.is_empty());
         assert_eq!(pgftl.gc_thread, 0);
 
         // The device is closed too: the ramdisk released its bitmap.
@@ -1069,11 +1028,11 @@ mod tests {
         );
         let pgftl = f.pgftl.as_mut();
         assert_eq!(pgftl.o_flags, libc::O_RDWR);
-        assert!(!pgftl.trans_map.is_null());
-        assert!(!pgftl.segments.is_null());
+        assert!(!pgftl.trans_map.is_empty());
+        assert!(!pgftl.segments.is_empty());
         assert_ne!(pgftl.gc_thread, 0);
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
-        assert!(f.pgftl.trans_map.is_null());
+        assert!(f.pgftl.trans_map.is_empty());
     }
 
     #[test]
@@ -1116,33 +1075,34 @@ mod tests {
         let pgftl = f.pgftl.as_mut();
         let mut bitmaps = Vec::new();
         for segnum in 0..=NR_SEGMENTS {
-            let segment = unsafe { &*pgftl.segments.add(segnum) };
-            assert!(!segment.use_bits.is_null());
+            let segment = &pgftl.segments[segnum];
+            assert!(!segment.use_bits.is_empty());
             assert_eq!(segment.free_pages(), PAGES_PER_SEGMENT as i32);
             assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 0);
-            assert!(segment.lpn_list.is_null());
+            assert!(segment.lpn_list.is_empty());
             assert!(use_bits_clear(segment), "the bitmap starts zeroed");
-            bitmaps.push(segment.use_bits as usize);
+            bitmaps.push(segment.use_bits.as_ptr() as usize);
         }
         bitmaps.sort_unstable();
         bitmaps.dedup();
         assert_eq!(bitmaps.len(), NR_SEGMENTS + 1, "one bitmap per segment");
 
         // The C ABI entry point resets a segment the way the erase path does.
-        let segment = pgftl.segments;
-        unsafe {
-            (*segment).set_use_bit(3);
-            (*segment).nr_free_pages.store(0, Ordering::SeqCst);
-            (*segment).nr_valid_pages.store(PAGES_PER_SEGMENT as i32, Ordering::SeqCst);
-            queue_lpn(segment, 1);
+        pgftl.segments[0].set_use_bit(3);
+        pgftl.segments[0].nr_free_pages.store(0, Ordering::SeqCst);
+        pgftl.segments[0]
+            .nr_valid_pages
+            .store(PAGES_PER_SEGMENT as i32, Ordering::SeqCst);
+        pgftl.segments[0].lpn_list.push(1);
 
-            assert_eq!(ffi_page_ftl_segment_data_init(pgftl, segment), 0);
+        let segment: *mut PageFtlSegment = &mut pgftl.segments[0];
+        assert_eq!(unsafe { ffi_page_ftl_segment_data_init(pgftl, segment) }, 0);
 
-            assert_eq!((*segment).free_pages(), PAGES_PER_SEGMENT as i32);
-            assert_eq!((*segment).nr_valid_pages.load(Ordering::SeqCst), 0);
-            assert!(use_bits_clear(segment));
-            assert!((*segment).lpn_list.is_null());
-        }
+        let segment = &pgftl.segments[0];
+        assert_eq!(segment.free_pages(), PAGES_PER_SEGMENT as i32);
+        assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 0);
+        assert!(use_bits_clear(segment));
+        assert!(segment.lpn_list.is_empty());
     }
 
     #[test]
@@ -1156,12 +1116,14 @@ mod tests {
         let mut write_rq = request(DeviceDirection::Write, 0, &mut payload);
         assert_eq!(submit_request(pgftl, &mut write_rq).unwrap(), LEN as isize);
         assert_eq!(
-            unsafe { *pgftl.trans_map },
+            pgftl.trans_map[0],
             device_address::from_segment_page(0, 0).lpn
         );
-        let segment = unsafe { &*pgftl.segments.add(0) };
-        assert_eq!(segment.free_pages(), PAGES_PER_SEGMENT as i32 - 1);
-        assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 1);
+        assert_eq!(pgftl.segments[0].free_pages(), PAGES_PER_SEGMENT as i32 - 1);
+        assert_eq!(
+            pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst),
+            1
+        );
 
         // A read of the same logical page comes back through the read path.
         let mut buf = vec![0u8; LEN];
@@ -1172,8 +1134,11 @@ mod tests {
         // An erase with nothing queued collects nothing and reports 0.
         let mut erase_rq = request(DeviceDirection::Erase, 0, &mut []);
         assert_eq!(submit_request(pgftl, &mut erase_rq).unwrap(), 0);
-        assert_eq!(segment.free_pages(), PAGES_PER_SEGMENT as i32 - 1);
-        assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 1);
+        assert_eq!(pgftl.segments[0].free_pages(), PAGES_PER_SEGMENT as i32 - 1);
+        assert_eq!(
+            pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst),
+            1
+        );
 
         // An undefined flag is C's `-EINVAL` (`page-core.c:372-374`), and it
         // crosses the ABI the same way.
@@ -1209,8 +1174,11 @@ mod tests {
         assert_eq!(abi_buf, abi_payload);
 
         // The write landed on a fresh page of the same segment.
-        assert_eq!(segment.free_pages(), PAGES_PER_SEGMENT as i32 - 2);
-        assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 2);
+        assert_eq!(pgftl.segments[0].free_pages(), PAGES_PER_SEGMENT as i32 - 2);
+        assert_eq!(
+            pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst),
+            2
+        );
     }
 
     #[test]
@@ -1233,23 +1201,23 @@ mod tests {
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
         assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
 
-        assert_eq!(unsafe { ffi_list_length(pgftl.gc_list) }, 1);
+        assert_eq!(pgftl.gc_list.len(), 1);
 
         // The erase dispatch routes to `page_ftl_do_gc`: the three remaining
         // pages of the victim move, then the segment is erased and reset.
         let mut erase_rq = request(DeviceDirection::Erase, 0, &mut []);
         assert_eq!(submit_request(pgftl, &mut erase_rq).unwrap(), 0);
 
-        let victim = unsafe { &*pgftl.segments.add(0) };
+        let victim = &pgftl.segments[0];
         assert_eq!(victim.free_pages(), PAGES_PER_SEGMENT as i32);
         assert_eq!(victim.nr_valid_pages.load(Ordering::SeqCst), 0);
         assert!(use_bits_clear(victim));
-        assert!(victim.lpn_list.is_null());
-        assert!(pgftl.gc_list.is_null());
-        assert_eq!(unsafe { *pgftl.gc_seg_bits }, 0, "the gc bit is cleared");
+        assert!(victim.lpn_list.is_empty());
+        assert!(pgftl.gc_list.is_empty());
+        assert_eq!(pgftl.gc_seg_bits[0], 0, "the gc bit is cleared");
 
         // Every logical page still resolves to its payload.
-        let other = unsafe { &*pgftl.segments.add(1) };
+        let other = &pgftl.segments[1];
         assert_eq!(other.free_pages(), 0);
         assert_eq!(other.nr_valid_pages.load(Ordering::SeqCst), 4);
         for lpn in 0..PAGES_PER_SEGMENT {
@@ -1286,12 +1254,12 @@ mod tests {
         // fully free device never reaches the collection path.
         let pgftl = f.pgftl.as_mut();
         assert!(!gc_thread_iteration(pgftl, true));
-        assert_eq!(unsafe { pgftl.free_pages() }, SEGMENTS * PAGES_PER_SEGMENT);
+        assert_eq!(pgftl.free_pages(), SEGMENTS * PAGES_PER_SEGMENT);
 
         // Above the threshold the pass is skipped
         // (`page-core.c:57-61`): every page is free.
         assert_eq!(gc_pass(pgftl).unwrap(), 0);
-        assert!(pgftl.gc_list.is_null());
+        assert!(pgftl.gc_list.is_empty());
 
         // Fill all but eight pages, then overwrite one page of the first
         // segment: the new page lands in the free tail, the invalidation queues
@@ -1310,35 +1278,33 @@ mod tests {
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
         assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
 
-        assert_eq!(unsafe { pgftl.free_pages() }, 7);
-        assert_eq!(unsafe { ffi_list_length(pgftl.gc_list) }, 1);
+        assert_eq!(pgftl.free_pages(), 7);
+        assert_eq!(pgftl.gc_list.len(), 1);
 
         assert!(gc_thread_iteration(pgftl, false));
 
         // The victim was drained, relocated into the free tail and reset.
-        let victim = unsafe { &*pgftl.segments.add(0) };
+        let victim = &pgftl.segments[0];
         assert_eq!(victim.free_pages(), PAGES_PER_SEGMENT as i32);
         assert_eq!(victim.nr_valid_pages.load(Ordering::SeqCst), 0);
-        assert!(victim.lpn_list.is_null());
-        assert!(pgftl.gc_list.is_null());
-        assert_eq!(unsafe { *pgftl.gc_seg_bits }, 0, "the gc bit is cleared");
+        assert!(victim.lpn_list.is_empty());
+        assert!(pgftl.gc_list.is_empty());
+        assert_eq!(pgftl.gc_seg_bits[0], 0, "the gc bit is cleared");
         // The erased segment's four pages are back, and the three relocated
         // pages took three of the free tail: 7 + 4 - 3.
-        assert_eq!(unsafe { pgftl.free_pages() }, 8);
+        assert_eq!(pgftl.free_pages(), 8);
 
         // A failing pass stops the loop for the thread. The victim is queued by
         // hand with an LPN the mapping still holds, and both counters are
         // pinned under the threshold so the pass reaches the copy.
-        let segment = unsafe { pgftl.segments.add(0) };
-        unsafe {
-            queue_lpn(segment, 1);
-            (*segment).nr_valid_pages.store(1, Ordering::SeqCst);
-        }
-        pgftl.gc_list = unsafe { ffi_list_prepend(pgftl.gc_list, segment as *mut c_void) };
-        set_bit(unsafe { slice::from_raw_parts_mut(pgftl.gc_seg_bits, 1) }, 0);
+        pgftl.segments[0].lpn_list.push(1);
+        pgftl.segments[0].nr_valid_pages.store(1, Ordering::SeqCst);
+        pgftl.gc_list.insert(0, 0);
+        set_bit(&mut pgftl.gc_seg_bits, 0);
         for segnum in 0..SEGMENTS {
-            let segment = unsafe { &*pgftl.segments.add(segnum) };
-            segment.nr_free_pages.store(0, Ordering::SeqCst);
+            pgftl.segments[segnum]
+                .nr_free_pages
+                .store(0, Ordering::SeqCst);
         }
         assert!(!unsafe {
             f.with_failing_read(|f| gc_thread_iteration(f.pgftl.as_mut(), false))
@@ -1347,14 +1313,10 @@ mod tests {
         // The pass stopped where it failed: the victim was unlinked and its
         // free count pinned, its gc bit is still raised for the next pass, and
         // nothing was relocated.
-        assert!(f.pgftl.gc_list.is_null());
+        assert!(f.pgftl.gc_list.is_empty());
+        assert_eq!(f.pgftl.gc_seg_bits[0] & 1, 1, "the gc bit stays raised");
         assert_eq!(
-            unsafe { *f.pgftl.gc_seg_bits & 1 },
-            1,
-            "the gc bit stays raised"
-        );
-        assert_eq!(
-            unsafe { &*f.pgftl.segments.add(0) }
+            f.pgftl.segments[0]
                 .nr_free_pages
                 .load(Ordering::SeqCst),
             0,
@@ -1382,19 +1344,19 @@ mod tests {
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
         assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
 
-        assert_eq!(unsafe { ffi_list_length(pgftl.gc_list) }, 1);
-        assert!(!unsafe { &*pgftl.segments.add(1) }.lpn_list.is_null());
+        assert_eq!(pgftl.gc_list.len(), 1);
+        assert!(!pgftl.segments[1].lpn_list.is_empty());
 
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
-        assert!(f.pgftl.gc_list.is_null());
-        assert!(f.pgftl.segments.is_null());
+        assert!(f.pgftl.gc_list.is_empty());
+        assert!(f.pgftl.segments.is_empty());
     }
 
     #[test]
     fn null_pointers_are_rejected_on_every_abi_entry() {
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
         let request = request(DeviceDirection::Write, 0, &mut []);
-        let mut bare = PageFtl::zeroed();
+        let mut bare = PageFtl::empty();
 
         unsafe {
             assert_eq!(
@@ -1426,10 +1388,10 @@ mod tests {
         }
 
         // The guards ran before anything was touched.
-        assert!(f.pgftl.trans_map.is_null());
-        assert!(f.pgftl.segments.is_null());
+        assert!(f.pgftl.trans_map.is_empty());
+        assert!(f.pgftl.segments.is_empty());
         assert!(f.pgftl.bus_rwlock.is_null());
-        assert!(f.pgftl.gc_seg_bits.is_null());
+        assert!(f.pgftl.gc_seg_bits.is_empty());
         assert_eq!(f.pgftl.gc_thread, 0);
     }
 
@@ -1451,10 +1413,10 @@ mod tests {
             })
         };
         assert_eq!(ret, -libc::EINVAL, "C maps every device failure to EINVAL");
-        assert!(f.pgftl.trans_map.is_null());
-        assert!(f.pgftl.segments.is_null());
+        assert!(f.pgftl.trans_map.is_empty());
+        assert!(f.pgftl.segments.is_empty());
         assert!(f.pgftl.bus_rwlock.is_null());
-        assert!(f.pgftl.gc_seg_bits.is_null());
+        assert!(f.pgftl.gc_seg_bits.is_empty());
         assert_eq!(f.pgftl.gc_thread, 0);
 
         // A device with no operations at all.
@@ -1471,8 +1433,8 @@ mod tests {
             })
         };
         assert_eq!(ret, -libc::EINVAL);
-        assert!(f.pgftl.trans_map.is_null());
-        assert!(f.pgftl.segments.is_null());
+        assert!(f.pgftl.trans_map.is_empty());
+        assert!(f.pgftl.segments.is_empty());
         assert_eq!(f.pgftl.gc_thread, 0);
     }
 
@@ -1487,10 +1449,10 @@ mod tests {
         assert_eq!(ret, -libc::ENOMEM);
 
         // The failed open released everything it had taken.
-        assert!(f.pgftl.trans_map.is_null());
-        assert!(f.pgftl.segments.is_null());
+        assert!(f.pgftl.trans_map.is_empty());
+        assert!(f.pgftl.segments.is_empty());
         assert!(f.pgftl.bus_rwlock.is_null());
-        assert!(f.pgftl.gc_seg_bits.is_null());
+        assert!(f.pgftl.gc_seg_bits.is_empty());
         assert_eq!(f.pgftl.gc_thread, 0);
     }
 
@@ -1518,15 +1480,15 @@ mod tests {
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         }
         let saved_map = [
-            unsafe { *pgftl.trans_map },
-            unsafe { *pgftl.trans_map.add(1) },
+            pgftl.trans_map[0],
+            pgftl.trans_map[1],
         ];
         let saved_segnum = pgftl.alloc_segnum;
-        let saved = unsafe { &*pgftl.segments.add(0) };
+        let saved = &pgftl.segments[0];
         let (saved_free, saved_valid, saved_list) = (
             saved.free_pages(),
             saved.nr_valid_pages.load(Ordering::SeqCst),
-            unsafe { ffi_list_length(saved.lpn_list) },
+            saved.lpn_list.len(),
         );
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         assert!(std::path::Path::new(&file).exists(), "close wrote the file");
@@ -1539,13 +1501,13 @@ mod tests {
             0
         );
         let pgftl = f.pgftl.as_mut();
-        assert_eq!(unsafe { *pgftl.trans_map }, saved_map[0]);
-        assert_eq!(unsafe { *pgftl.trans_map.add(1) }, saved_map[1]);
+        assert_eq!(pgftl.trans_map[0], saved_map[0]);
+        assert_eq!(pgftl.trans_map[1], saved_map[1]);
         assert_eq!(pgftl.alloc_segnum, saved_segnum);
-        let recovered = unsafe { &*pgftl.segments.add(0) };
+        let recovered = &pgftl.segments[0];
         assert_eq!(recovered.free_pages(), saved_free);
         assert_eq!(recovered.nr_valid_pages.load(Ordering::SeqCst), saved_valid);
-        assert_eq!(unsafe { ffi_list_length(recovered.lpn_list) }, saved_list);
+        assert_eq!(recovered.lpn_list.len(), saved_list);
         assert!(!use_bits_clear(recovered), "the used bits are back");
 
         // The recovered accounting is live: the next write takes a fresh page
@@ -1558,12 +1520,15 @@ mod tests {
         );
         assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         assert_eq!(
-            unsafe { *pgftl.trans_map.add(2) },
+            pgftl.trans_map[2],
             device_address::from_segment_page(0, 2).lpn
         );
-        assert_eq!(recovered.free_pages(), PAGES_PER_SEGMENT as i32 - 3);
         assert_eq!(
-            recovered.nr_valid_pages.load(Ordering::SeqCst),
+            pgftl.segments[0].free_pages(),
+            PAGES_PER_SEGMENT as i32 - 3
+        );
+        assert_eq!(
+            pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst),
             saved_valid + 1
         );
 
@@ -1606,7 +1571,7 @@ mod tests {
         let mut payload = vec![0xa0u8; LEN];
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
         assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
-        assert_eq!(unsafe { *pgftl.trans_map }, device_address::from_segment_page(1, 0).lpn);
+        assert_eq!(pgftl.trans_map[0], device_address::from_segment_page(1, 0).lpn);
 
         // Fill the second segment so no page is free, which is what makes the
         // stale page the only candidate a wrong rebuild could offer.
@@ -1619,13 +1584,13 @@ mod tests {
             );
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         }
-        let first = unsafe { &*pgftl.segments.add(0) };
-        let second = unsafe { &*pgftl.segments.add(1) };
+        let first = &pgftl.segments[0];
+        let second = &pgftl.segments[1];
         assert_eq!(first.free_pages(), 0);
         assert_eq!(first.nr_valid_pages.load(Ordering::SeqCst), 3);
-        assert_eq!(unsafe { *first.use_bits }, 0b1111, "all four pages are used");
+        assert_eq!(first.use_bits[0], 0b1111, "all four pages are used");
         assert_eq!(second.free_pages(), 0);
-        assert_eq!(unsafe { *second.use_bits }, 0b1111);
+        assert_eq!(second.use_bits[0], 0b1111);
 
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
 
@@ -1638,16 +1603,16 @@ mod tests {
 
         // The used bits and the free counts come back as they were, and the
         // mapping still points at the copy in the second segment.
-        let first = unsafe { &*pgftl.segments.add(0) };
-        let second = unsafe { &*pgftl.segments.add(1) };
-        assert_eq!(unsafe { *first.use_bits }, 0b1111, "the stale page stays used");
+        let first = &pgftl.segments[0];
+        let second = &pgftl.segments[1];
+        assert_eq!(first.use_bits[0], 0b1111, "the stale page stays used");
         assert_eq!(first.free_pages(), 0);
         assert_eq!(first.nr_valid_pages.load(Ordering::SeqCst), 3);
-        assert_eq!(unsafe { *second.use_bits }, 0b1111);
+        assert_eq!(second.use_bits[0], 0b1111);
         assert_eq!(second.free_pages(), 0);
         assert_eq!(second.nr_valid_pages.load(Ordering::SeqCst), 4);
         assert_eq!(
-            unsafe { *pgftl.trans_map },
+            pgftl.trans_map[0],
             device_address::from_segment_page(1, 0).lpn
         );
 
@@ -1665,12 +1630,12 @@ mod tests {
         );
 
         // Nothing was handed out and nothing was reprogrammed.
-        assert_eq!(unsafe { *first.use_bits }, 0b1111);
-        assert_eq!(first.free_pages(), 0);
-        assert_eq!(first.nr_valid_pages.load(Ordering::SeqCst), 3);
-        assert_eq!(unsafe { *second.use_bits }, 0b1111);
-        assert_eq!(second.free_pages(), 0);
-        assert_eq!(unsafe { *pgftl.trans_map.add(7) }, PADDR_EMPTY);
+        assert_eq!(pgftl.segments[0].use_bits[0], 0b1111);
+        assert_eq!(pgftl.segments[0].free_pages(), 0);
+        assert_eq!(pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst), 3);
+        assert_eq!(pgftl.segments[1].use_bits[0], 0b1111);
+        assert_eq!(pgftl.segments[1].free_pages(), 0);
+        assert_eq!(pgftl.trans_map[7], PADDR_EMPTY);
 
         let _ = std::fs::remove_file(&file);
     }
@@ -1705,16 +1670,16 @@ mod tests {
         );
 
         let pgftl = f.pgftl.as_mut();
-        assert_eq!(unsafe { *pgftl.trans_map.add(1) }, shared, "the first entry stays");
+        assert_eq!(pgftl.trans_map[1], shared, "the first entry stays");
         assert_eq!(
-            unsafe { *pgftl.trans_map.add(2) },
+            pgftl.trans_map[2],
             PADDR_EMPTY,
             "the repeat is dropped"
         );
-        let segment = unsafe { &*pgftl.segments.add(0) };
+        let segment = &pgftl.segments[0];
         assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 1);
         assert_eq!(segment.free_pages(), 2, "the free count stays as it came");
-        assert_eq!(unsafe { ffi_list_length(segment.lpn_list) }, 1);
+        assert_eq!(segment.lpn_list.len(), 1);
 
         let _ = std::fs::remove_file(&file);
     }
@@ -1752,11 +1717,11 @@ mod tests {
         );
         let pgftl = f.pgftl.as_mut();
         for lpn in 0..pgftl.map_entries() {
-            assert_eq!(unsafe { *pgftl.trans_map.add(lpn) }, PADDR_EMPTY);
+            assert_eq!(pgftl.trans_map[lpn], PADDR_EMPTY);
         }
         assert_eq!(pgftl.alloc_segnum, 0);
         for segnum in 0..NR_SEGMENTS {
-            let segment = unsafe { &*pgftl.segments.add(segnum) };
+            let segment = &pgftl.segments[segnum];
             assert_eq!(segment.free_pages(), PAGES_PER_SEGMENT as i32);
             assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 0);
         }
@@ -1777,10 +1742,10 @@ mod tests {
             unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
             0
         );
-        assert_eq!(unsafe { *f.pgftl.trans_map.add(1) }, PADDR_EMPTY);
+        assert_eq!(f.pgftl.trans_map[1], PADDR_EMPTY);
         assert_eq!(f.pgftl.alloc_segnum, 0);
         assert_eq!(
-            unsafe { &*f.pgftl.segments }.free_pages(),
+            f.pgftl.segments[0].free_pages(),
             PAGES_PER_SEGMENT as i32
         );
 
@@ -1858,7 +1823,7 @@ mod tests {
             let pgftl = f.pgftl.as_mut();
             for lpn in 0..pgftl.map_entries() {
                 assert_eq!(
-                    unsafe { *pgftl.trans_map.add(lpn) },
+                    pgftl.trans_map[lpn],
                     PADDR_EMPTY,
                     "case {} entry {}",
                     index,
@@ -1867,7 +1832,7 @@ mod tests {
             }
             assert_eq!(pgftl.alloc_segnum, 0, "case {index}");
             assert_eq!(
-                unsafe { &*pgftl.segments }.free_pages(),
+                pgftl.segments[0].free_pages(),
                 PAGES_PER_SEGMENT as i32,
                 "case {index}"
             );
@@ -1898,7 +1863,7 @@ mod tests {
                 unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
                 0
             );
-            assert_eq!(unsafe { *f.pgftl.trans_map }, PADDR_EMPTY, "byte {offset}");
+            assert_eq!(f.pgftl.trans_map[0], PADDR_EMPTY, "byte {offset}");
             assert_eq!(f.pgftl.alloc_segnum, 0, "byte {offset}");
         }
 
@@ -1942,37 +1907,37 @@ mod tests {
         );
 
         let pgftl = f.pgftl.as_mut();
-        assert_eq!(unsafe { *pgftl.trans_map.add(1) }, inside, "the mapping is applied");
+        assert_eq!(pgftl.trans_map[1], inside, "the mapping is applied");
         assert_eq!(
-            unsafe { *pgftl.trans_map.add(2) },
+            pgftl.trans_map[2],
             PADDR_EMPTY,
             "an entry on a page that is not programmed is dropped"
         );
         assert_eq!(
-            unsafe { *pgftl.trans_map.add(3) },
+            pgftl.trans_map[3],
             PADDR_EMPTY,
             "an entry outside the device is dropped"
         );
         assert_eq!(
-            unsafe { *pgftl.trans_map.add(4) },
+            pgftl.trans_map[4],
             PADDR_EMPTY,
             "an entry that repeats a page is dropped"
         );
-        assert_eq!(unsafe { *pgftl.trans_map }, PADDR_EMPTY);
+        assert_eq!(pgftl.trans_map[0], PADDR_EMPTY);
         assert_eq!(pgftl.alloc_segnum, 1, "the cursor is applied");
 
         // The accounting of the entry that was applied is rebuilt, and the
         // programmed page of segment 0 is marked used.
-        let segment = unsafe { &*pgftl.segments.add(0) };
+        let segment = &pgftl.segments[0];
         assert_eq!(segment.free_pages(), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 1);
-        assert_eq!(unsafe { ffi_list_length(segment.lpn_list) }, 1);
-        assert_eq!(unsafe { *segment.use_bits }, 0b0001);
-        let empty = unsafe { &*pgftl.segments.add(1) };
+        assert_eq!(segment.lpn_list.len(), 1);
+        assert_eq!(segment.use_bits[0], 0b0001);
+        let empty = &pgftl.segments[1];
         assert_eq!(empty.free_pages(), PAGES_PER_SEGMENT as i32);
         assert_eq!(empty.nr_valid_pages.load(Ordering::SeqCst), 0);
-        assert!(empty.lpn_list.is_null());
-        assert_eq!(unsafe { *empty.use_bits }, 0);
+        assert!(empty.lpn_list.is_empty());
+        assert_eq!(empty.use_bits[0], 0);
 
         let _ = std::fs::remove_file(&file);
     }
@@ -1997,7 +1962,7 @@ mod tests {
         let mut payload = vec![0x12u8; LEN];
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
         assert_eq!(submit_request(f.pgftl.as_mut(), &mut rq).unwrap(), LEN as isize);
-        let saved_entry = unsafe { *f.pgftl.trans_map };
+        let saved_entry = f.pgftl.trans_map[0];
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         let saved = std::fs::read(&file).unwrap();
 
@@ -2009,7 +1974,7 @@ mod tests {
             unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
             0
         );
-        assert_eq!(unsafe { *f.pgftl.trans_map }, saved_entry, "the load worked");
+        assert_eq!(f.pgftl.trans_map[0], saved_entry, "the load worked");
 
         // Give this FTL state that differs from the saved file, so a save that
         // wrote the target directly instead of replacing it through a rename
@@ -2030,7 +1995,7 @@ mod tests {
             unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
             0
         );
-        assert_eq!(unsafe { *f.pgftl.trans_map }, saved_entry);
+        assert_eq!(f.pgftl.trans_map[0], saved_entry);
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
 
         let _ = std::fs::remove_dir(&temporary);
@@ -2086,7 +2051,7 @@ mod tests {
             unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
             0
         );
-        assert_eq!(unsafe { *f.pgftl.trans_map }, PADDR_EMPTY);
+        assert_eq!(f.pgftl.trans_map[0], PADDR_EMPTY);
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         std::fs::remove_dir(&file).unwrap();
     }
@@ -2120,7 +2085,7 @@ mod tests {
 
         // The device never saw a request: the segments are untouched.
         for segnum in 0..NR_SEGMENTS {
-            let segment = unsafe { &*pgftl.segments.add(segnum) };
+            let segment = &pgftl.segments[segnum];
             assert_eq!(segment.free_pages(), PAGES_PER_SEGMENT as i32);
             assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 0);
         }
