@@ -6,11 +6,10 @@
 //! `page_ftl_module_init` reads the NAND backend out of `flags` (`RAMDISK_MODULE`
 //! in `integration-test.c`). The flash layer does not look at it.
 //!
-//! The submodule table has C's single entry (`PAGE_FTL_MODULE = 0`). C fills it
-//! with `page_ftl_module_init`, which is the bridge Task 13b writes after this
-//! task lands, so the entry stays empty here and every dispatch reports
-//! `-ENODEV` until then. C's `interface/module.c` keeps its own table and stays
-//! the live path for C callers until the Task 14 cutover.
+//! The submodule table has C's single entry (`PAGE_FTL_MODULE = 0`), filled
+//! with `crate::ftl::page_interface::ffi_page_ftl_module_init`, the bridge
+//! ported from `ftl/page/page-interface.c`. C's `interface/module.c` keeps its
+//! own table and stays the live path for C callers until the Task 14 cutover.
 //!
 //! Symbols carry the `ffi_` prefix so they can coexist with `interface/module.c`
 //! while both implementations are linked.
@@ -46,13 +45,14 @@ pub const MODULE_COUNT: usize = 1;
 pub type SubmoduleInitFn = unsafe extern "C" fn(*mut flash_device, u64) -> c_int;
 
 /// C's `submodule_init[]`, indexed by the `modnum` argument of
-/// [`ffi_module_init`]. The page FTL entry arrives with Task 13b.
-static SUBMODULE_INIT: [Option<SubmoduleInitFn>; MODULE_COUNT] = [None];
+/// [`ffi_module_init`].
+static SUBMODULE_INIT: [Option<SubmoduleInitFn>; MODULE_COUNT] =
+    [Some(crate::ftl::page_interface::ffi_page_ftl_module_init)];
 
 /// Dispatch through `table`, the body of [`ffi_module_init`].
 ///
 /// The table is a parameter so the dispatch can be exercised against a mock
-/// submodule while the real table is still empty.
+/// submodule as well as the shipped one.
 ///
 /// # Safety
 /// `flash` is `NULL` or a writable pointer, and the table's entries follow the
@@ -307,17 +307,26 @@ mod tests {
         assert_eq!(unsafe { ffi_module_exit(ptr::null_mut()) }, 0);
     }
 
-    /// Pins the shipped table's behaviour: the page FTL entry is empty until
-    /// Task 13b installs `page_ftl_module_init`, so the exported pair reports
-    /// `-ENODEV` and leaves no handle behind. Delete this test in 13b.
+    /// Pins the shipped table's wiring: `PAGE_FTL_MODULE` dispatches the page
+    /// FTL bridge, and the handle it hands back carries that bridge's state.
     #[test]
-    fn the_shipped_table_reports_no_submodule_for_the_page_ftl() {
+    fn the_shipped_table_dispatches_the_page_ftl() {
+        use crate::device::DeviceModule;
+        use crate::ftl::page_interface::PAGE_FOPS;
+
         let mut flash: *mut flash_device = ptr::null_mut();
+        let ret = unsafe {
+            ffi_module_init(PAGE_FTL_MODULE, &mut flash, DeviceModule::Ramdisk as u64)
+        };
+        assert_eq!(ret, 0);
+        unsafe {
+            assert_eq!((*flash).f_op, &PAGE_FOPS as *const crate::flash::flash_operations);
+            assert!(!(*flash).f_private.is_null());
+            assert!((*flash).f_submodule_exit.is_some());
+        }
+        assert_eq!(unsafe { ffi_module_exit(flash) }, 0);
 
-        let ret = unsafe { ffi_module_init(PAGE_FTL_MODULE, &mut flash, 0) };
-        assert_eq!(ret, -libc::ENODEV);
-        assert!(flash.is_null(), "failed dispatch clears the output pointer");
-
+        let mut flash: *mut flash_device = ptr::null_mut();
         assert_eq!(
             unsafe { ffi_module_init(MODULE_COUNT as c_int, &mut flash, 0) },
             -libc::EINVAL

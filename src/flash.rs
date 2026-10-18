@@ -9,7 +9,8 @@
 //!
 //! The page FTL installs its own vtable through `f_op` (C's `__page_fops` in
 //! `ftl/page/page-interface.c`), so this module owns the struct, the allocation
-//! pair and the accessors. Bridging `PageFtl` onto a vtable is Task 13b.
+//! pair and the accessors. `crate::ftl::page_interface::ffi_page_ftl_module_init`
+//! is the installed bridge.
 //!
 //! Symbols carry the `ffi_` prefix so they can coexist with `interface/flash.c`
 //! while both implementations are linked. The cutover is Task 14.
@@ -48,12 +49,15 @@ pub struct flash_device {
 /// [`flash_device::f_op`].
 ///
 /// `open` / `write` / `read` / `close` are the byte oriented interface the
-/// examples and `integration-test.c` drive. The C header also declares
-/// `ioctl` as variadic and the page FTL implements it for `PAGE_FTL_IOCTL_TRIM`.
-/// Only the request argument is ever passed, and a variadic function cannot be
-/// defined in stable Rust, so a Rust installed table leaves this slot `NULL` and
-/// the bridge task must either keep this op implemented in C or narrow the slot
-/// to a non-variadic pointer matching the calls the repository makes.
+/// examples and `integration-test.c` drive. The C header declares `ioctl`
+/// variadic (`include/flash.h:59-60`) and the page FTL implements it for
+/// `PAGE_FTL_IOCTL_TRIM`, but no call site in this repository ever passes a
+/// variadic argument: `integration-test.c:162` and `example/rw_example.c:32`
+/// both pass the request alone. Stable Rust cannot define a variadic function,
+/// so the slot is narrowed to that one shape, which keeps C's pointer sized
+/// field in place (`layout_matches_c`) and lets the Rust page FTL implement
+/// `ioctl` like the other four. C built tables keep their variadic pointer and
+/// the C callers keep reaching it, since only Rust defines the type.
 #[repr(C)]
 pub struct flash_operations {
     pub open: Option<unsafe extern "C" fn(*mut flash_device, *const c_char, c_int) -> c_int>,
@@ -61,7 +65,7 @@ pub struct flash_operations {
         Option<unsafe extern "C" fn(*mut flash_device, *mut c_void, size_t, off_t) -> ssize_t>,
     pub read:
         Option<unsafe extern "C" fn(*mut flash_device, *mut c_void, size_t, off_t) -> ssize_t>,
-    pub ioctl: Option<unsafe extern "C" fn(*mut flash_device, c_uint, ...) -> c_int>,
+    pub ioctl: Option<unsafe extern "C" fn(*mut flash_device, c_uint) -> c_int>,
     pub close: Option<unsafe extern "C" fn(*mut flash_device) -> c_int>,
 }
 

@@ -19,7 +19,9 @@
 //! live in [`page_map`], with `ffi_`-prefixed entry points so they can coexist
 //! with the still-linked C implementations until the cutover. The read, write,
 //! garbage collection and core lifecycle paths live in [`page_read`],
-//! [`page_write`], [`page_gc`] and [`page_core`] the same way.
+//! [`page_write`], [`page_gc`] and [`page_core`] the same way, and
+//! [`page_interface`] is the flash operations bridge over them, C's
+//! `ftl/page/page-interface.c`.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -243,6 +245,49 @@
 //!   a warning, and a failed write never turns a successful close into a
 //!   failure. The load reads the header first and sizes the body from the
 //!   device, so a foreign file cannot decide an allocation here.
+//! - The `ioctl` slot of [`crate::flash::flash_operations`] is narrowed to the
+//!   one argument shape the two callers in this repository use
+//!   (`integration-test.c:162`, `example/rw_example.c:32`), because C declares
+//!   the operation variadic (`include/flash.h:59-60`) and stable Rust cannot
+//!   define a variadic function. The field stays one pointer, so C tables and
+//!   the pinned offsets are unaffected, and
+//!   `page_interface::page_ftl_ioctl_interface` implements C's
+//!   `page_ftl_ioctl_interface` (`ftl/page/page-interface.c:291-327`) natively.
+//! - `page_interface::ffi_page_ftl_module_init` returns `-EINVAL` for a `NULL`
+//!   flash pointer, where C dereferences it
+//!   (`ftl/page/page-interface.c:355`). Its `Box` allocation aborts on out of
+//!   memory like the rest of the port, so C's `malloc` failure returning
+//!   `-ENOMEM` (`:357-362`) has no Rust equivalent, the same trade
+//!   `ffi_flash_module_init` records.
+//! - C leaks the `struct page_ftl` allocation when `device_module_init` fails,
+//!   because it runs `page_ftl_module_exit` while `f_private` is still `NULL`
+//!   (`ftl/page/page-interface.c:357-377`). The port's `Box` releases the
+//!   structure on that path.
+//! - `page_interface::ffi_page_ftl_module_exit` clears `f_private` after it
+//!   frees the FTL, so a second exit is a logged no-op where C frees the same
+//!   pointer twice (`ftl/page/page-interface.c:406-407`).
+//! - The page sized staging buffer C allocates in `page_ftl_read_interface`
+//!   (`ftl/page/page-interface.c:200-205`) and copies each chunk out of
+//!   (`:241`) is gone: [`page_read::read_page`] stages the device read in its
+//!   own scratch page and copies the requested subrange into the request's
+//!   buffer. C's `-ENOMEM` from that `malloc` therefore has no Rust
+//!   equivalent, while the per chunk request allocation keeps its `-ENOMEM`
+//!   (`ftl/page/page-interface.c:222-227`), and the read interface reports
+//!   `-EINVAL` for every other failure exactly as C does (`:236-239`).
+//! - A `NULL` write buffer reaches an interface call that C lets through to the
+//!   `memcpy` in `page_ftl_write` (`ftl/page/page-write.c:211`), which faults
+//!   there. The port's write path refuses it with `-EINVAL` before the splice,
+//!   and the write interface reports its accumulated count, which is `0` for
+//!   the first chunk.
+//! - C leaks the ioctl request on its unknown command branch
+//!   (`ftl/page/page-interface.c:320-322`), since it returns before the
+//!   `device_free_request`. `page_interface::page_ftl_ioctl_interface` owns the
+//!   request through [`crate::device::Request`], which reclaims it there.
+//! - `page_interface::ffi_flash_write` and `ffi_flash_read` have no C
+//!   counterpart: they drive `flash->f_op` for Rust callers, which C callers
+//!   reach themselves (`integration-test.c:95`, `benchmark.c:646`). A `NULL`
+//!   handle, a handle with no table and a table with no operation report
+//!   `-EINVAL`, where C dereferences the first two and calls the third.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -253,6 +298,7 @@ use crate::list::list_node_t;
 
 pub mod page_core;
 pub mod page_gc;
+pub mod page_interface;
 pub mod page_map;
 pub mod page_read;
 pub mod page_write;
