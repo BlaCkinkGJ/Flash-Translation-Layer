@@ -3,9 +3,7 @@
 //! [`write_page`] mirrors C's `page_ftl_write` and [`write_end_rq`] its static
 //! `page_ftl_write_end_rq` completion callback. [`invalidate`],
 //! [`read_for_overwrite`] and [`update_metadata`] mirror C's file-static
-//! helpers of the same name. The C-ABI entry point [`ffi_page_ftl_write`]
-//! carries the `ffi_` prefix so it can coexist with the still linked C
-//! `page_ftl_write` until the Task 14 cutover.
+//! helpers of the same name. The C-ABI entry point is [`ffi_page_ftl_write`].
 //!
 //! The flow is the C flow: resolve the logical page and the in-page offset,
 //! reject a logical page past the L2P table and a write that runs past its

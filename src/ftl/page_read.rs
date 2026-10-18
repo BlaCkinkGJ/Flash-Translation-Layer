@@ -1,9 +1,8 @@
 //! Page FTL read path, ported from `ftl/page/page-read.c`.
 //!
 //! [`read_page`] mirrors C's `page_ftl_read` and [`read_end_rq`] mirrors its
-//! static `page_ftl_read_end_rq` completion callback. The C-ABI entry point
-//! [`ffi_page_ftl_read`] carries the `ffi_` prefix so it can coexist with the
-//! still linked C `page_ftl_read` until the Task 14 cutover.
+//! static `page_ftl_read_end_rq` completion callback. The C-ABI entry point is
+//! [`ffi_page_ftl_read`].
 //!
 //! The flow is the C flow: resolve the logical page and the in-page offset,
 //! look the physical address up in the L2P table, serve an unmapped page with
@@ -254,7 +253,7 @@ mod tests {
 
             let entries = unsafe { (*dev).total_pages() + 1 };
             let mut trans_map = vec![PADDR_EMPTY; entries];
-            let mut pgftl = Box::new(unsafe { MaybeUninit::<PageFtl>::zeroed().assume_init() });
+            let mut pgftl = Box::new(PageFtl::zeroed());
             pgftl.dev = dev;
             pgftl.trans_map = trans_map.as_mut_ptr();
 
@@ -502,7 +501,7 @@ mod tests {
             dev.install_backend(FailingRead);
 
             let mut trans_map = vec![7u32];
-            let mut pgftl = Box::new(MaybeUninit::<PageFtl>::zeroed().assume_init());
+            let mut pgftl = Box::new(PageFtl::zeroed());
             pgftl.dev = &mut *dev;
             pgftl.trans_map = trans_map.as_mut_ptr();
 

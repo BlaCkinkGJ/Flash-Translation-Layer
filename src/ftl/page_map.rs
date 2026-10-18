@@ -2,9 +2,8 @@
 //!
 //! [`get_free_page`] hands out a physical page for the next write using the
 //! same round-robin cursor (`pgftl->alloc_segnum`) and first-zero-bit scan as
-//! C. [`update_map`] writes one L2P entry. Both are exported as `ffi_`-prefixed
-//! C-ABI entry points so they can coexist with the still-linked C versions
-//! until the Task 14 cutover, and as native functions for Rust callers.
+//! C. [`update_map`] writes one L2P entry. Both export an `ffi_`-prefixed
+//! raw-pointer entry point next to the native function the Rust callers use.
 //!
 //! The free-page path mirrors C's `__ATOMIC_SEQ_CST` updates of
 //! `nr_free_pages` and `nr_valid_pages` and its `find_first_zero_bit` scan. It
@@ -198,7 +197,6 @@ mod tests {
                 .map(|i| PageFtlSegment {
                     nr_free_pages: AtomicI32::new(16),
                     nr_valid_pages: AtomicI32::new(0),
-                    is_gc: 0,
                     use_bits: unsafe { use_bits.as_mut_ptr().add(i) },
                     lpn_list: core::ptr::null_mut(),
                 })
@@ -209,7 +207,7 @@ mod tests {
 
             dev.badseg_bitmap = badseg.as_mut_ptr();
 
-            let mut pgftl = unsafe { MaybeUninit::<PageFtl>::zeroed().assume_init() };
+            let mut pgftl = PageFtl::zeroed();
             pgftl.dev = &mut *dev;
             pgftl.segments = segments.as_ptr() as *mut PageFtlSegment;
             pgftl.trans_map = trans_map.as_mut_ptr();

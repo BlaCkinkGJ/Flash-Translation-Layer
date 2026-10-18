@@ -26,7 +26,6 @@
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
 use core::ffi::{c_char, c_int, c_uint, c_void};
-use core::mem::MaybeUninit;
 use core::ptr;
 use libc::{off_t, size_t, ssize_t};
 
@@ -46,7 +45,7 @@ use crate::{pr_debug, pr_err, pr_info};
 ///
 /// # Safety
 /// `flash` is `NULL` or a live handle whose `f_private` is a page FTL owned by
-/// [`ffi_page_ftl_module_init`] or by C's `page_ftl_module_init`.
+/// [`ffi_page_ftl_module_init`].
 unsafe fn page_ftl_of(flash: *mut flash_device) -> Result<*mut PageFtl, c_int> {
     if flash.is_null() {
         pr_err!("flash pointer doesn't exist");
@@ -347,7 +346,7 @@ pub unsafe extern "C" fn ffi_page_ftl_module_init(flash: *mut flash_device, flag
     (*flash).f_op = &PAGE_FOPS;
 
     // C's `malloc(sizeof(struct page_ftl))` plus the `memset(0)`.
-    let mut pgftl = Box::new(MaybeUninit::<PageFtl>::zeroed().assume_init());
+    let mut pgftl = Box::new(PageFtl::zeroed());
 
     let mut dev: *mut device = ptr::null_mut();
     let err = ffi_device_module_init(flags, &mut dev, 0);
