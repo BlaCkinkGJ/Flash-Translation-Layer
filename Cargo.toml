@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["staticlib"]
+# `staticlib` is what the C build links (`libftl_rust.a`), and `rlib` is what
+# `tests/*.rs` needs to link the crate with `use ftl_rust::...`. Without `rlib`
+# every integration test fails to resolve the crate (E0432).
+crate-type = ["staticlib", "rlib"]
 
 [features]
 # When enabled, pr_info / pr_warn / pr_err expand to no-ops.

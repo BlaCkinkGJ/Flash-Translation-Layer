@@ -79,8 +79,8 @@ pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
     let tables = get_crc32_tables();
 
     // Process chunks of 8 bytes
-    let mut chunks = slice.chunks_exact(8);
-    for chunk in &mut chunks {
+    let (chunks, remainder) = slice.as_chunks::<8>();
+    for chunk in chunks {
         let one = crc ^ u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         let two = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
 
@@ -95,7 +95,6 @@ pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
     }
 
     // Process remaining bytes
-    let remainder = chunks.remainder();
     for &byte in remainder {
         let index = ((crc ^ (byte as u32)) & 0xFF) as usize;
         crc = tables[0][index] ^ (crc >> 8);
