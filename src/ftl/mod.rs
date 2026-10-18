@@ -34,6 +34,18 @@
 //!   and alignment as `int`, so the offsets hold and Rust cannot touch them
 //!   non-atomically. `is_gc` stays a plain `c_int` because no C code reads or
 //!   writes it.
+//! - When a segment's `nr_free_pages` and its `use_bits` bitmap disagree, the
+//!   port refuses the out-of-range page C hands out. C's `find_first_zero_bit`
+//!   (`include/bits.h:63`, called from `ftl/page/page-map.c:71` as
+//!   `find_first_zero_bit(segment->use_bits, pages_per_segment, 0)`) checks
+//!   only `idx < size` before scanning a bucket, so once every bit in
+//!   `[0, pages_per_segment)` is set it returns the tail bucket's first zero
+//!   bit, at or past `pages_per_segment`, instead of a miss. C allocates that
+//!   page from the same segment, sets its bit, decrements the counter, and
+//!   does not retry. `page_map` uses
+//!   [`crate::bits::find_first_zero_bit`], which clamps to `size` and returns
+//!   `BITS_NOT_FOUND`, so it warns and retries the next segment. The Rust
+//!   behaviour never allocates a page at or past `pages_per_segment`.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -146,7 +158,7 @@ impl PageFtl {
     /// Borrow the backing device. Panics when `dev` is null, which C would
     /// dereference anyway.
     fn dev(&self) -> &device {
-        unsafe { &*self.dev }
+        unsafe { self.dev.as_ref().expect("page FTL has no backing device") }
     }
 
     /// C's `page_ftl_get_map_size`: bytes in the L2P table.

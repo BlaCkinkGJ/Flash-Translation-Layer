@@ -330,11 +330,16 @@ mod tests {
         // Segment 0's stale counter made its scan miss, so the page comes from
         // segment 1.
         assert_eq!(addr.block(), 1);
-        // C assigns alloc_segnum before the scan (`pgftl->alloc_segnum = segnum`)
-        // and `goto retry` walks on, so the retry re-assigns it to the segment
-        // that supplied the page. It does not stay on the desynced segment 0.
+        // Rust's find_first_zero_bit clamps to `size` and returns
+        // BITS_NOT_FOUND, so the port warns, retries, and re-assigns
+        // alloc_segnum to the segment that supplied the page. It does not stay
+        // on the desynced segment 0. C's scan returns a bit at or past
+        // pages_per_segment here, hands out that out-of-range page from
+        // segment 0, and does not retry. See the deliberate deviation in
+        // `crate::ftl`.
         assert_eq!(f.pgftl.alloc_segnum, 1);
-        // The desynced segment keeps its stale free-page counter, exactly like C.
+        // The desynced segment keeps its stale free-page counter, unlike C,
+        // which decrements it for the out-of-range page.
         assert_eq!(f.free(0), 1);
     }
 
