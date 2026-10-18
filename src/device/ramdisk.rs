@@ -27,12 +27,16 @@
 //!   pointer that C still reads (`ftl/page/page-map.c`).
 //! - Re-opening releases the previous buffers instead of leaking them. C
 //!   overwrites `ramdisk->buffer` and `dev->badseg_bitmap` and leaks both.
-//! - The `ffi_ramdisk_{open,write,read,erase,close}` wrappers dispatch through
-//!   `dev->d_op` instead of reinterpreting `dev->d_private`. C's free functions
-//!   assume `d_private` is a `struct ramdisk`, which is wrong for a device C
-//!   built itself, and right for a Rust one. Dispatching through the vtable is
-//!   correct for both while the two implementations are linked. They also
-//!   accept `NULL` and report `-EINVAL`, where C dereferences it.
+//! - `ffi_ramdisk_close` dispatches through `dev->d_op` instead of
+//!   reinterpreting `dev->d_private`. C's free functions assume `d_private` is
+//!   a `struct ramdisk`, which is wrong for a device C built itself, and right
+//!   for a Rust one. Dispatching through the vtable is correct for both while
+//!   the two implementations are linked. It also accepts `NULL` and reports
+//!   `-EINVAL`, where C dereferences it.
+//! - The operation level mirrors `ffi_ramdisk_{open,write,read,erase}` are not
+//!   exported. `shim_*` is the vtable entry and [`Ramdisk`] the implementation,
+//!   so an installed mirror would recurse through `d_op`. Callers reach the
+//!   operations through `dev->d_op`, which is what the C test does. Issue #80.
 //! - `read` drops C's `pr_debug` line that dereferences `request->rq_private`
 //!   as a `struct device_request`. It only existed to print a mutex address.
 //! - A `paddr.lpn` or block past the end of the store panics on the `Vec` and
@@ -279,86 +283,6 @@ impl DeviceOperations for Ramdisk {
     }
 }
 
-/// Open the ramdisk, mirroring C's `ramdisk_open`.
-///
-/// Dispatches through `dev->d_op`, so a device from [`ffi_ramdisk_device_init`]
-/// and one C built with its own `ramdisk_device_init` both reach the right
-/// `open`.
-///
-/// # Safety
-/// `dev` is `NULL` or a live device.
-#[no_mangle]
-pub unsafe extern "C" fn ffi_ramdisk_open(
-    dev: *mut device,
-    name: *const c_char,
-    flags: c_int,
-) -> c_int {
-    if dev.is_null() {
-        return -libc::EINVAL;
-    }
-    match (*dev).d_op.as_ref().and_then(|ops| ops.open) {
-        Some(open) => open(dev, name, flags),
-        None => -libc::ENODEV,
-    }
-}
-
-/// Write to the ramdisk, mirroring C's `ramdisk_write`.
-///
-/// # Safety
-/// `dev` is `NULL` or a live device, `request` is `NULL` or a live request, and
-/// `dev` has a backend with `write`.
-#[no_mangle]
-pub unsafe extern "C" fn ffi_ramdisk_write(
-    dev: *mut device,
-    request: *mut device_request,
-) -> isize {
-    if dev.is_null() || request.is_null() {
-        return -(libc::EINVAL as isize);
-    }
-    match (*dev).d_op.as_ref().and_then(|ops| ops.write) {
-        Some(write) => write(dev, request),
-        None => -(libc::ENODEV as isize),
-    }
-}
-
-/// Read from the ramdisk, mirroring C's `ramdisk_read`.
-///
-/// # Safety
-/// `dev` is `NULL` or a live device, `request` is `NULL` or a live request, and
-/// `dev` has a backend with `read`.
-#[no_mangle]
-pub unsafe extern "C" fn ffi_ramdisk_read(
-    dev: *mut device,
-    request: *mut device_request,
-) -> isize {
-    if dev.is_null() || request.is_null() {
-        return -(libc::EINVAL as isize);
-    }
-    match (*dev).d_op.as_ref().and_then(|ops| ops.read) {
-        Some(read) => read(dev, request),
-        None => -(libc::ENODEV as isize),
-    }
-}
-
-/// Erase a segment, mirroring C's `ramdisk_erase`.
-///
-/// # Safety
-/// `dev` is `NULL` or a live device, `request` is `NULL` or a live request, and
-/// `dev` has a backend with `erase`.
-#[no_mangle]
-pub unsafe extern "C" fn ffi_ramdisk_erase(
-    dev: *mut device,
-    request: *mut device_request,
-) -> c_int {
-    if dev.is_null() || request.is_null() {
-        return -libc::EINVAL;
-    }
-    match (*dev).d_op.as_ref().and_then(|ops| ops.erase) {
-        Some(erase) => erase(dev, request),
-        None => -libc::ENODEV,
-    }
-}
-
 /// Close the ramdisk, mirroring C's `ramdisk_close`.
 ///
 /// # Safety
@@ -425,10 +349,23 @@ mod tests {
     }
 
     unsafe fn open(dev: *mut device) {
-        assert_eq!(
-            ffi_ramdisk_open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR),
-            0
-        );
+        let open = (*(*dev).d_op).open.expect("ramdisk vtable has open");
+        assert_eq!(open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR), 0);
+    }
+
+    /// Drive the write operation the way C does, through `dev->d_op`.
+    unsafe fn dev_write(dev: *mut device, request: *mut device_request) -> isize {
+        ((*(*dev).d_op).write.expect("ramdisk vtable has write"))(dev, request)
+    }
+
+    /// Drive the read operation through `dev->d_op`.
+    unsafe fn dev_read(dev: *mut device, request: *mut device_request) -> isize {
+        ((*(*dev).d_op).read.expect("ramdisk vtable has read"))(dev, request)
+    }
+
+    /// Drive the erase operation through `dev->d_op`.
+    unsafe fn dev_erase(dev: *mut device, request: *mut device_request) -> c_int {
+        ((*(*dev).d_op).erase.expect("ramdisk vtable has erase"))(dev, request)
     }
 
     /// Write `lpn` with the page number stamped into its first four bytes.
@@ -444,7 +381,7 @@ mod tests {
         request.flag = DeviceDirection::Write.into();
         request.data = page.as_mut_ptr() as *mut c_void;
         request.end_rq = None;
-        ffi_ramdisk_write(dev, request.as_ptr())
+        dev_write(dev, request.as_ptr())
     }
 
     unsafe fn read_page(dev: *mut device, request: &mut Request, page: &mut [u8], lpn: u32) -> isize {
@@ -453,7 +390,7 @@ mod tests {
         request.flag = DeviceDirection::Read.into();
         request.data = page.as_mut_ptr() as *mut c_void;
         request.end_rq = None;
-        ffi_ramdisk_read(dev, request.as_ptr())
+        dev_read(dev, request.as_ptr())
     }
 
     #[test]
@@ -557,7 +494,7 @@ mod tests {
 
             request.paddr = device_address::new(0, 0, 0, 0);
             request.flag = DeviceDirection::Erase.into();
-            assert_eq!(ffi_ramdisk_erase(dev, request.as_ptr()), 0);
+            assert_eq!(dev_erase(dev, request.as_ptr()), 0);
 
             // Erased pages read back as zero and are writable again.
             page.fill(0xff);
@@ -584,7 +521,7 @@ mod tests {
             // A non-erase request through the erase entry point is rejected.
             request.paddr = device_address::from(0u32);
             request.flag = DeviceDirection::Write.into();
-            assert_eq!(ffi_ramdisk_erase(dev, request.as_ptr()), -libc::EINVAL);
+            assert_eq!(dev_erase(dev, request.as_ptr()), -libc::EINVAL);
 
             assert_eq!(ffi_ramdisk_close(dev), 0);
             assert_eq!(ffi_device_module_exit(dev), 0);
@@ -606,7 +543,7 @@ mod tests {
             request.flag = DeviceDirection::Write.into();
             request.paddr = device_address::from(0u32);
             assert_eq!(
-                ffi_ramdisk_write(dev, request.as_ptr()),
+                dev_write(dev, request.as_ptr()),
                 -(libc::ENODATA as isize)
             );
 
@@ -614,7 +551,7 @@ mod tests {
             request.data = page.as_mut_ptr() as *mut c_void;
             request.flag = DeviceDirection::Read.into();
             assert_eq!(
-                ffi_ramdisk_write(dev, request.as_ptr()),
+                dev_write(dev, request.as_ptr()),
                 -(libc::EINVAL as isize)
             );
 
@@ -622,7 +559,7 @@ mod tests {
             request.flag = DeviceDirection::Write.into();
             request.paddr = device_address::from(PADDR_EMPTY);
             assert_eq!(
-                ffi_ramdisk_write(dev, request.as_ptr()),
+                dev_write(dev, request.as_ptr()),
                 -(libc::EINVAL as isize)
             );
 
@@ -630,7 +567,7 @@ mod tests {
             request.paddr = device_address::from(0u32);
             request.data_len = page_size - 1;
             assert_eq!(
-                ffi_ramdisk_write(dev, request.as_ptr()),
+                dev_write(dev, request.as_ptr()),
                 -(libc::EINVAL as isize)
             );
 
@@ -663,7 +600,7 @@ mod tests {
                 request.data = page.as_mut_ptr() as *mut c_void;
                 request.end_rq = Some(count_end_rq);
                 assert_eq!(
-                    ffi_ramdisk_write(dev, request.as_ptr()),
+                    dev_write(dev, request.as_ptr()),
                     page_size as isize
                 );
             }
@@ -671,7 +608,7 @@ mod tests {
             // A rejected write does not call the callback.
             request.paddr = device_address::from(0u32);
             assert_eq!(
-                ffi_ramdisk_write(dev, request.as_ptr()),
+                dev_write(dev, request.as_ptr()),
                 -(libc::EINVAL as isize)
             );
             assert_eq!(END_RQ_CALLS.load(Ordering::SeqCst), 3);
@@ -679,12 +616,12 @@ mod tests {
             for lpn in 0u32..3 {
                 request.paddr = device_address::from(lpn);
                 request.flag = DeviceDirection::Read.into();
-                assert_eq!(ffi_ramdisk_read(dev, request.as_ptr()), page_size as isize);
+                assert_eq!(dev_read(dev, request.as_ptr()), page_size as isize);
             }
 
             request.paddr = device_address::new(0, 0, 0, 0);
             request.flag = DeviceDirection::Erase.into();
-            assert_eq!(ffi_ramdisk_erase(dev, request.as_ptr()), 0);
+            assert_eq!(dev_erase(dev, request.as_ptr()), 0);
 
             assert_eq!(END_RQ_CALLS.load(Ordering::SeqCst), 7);
 
