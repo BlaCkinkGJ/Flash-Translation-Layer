@@ -10,6 +10,9 @@ crate-type = ["staticlib"]
 # When enabled, pr_info / pr_warn / pr_err expand to no-ops.
 # Mirrors C `-DENABLE_LOG_SILENT` (Makefile `USE_LOG_SILENT=1`).
 silent = []
+# Mirrors C `-DPAGE_FTL_USE_GLOBAL_RWLOCK` (Makefile `USE_ZONE_DEVICE=1`):
+# adds `page_ftl.rwlock` so the `PageFtl` mirror matches the zoned layout.
+page_ftl_global_rwlock = []
 
 # Hardware-specific device backends. Each gates the matching `src/device/*.rs`
 # stub and its `SUBMODULE_INIT` entry, so the default build links no backend

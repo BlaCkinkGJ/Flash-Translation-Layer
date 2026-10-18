@@ -9,6 +9,7 @@
 #define PAGE_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include <pthread.h>
 
 #include <assert.h>
@@ -68,6 +69,113 @@ struct page_ftl {
 	list_node_t *gc_list; /**< garbage collection target list */
 	uint64_t *gc_seg_bits; /**< to find segnum is in gc list or not */
 };
+
+/**
+ * @brief layout assertions
+ *
+ * `PageFtl` / `PageFtlSegment` in `src/ftl/mod.rs` are `#[repr(C)]` mirrors of
+ * these structs and C reads them by offset, so the layout is the contract. The
+ * Rust `layout_matches_c` test asserts the same portable offset formulas, so
+ * keep the two in sync and never hardcode literal byte numbers here.
+ */
+#define PAGE_FTL_ALIGN_UP(value, align) (((value) + (align) - 1) / (align) * (align))
+
+#ifdef __cplusplus
+#define PAGE_FTL_ALIGNOF(type) alignof(type)
+// cppcheck-suppress missingIncludeSystem
+#define PAGE_FTL_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#else
+#define PAGE_FTL_ALIGNOF(type) _Alignof(type)
+#define PAGE_FTL_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#endif
+
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl_segment, nr_free_pages) == 0,
+		       "page_ftl_segment.nr_free_pages must be first");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl_segment, nr_valid_pages) ==
+			       sizeof(int),
+		       "page_ftl_segment.nr_valid_pages must follow "
+		       "nr_free_pages");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl_segment, is_gc) ==
+			       2 * sizeof(int),
+		       "page_ftl_segment.is_gc must follow nr_valid_pages");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl_segment, use_bits) ==
+			       PAGE_FTL_ALIGN_UP(3 * sizeof(int), sizeof(void *)),
+		       "page_ftl_segment.use_bits must follow the counters");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl_segment, lpn_list) ==
+			       offsetof(struct page_ftl_segment, use_bits) +
+				       sizeof(void *),
+		       "page_ftl_segment.lpn_list must follow use_bits");
+PAGE_FTL_STATIC_ASSERT(sizeof(struct page_ftl_segment) ==
+			       offsetof(struct page_ftl_segment, lpn_list) +
+				       sizeof(void *),
+		       "page_ftl_segment must end after lpn_list");
+
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, trans_map) == 0,
+		       "page_ftl.trans_map must be first");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, alloc_segnum) ==
+			       sizeof(void *),
+		       "page_ftl.alloc_segnum must follow trans_map");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, segments) ==
+			       offsetof(struct page_ftl, alloc_segnum) +
+				       sizeof(uint64_t),
+		       "page_ftl.segments must follow alloc_segnum");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, dev) ==
+			       offsetof(struct page_ftl, segments) +
+				       sizeof(void *),
+		       "page_ftl.dev must follow segments");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, mutex) ==
+			       PAGE_FTL_ALIGN_UP(offsetof(struct page_ftl, dev) +
+							 sizeof(void *),
+						 PAGE_FTL_ALIGNOF(pthread_mutex_t)),
+		       "page_ftl.mutex must follow dev");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, gc_mutex) ==
+			       offsetof(struct page_ftl, mutex) +
+				       sizeof(pthread_mutex_t),
+		       "page_ftl.gc_mutex must follow mutex");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, bus_rwlock) ==
+			       offsetof(struct page_ftl, gc_mutex) +
+				       sizeof(pthread_mutex_t),
+		       "page_ftl.bus_rwlock must follow gc_mutex");
+
+#ifdef PAGE_FTL_USE_GLOBAL_RWLOCK
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, rwlock) ==
+			       offsetof(struct page_ftl, bus_rwlock) +
+				       sizeof(void *),
+		       "page_ftl.rwlock must follow bus_rwlock");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, gc_thread) ==
+			       offsetof(struct page_ftl, rwlock) +
+				       sizeof(pthread_rwlock_t),
+		       "page_ftl.gc_thread must follow rwlock");
+#else
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, gc_thread) ==
+			       offsetof(struct page_ftl, bus_rwlock) +
+				       sizeof(void *),
+		       "page_ftl.gc_thread must follow bus_rwlock");
+#endif
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, o_flags) ==
+			       offsetof(struct page_ftl, gc_thread) +
+				       sizeof(pthread_t),
+		       "page_ftl.o_flags must follow gc_thread");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, gc_list) ==
+			       PAGE_FTL_ALIGN_UP(
+				       offsetof(struct page_ftl, o_flags) +
+					       sizeof(int),
+				       sizeof(void *)),
+		       "page_ftl.gc_list must follow o_flags");
+PAGE_FTL_STATIC_ASSERT(offsetof(struct page_ftl, gc_seg_bits) ==
+			       offsetof(struct page_ftl, gc_list) +
+				       sizeof(void *),
+		       "page_ftl.gc_seg_bits must follow gc_list");
+PAGE_FTL_STATIC_ASSERT(sizeof(struct page_ftl) ==
+			       PAGE_FTL_ALIGN_UP(
+				       offsetof(struct page_ftl, gc_seg_bits) +
+					       sizeof(void *),
+				       PAGE_FTL_ALIGNOF(struct page_ftl)),
+		       "page_ftl must end after gc_seg_bits");
+
+#undef PAGE_FTL_STATIC_ASSERT
+#undef PAGE_FTL_ALIGNOF
+#undef PAGE_FTL_ALIGN_UP
 
 /* page-interface.c */
 int page_ftl_open(struct page_ftl *, const char *name, int flags);
