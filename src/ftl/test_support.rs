@@ -20,9 +20,7 @@ use core::sync::atomic::{AtomicI32, Ordering};
 use std::io;
 
 use crate::bits::get_bit;
-use crate::device::ramdisk::{
-    ffi_ramdisk_close, ffi_ramdisk_open, ffi_ramdisk_read, ffi_ramdisk_write,
-};
+use crate::device::ramdisk::ffi_ramdisk_close;
 use crate::device::{
     device, device_address, device_operations, device_request, ffi_device_module_exit,
     ffi_device_module_init, DeviceDirection, DeviceModule, Request, DEVICE_PAGE_SIZE, PADDR_EMPTY,
@@ -60,10 +58,7 @@ impl Fixture {
                 ffi_device_module_init(DeviceModule::Ramdisk as u64, &mut dev, 0),
                 0
             );
-            assert_eq!(
-                ffi_ramdisk_open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR),
-                0
-            );
+            assert_eq!(open_device(dev), 0);
             (*dev).info.nr_bus = 1;
             (*dev).info.nr_chips = 1;
             (*dev).info.package.nr_blocks = nr_segments;
@@ -235,6 +230,35 @@ pub unsafe extern "C" fn failing_open(
     -libc::EIO
 }
 
+/// Open the ramdisk through its `dev->d_op` entry, the way C's test does.
+///
+/// # Safety
+/// `dev` is a live device with the ramdisk backend installed.
+unsafe fn open_device(dev: *mut device) -> c_int {
+    let open = (*(*dev).d_op).open.expect("ramdisk vtable has open");
+    open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR)
+}
+
+/// Read through the device's `dev->d_op` entry. Returns the operation's value.
+///
+/// # Safety
+/// `dev` is a live device with the ramdisk backend installed, and `request` is
+/// a live request whose buffer stays valid for the call.
+unsafe fn dev_read(dev: *mut device, request: *mut device_request) -> isize {
+    let read = (*(*dev).d_op).read.expect("ramdisk vtable has read");
+    read(dev, request)
+}
+
+/// Write through the device's `dev->d_op` entry. Returns the operation's value.
+///
+/// # Safety
+/// `dev` is a live device with the ramdisk backend installed, and `request` is
+/// a live request whose buffer stays valid for the call.
+unsafe fn dev_write(dev: *mut device, request: *mut device_request) -> isize {
+    let write = (*(*dev).d_op).write.expect("ramdisk vtable has write");
+    write(dev, request)
+}
+
 /// A ramdisk device plus an unopened [`PageFtl`], for the `page_core`
 /// lifecycle tests.
 ///
@@ -270,10 +294,7 @@ impl CoreFixture {
                 ffi_device_module_init(DeviceModule::Ramdisk as u64, &mut dev, 0),
                 0
             );
-            assert_eq!(
-                ffi_ramdisk_open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR),
-                0
-            );
+            assert_eq!(open_device(dev), 0);
             (*dev).info.nr_bus = 1;
             (*dev).info.nr_chips = 1;
             (*dev).info.package.nr_blocks = nr_segments;
@@ -396,10 +417,7 @@ pub fn read_at(f: &mut Fixture, sector: usize, buf: &mut [u8]) -> io::Result<usi
 pub fn read_physical_page(f: &mut Fixture, ppn: u32, buf: &mut [u8]) {
     let request = physical_request(DeviceDirection::Read, ppn, buf);
     unsafe {
-        assert_eq!(
-            ffi_ramdisk_read(f.dev, request.as_ptr()),
-            DEVICE_PAGE_SIZE as isize
-        );
+        assert_eq!(dev_read(f.dev, request.as_ptr()), DEVICE_PAGE_SIZE as isize);
     }
 }
 
@@ -410,7 +428,7 @@ pub fn write_physical_page(f: &mut Fixture, ppn: u32, buf: &mut [u8]) {
     let request = physical_request(DeviceDirection::Write, ppn, buf);
     unsafe {
         assert_eq!(
-            ffi_ramdisk_write(f.dev, request.as_ptr()),
+            dev_write(f.dev, request.as_ptr()),
             DEVICE_PAGE_SIZE as isize
         );
     }

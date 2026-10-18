@@ -224,7 +224,7 @@ pub unsafe extern "C" fn ffi_page_ftl_read(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::ramdisk::{ffi_ramdisk_close, ffi_ramdisk_open, ffi_ramdisk_write};
+    use crate::device::ramdisk::ffi_ramdisk_close;
     use crate::device::{
         device, ffi_device_module_exit, ffi_device_module_init, DeviceModule, DeviceOperations,
         Request, DEVICE_PAGE_SIZE,
@@ -248,10 +248,8 @@ mod tests {
                     ffi_device_module_init(DeviceModule::Ramdisk as u64, &mut dev, 0),
                     0
                 );
-                assert_eq!(
-                    ffi_ramdisk_open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR),
-                    0
-                );
+                let open = (*(*dev).d_op).open.expect("ramdisk vtable has open");
+                assert_eq!(open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR), 0);
             }
 
             let entries = unsafe { (*dev).total_pages() + 1 };
@@ -328,8 +326,9 @@ mod tests {
             request.flag = DeviceDirection::Write.into();
             request.data = page.as_mut_ptr() as *mut c_void;
             request.end_rq = None;
+            let write = (*(*f.dev).d_op).write.expect("ramdisk vtable has write");
             assert_eq!(
-                ffi_ramdisk_write(f.dev, request.as_ptr()),
+                write(f.dev, request.as_ptr()),
                 DEVICE_PAGE_SIZE as isize
             );
             update_map(&mut f.pgftl, lpn * DEVICE_PAGE_SIZE, ppn).unwrap();
