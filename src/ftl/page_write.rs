@@ -284,171 +284,26 @@ pub unsafe extern "C" fn ffi_page_ftl_write(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::ramdisk::{
-        ffi_ramdisk_close, ffi_ramdisk_open, ffi_ramdisk_read, ffi_ramdisk_write,
+    use crate::device::{device, device_operations, DEVICE_PAGE_SIZE};
+    use crate::ftl::test_support::{
+        read_at, read_physical_page, write_at, write_physical_page, Fixture,
     };
-    use crate::device::{
-        device, device_operations, ffi_device_module_exit, ffi_device_module_init, DeviceModule,
-        DEVICE_PAGE_SIZE,
-    };
-    use crate::list::{ffi_list_free, ffi_list_length};
     use core::ptr;
 
     /// Two segments of four pages each, over a real ramdisk.
     const NR_SEGMENTS: usize = 2;
     const PAGES_PER_SEGMENT: usize = 4;
     const TOTAL_PAGES: usize = NR_SEGMENTS * PAGES_PER_SEGMENT;
-    /// `u64` words reserved for one segment's `use_bits` bitmap, so each
-    /// segment gets its own region of the shared allocation.
-    const WORDS_PER_SEGMENT: usize = 64;
 
-    /// A real ramdisk device plus the page FTL state the write path needs.
-    ///
-    /// The ramdisk sizes its store from the geometry `open` installs (64
-    /// segments of 2048 pages, a 1GiB board). The fixture then narrows
-    /// `dev.info` to two segments of four pages so a test can fill a whole
-    /// segment and exhaust the free pages in a handful of writes. Every address
-    /// the narrowed geometry produces still lands inside the ramdisk's store,
-    /// because the packed address keeps the segment in the high bits.
-    struct Fixture {
-        dev: *mut device,
-        trans_map: Vec<u32>,
-        segments: Vec<PageFtlSegment>,
-        use_bits: Vec<u64>,
-        gc_seg_bits: Vec<u64>,
-        pgftl: Box<PageFtl>,
-    }
-
-    impl Fixture {
-        fn new() -> Self {
-            let mut dev: *mut device = ptr::null_mut();
-            unsafe {
-                assert_eq!(
-                    ffi_device_module_init(DeviceModule::Ramdisk as u64, &mut dev, 0),
-                    0
-                );
-                assert_eq!(
-                    ffi_ramdisk_open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR),
-                    0
-                );
-                (*dev).info.nr_bus = 1;
-                (*dev).info.nr_chips = 1;
-                (*dev).info.package.nr_blocks = NR_SEGMENTS;
-                (*dev).info.package.block.nr_pages = PAGES_PER_SEGMENT;
-            }
-
-            let mut trans_map = vec![PADDR_EMPTY; TOTAL_PAGES + 1];
-            let mut use_bits = vec![0u64; NR_SEGMENTS * WORDS_PER_SEGMENT];
-            let mut gc_seg_bits = vec![0u64; 1];
-            let segments: Vec<PageFtlSegment> = (0..NR_SEGMENTS)
-                .map(|segnum| PageFtlSegment {
-                    nr_free_pages: core::sync::atomic::AtomicI32::new(PAGES_PER_SEGMENT as i32),
-                    nr_valid_pages: core::sync::atomic::AtomicI32::new(0),
-                    is_gc: 0,
-                    use_bits: unsafe { use_bits.as_mut_ptr().add(segnum * WORDS_PER_SEGMENT) },
-                    lpn_list: ptr::null_mut(),
-                })
-                .collect();
-
-            let mut pgftl =
-                Box::new(unsafe { core::mem::MaybeUninit::<PageFtl>::zeroed().assume_init() });
-            pgftl.dev = dev;
-            pgftl.trans_map = trans_map.as_mut_ptr();
-            pgftl.segments = segments.as_ptr() as *mut PageFtlSegment;
-            pgftl.gc_seg_bits = gc_seg_bits.as_mut_ptr();
-
-            Fixture {
-                dev,
-                trans_map,
-                segments,
-                use_bits,
-                gc_seg_bits,
-                pgftl,
-            }
-        }
-
-        fn free(&self, segnum: usize) -> i32 {
-            self.segments[segnum].free_pages()
-        }
-
-        fn valid(&self, segnum: usize) -> i32 {
-            self.segments[segnum]
-                .nr_valid_pages
-                .load(Ordering::SeqCst)
-        }
-
-        fn lpn_list_len(&self, segnum: usize) -> usize {
-            unsafe { ffi_list_length(self.segments[segnum].lpn_list) }
-        }
-
-        fn gc_list_len(&self) -> usize {
-            unsafe { ffi_list_length(self.pgftl.gc_list) }
-        }
-
-        fn gc_bit(&self, segnum: usize) -> bool {
-            get_bit(&self.gc_seg_bits, segnum as u64)
-        }
-
-        /// The first `u64` of a segment's `use_bits` bitmap.
-        fn use_bits_word(&self, segnum: usize) -> u64 {
-            self.use_bits[segnum * WORDS_PER_SEGMENT]
-        }
-    }
-
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            unsafe {
-                ffi_list_free(self.pgftl.gc_list);
-                for segment in &mut self.segments {
-                    ffi_list_free(segment.lpn_list);
-                }
-                assert_eq!(ffi_ramdisk_close(self.dev), 0);
-                assert_eq!(ffi_device_module_exit(self.dev), 0);
-            }
-        }
-    }
-
-    /// Write `data.len()` bytes at absolute byte `sector` through
-    /// [`write_page`].
-    fn write_at(f: &mut Fixture, sector: usize, data: &mut [u8]) -> io::Result<usize> {
-        let mut request = Request::new().expect("allocate a request");
-        request.flag = DeviceDirection::Write.into();
-        request.sector = sector;
-        request.data_len = data.len();
-        request.data = data.as_mut_ptr() as *mut c_void;
-        request.end_rq = None;
-        write_page(&mut f.pgftl, &mut request)
-    }
-
-    /// Read `buf.len()` bytes at absolute byte `sector` through the read path.
-    fn read_at(f: &mut Fixture, sector: usize, buf: &mut [u8]) -> io::Result<usize> {
-        let mut request = Request::new().expect("allocate a request");
-        request.flag = DeviceDirection::Read.into();
-        request.sector = sector;
-        request.data_len = buf.len();
-        request.data = buf.as_mut_ptr() as *mut c_void;
-        read_page(&mut f.pgftl, &mut request)
-    }
-
-    /// Read physical page `ppn` straight from the device.
-    fn read_physical_page(f: &mut Fixture, ppn: u32, buf: &mut [u8]) {
-        let mut request = Request::new().expect("allocate a request");
-        request.flag = DeviceDirection::Read.into();
-        request.paddr = device_address::from(ppn);
-        request.data_len = DEVICE_PAGE_SIZE;
-        request.data = buf.as_mut_ptr() as *mut c_void;
-        request.end_rq = None;
-        unsafe {
-            assert_eq!(
-                ffi_ramdisk_read(f.dev, request.as_ptr()),
-                DEVICE_PAGE_SIZE as isize
-            );
-        }
+    /// The geometry this module's tests run on. The fixture itself lives in
+    /// [`crate::ftl::test_support`], shared with the garbage collection tests.
+    fn new_fixture() -> Fixture {
+        Fixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT)
     }
 
     #[test]
     fn single_page_write_then_read_back() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
         let data: Vec<u8> = (0..16u8).collect();
 
         let mut payload = data.clone();
@@ -474,7 +329,7 @@ mod tests {
 
     #[test]
     fn overwrite_invalidates_the_previous_mapping() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
 
         // A position dependent pattern: a mis-computed read offset or a short
         // read would show up as a mismatched byte.
@@ -518,7 +373,7 @@ mod tests {
 
     #[test]
     fn filling_a_segment_queues_it_for_gc_once() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
 
         for lpn in 0..PAGES_PER_SEGMENT {
             let mut payload = vec![lpn as u8; 8];
@@ -565,7 +420,7 @@ mod tests {
 
     #[test]
     fn free_page_exhaustion_returns_efault() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
 
         for lpn in 0..TOTAL_PAGES {
             let mut payload = vec![0x5au8; 8];
@@ -588,7 +443,7 @@ mod tests {
 
     #[test]
     fn out_of_range_and_overflowing_writes_are_rejected() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
         let entries = f.pgftl.map_entries();
         assert_eq!(entries, TOTAL_PAGES + 1);
 
@@ -618,7 +473,7 @@ mod tests {
 
     #[test]
     fn zero_length_write_maps_the_page() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
 
         let mut nothing = [0u8; 0];
         assert_eq!(write_at(&mut f, 0, &mut nothing).unwrap(), 0);
@@ -632,7 +487,7 @@ mod tests {
 
     #[test]
     fn null_write_buffer_is_rejected() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
 
         let mut request = Request::new().expect("allocate a request");
         request.flag = DeviceDirection::Write.into();
@@ -655,24 +510,13 @@ mod tests {
 
     #[test]
     fn failed_device_write_keeps_the_page_unmapped() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
 
         // Program device page 0 behind the FTL's back. The ramdisk refuses to
         // write a page twice, so the FTL's first allocation fails on the
         // device.
         let mut page = vec![0x5au8; DEVICE_PAGE_SIZE];
-        let mut request = Request::new().expect("allocate a request");
-        request.flag = DeviceDirection::Write.into();
-        request.paddr = device_address::from(0);
-        request.data_len = DEVICE_PAGE_SIZE;
-        request.data = page.as_mut_ptr() as *mut c_void;
-        request.end_rq = None;
-        unsafe {
-            assert_eq!(
-                ffi_ramdisk_write(f.dev, request.as_ptr()),
-                DEVICE_PAGE_SIZE as isize
-            );
-        }
+        write_physical_page(&mut f, 0, &mut page);
 
         let mut data = [0u8; 8];
         let err = write_at(&mut f, 0, &mut data).unwrap_err();
@@ -716,7 +560,7 @@ mod tests {
 
     #[test]
     fn failed_read_for_overwrite_returns_efault() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
 
         let mut first = vec![0xaau8; 8];
         assert_eq!(write_at(&mut f, 0, &mut first).unwrap(), 8);
@@ -743,7 +587,7 @@ mod tests {
 
     #[test]
     fn short_device_write_is_reported_as_io_error() {
-        let mut f = Fixture::new();
+        let mut f = new_fixture();
         let saved = unsafe { (*f.dev).d_op };
         unsafe { (*f.dev).d_op = &SHORT_WRITE_OPS };
 
@@ -758,7 +602,7 @@ mod tests {
     #[test]
     fn ffi_write_matches_c_contract() {
         unsafe {
-            let mut f = Fixture::new();
+            let mut f = new_fixture();
 
             assert_eq!(
                 ffi_page_ftl_write(ptr::null_mut(), ptr::null_mut()),
