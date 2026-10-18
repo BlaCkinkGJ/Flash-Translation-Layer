@@ -431,8 +431,8 @@ mod tests {
             assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
         }
 
-        // The last valid slot is still reachable and reads zeros, because the
-        // fixture programs only the pages it maps.
+        // The last in bounds slot is the unused terminator, so it reads zeros
+        // like every unmapped page.
         let n = read_at(&mut f, (entries - 1) * DEVICE_PAGE_SIZE, &mut buf).unwrap();
         assert_eq!(n, 8);
         assert!(buf.iter().all(|byte| *byte == 0));
