@@ -419,13 +419,12 @@ mod tests {
     #[test]
     fn read_past_the_l2p_table_is_rejected() {
         let mut f = Fixture::new();
-        program(&mut f, 0);
         let entries = f.pgftl.map_entries();
         assert!(entries > 1, "the fixture needs at least one table slot");
 
-        // The last table slot is `entries - 1`, so the slot itself and anything
-        // past it must fail before `trans_map` is read. C has no bound here at
-        // all.
+        // The last valid table slot is `entries - 1`. The first slot past the
+        // table, `entries`, and anything beyond it must fail before `trans_map`
+        // is read. C has no bound here at all.
         let mut buf = vec![0u8; 8];
         for lpn in [entries, entries + 1] {
             let err = read_at(&mut f, lpn * DEVICE_PAGE_SIZE, &mut buf).unwrap_err();
