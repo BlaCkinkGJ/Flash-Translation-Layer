@@ -19,6 +19,8 @@ extern "C" {
 // cppcheck-suppress missingIncludeSystem
 #include <unistd.h>
 #include <pthread.h>
+// cppcheck-suppress missingIncludeSystem
+#include <stddef.h> /**< to use offsetof in the layout assertions */
 
 /**
  * @brief flags related on the flash and submodule
@@ -58,6 +60,48 @@ struct flash_operations {
 		     ...); /**< for other instruction sets (barely use) */
 	int (*close)(struct flash_device *); /** close the flash device */
 };
+
+/**
+ * @brief layout assertions
+ *
+ * These pin the offsets the Rust port in `src/flash.rs` mirrors. Its
+ * `layout_matches_c` test asserts the same formulas, so a change to either
+ * definition breaks a build instead of corrupting a flash device at runtime.
+ */
+#ifdef __cplusplus
+// cppcheck-suppress missingIncludeSystem
+#define FLASH_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#else
+#define FLASH_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#endif
+
+FLASH_STATIC_ASSERT(offsetof(struct flash_device, f_op) == 0,
+		    "flash_device must start with the operations pointer");
+FLASH_STATIC_ASSERT(offsetof(struct flash_device, f_private) == sizeof(void *),
+		    "flash_device private data must follow the operations pointer");
+FLASH_STATIC_ASSERT(offsetof(struct flash_device, f_submodule_exit) ==
+			    2 * sizeof(void *),
+		    "flash_device submodule exit must follow the private data");
+FLASH_STATIC_ASSERT(sizeof(struct flash_device) == 3 * sizeof(void *),
+		    "flash_device must be three pointers, no padding");
+
+FLASH_STATIC_ASSERT(offsetof(struct flash_operations, open) == 0,
+		    "flash_operations must start with open");
+FLASH_STATIC_ASSERT(offsetof(struct flash_operations, write) == sizeof(void *),
+		    "flash_operations write must follow open");
+FLASH_STATIC_ASSERT(offsetof(struct flash_operations, read) ==
+			    2 * sizeof(void *),
+		    "flash_operations read must follow write");
+FLASH_STATIC_ASSERT(offsetof(struct flash_operations, ioctl) ==
+			    3 * sizeof(void *),
+		    "flash_operations ioctl must follow read");
+FLASH_STATIC_ASSERT(offsetof(struct flash_operations, close) ==
+			    4 * sizeof(void *),
+		    "flash_operations close must follow ioctl");
+FLASH_STATIC_ASSERT(sizeof(struct flash_operations) == 5 * sizeof(void *),
+		    "flash_operations must be five pointers, no padding");
+
+#undef FLASH_STATIC_ASSERT
 
 int flash_module_init(struct flash_device **, uint64_t flags);
 int flash_module_exit(struct flash_device *);
