@@ -109,6 +109,7 @@
 //!   failure in `io::Result` and reports `EIO` for a non-negative mismatch,
 //!   keeping the negated errno for a negative one.
 //! - `page_write::ffi_page_ftl_write` returns `-EINVAL` for a `NULL` FTL or
+//!   request, where C dereferences them.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
