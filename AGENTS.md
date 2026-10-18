@@ -9,9 +9,9 @@ files (nearest file wins).
 - **Domain**: NAND Flash Translation Layer (page-mapping FTL), Linux userspace.
 - **Language**: Rust for the page FTL, the helpers, the device dispatch, the
   module and flash interfaces and the default ramdisk backend, C for the
-  optional device backends (zoned, bluedbm, raspberrypi) and the C unit tests.
-  The migration is finished: no module has a C implementation left beside its
-  Rust one. macOS is Docker only.
+  optional device backends (zoned, bluedbm, raspberrypi). The migration is
+  finished: no module has a C implementation left beside its Rust one. macOS is
+  Docker only.
 - **Backends**: ramdisk (default, Rust), zoned block device, bluedbm and
   raspberrypi (C, with cargo-gated Rust stubs).
 
@@ -23,7 +23,6 @@ device/            C device backends (device.c, zone/, bluedbm/, raspberry/)
 src/               Rust sources (cargo staticlib → libftl_rust.a), FTL under
                    src/ftl/
 tests/             Rust integration test (integration.rs)
-test/              Unity-based C unit tests (*-test.c), framework in unity/
 example/           Rust example program (rw_example), a cargo example
 benchmark.c        Performance benchmark → benchmark.out
 integration-test.c End-to-end test → integration-test.out
@@ -31,7 +30,8 @@ integration-test.c End-to-end test → integration-test.out
 
 ## Setup And Build
 
-Linux (Ubuntu >= 16.04) needs `git make gcc g++ libglib2.0-dev libiberty-dev`.
+Linux (Ubuntu >= 16.04) needs `git make gcc g++` and the Rust toolchain
+(`cargo`).
 Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
 [libzbd](https://github.com/westerndigitalcorporation/libzbd),
 `USE_BLUEDBM_DEVICE=1` needs
@@ -42,11 +42,9 @@ Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
 (`make docker-builder`, then `make docker-make-test`).
 
 ```bash
-make USE_LOG_SILENT=1 lru-test.out && ./lru-test.out   # one Unity test
-
 # The Makefile Rust wrappers are the preferred path (consistent flags).
 make clean && make -j$(nproc)   # archives, integration-test.out, benchmark.out
-make clean && make test USE_LOG_SILENT=1  # C unit tests + gcov
+make clean && make test USE_LOG_SILENT=1  # Rust tests
 make integration-test                     # end-to-end, takes minutes
 make clean && make benchmark.out          # USE_LEGACY_RANDOM=1 on random errors
 sudo make install                         # libraries + headers under /usr/local
@@ -57,9 +55,7 @@ make cargo-coverage # cargo llvm-cov --lcov (llvm-tools + cargo-llvm-cov)
 ```
 
 `libftl.a` calls into the Rust archive: `integration-test.out` and
-`benchmark.out` link `-L. -lftl` and `-lftl_rust`. The C unit test binaries link
-`-lftl_rust`, and `ramdisk-test.out` and `zone-test.out` list the device
-objects (`$(OBJS)`) directly rather than through `-lftl`. The `USE_*` switches
+`benchmark.out` link `-L. -lftl` and `-lftl_rust`. The `USE_*` switches
 live in the `Makefile`, which is authoritative. Each `USE_*_DEVICE` also
 enables the cargo feature of the same name (`zone`, `bluedbm`, `raspberry`), so
 the Rust device table and the C source list agree. The rest: `USE_DEBUG=1` adds
@@ -100,10 +96,10 @@ the Rust device table and the C source list agree. The rest: `USE_DEBUG=1` adds
 
 ## Testing
 
-C unit tests are [Unity](https://www.throwtheswitch.org/unity), vendored under
-`unity/`, one `*-test.c` per C module. Rust tests are unit tests beside the
-code plus `tests/integration.rs`. Both cover success and error paths, and mock
-nothing device specific: use the ramdisk backend.
+Rust tests are unit tests beside the code plus `tests/integration.rs`, run by
+`make test` (`cargo test --all-targets` with the derived feature flags). They
+cover success and error paths, and mock nothing device specific: use the
+ramdisk backend.
 
 ## Project Conventions
 
@@ -111,7 +107,7 @@ nothing device specific: use the ramdisk backend.
 
 Create `device/<name>/<name>.c` and `.h`, add a `USE_<NAME>_DEVICE` switch, a
 `DEVICE_INFO` block and a cargo feature mirroring the existing ones, add the
-source glob to `DEVICE_SRCS`, and add `<name>-test.out` to `TEST_TARGET`.
+source glob to `DEVICE_SRCS`, and add a Rust test beside the backend.
 
 ### Adding a new FTL policy
 
@@ -131,8 +127,8 @@ Rust-only type carries no repr at all.
 ## Permissions
 
 Allowed without prompting: reading any file, compiling one C or Rust source
-with the project flags, running one Unity test binary, `cargo build` / `check` /
-`test`, editing sources, headers, manifests and tests, and `clang-format -i` on
+with the project flags, `cargo build` / `check` / `test`, editing sources,
+headers, manifests and tests, and `clang-format -i` on
 touched files.
 
 Ask before: `make install` (writes to `/usr/local`), a full `make clean && make

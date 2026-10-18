@@ -1,4 +1,4 @@
-VPATH = device device/zone device/bluedbm device/raspberry unity/src test
+VPATH = device device/zone device/bluedbm device/raspberry
 # You can generate the compile_commands.json file by using
 # `make clean -j$(nproc)`
 # `bear make all -j$(nproc)`
@@ -58,12 +58,6 @@ ifeq ($(USE_LEGACY_RANDOM), 1)
 MACROS += -DUSE_LEGACY_RANDOM
 endif
 
-TEST_TARGET := lru-test.out \
-               bits-test.out \
-               ramdisk-test.out \
-               list-test.out \
-               crc32-test.out
-
 DEVICE_LIBS =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
@@ -73,7 +67,6 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
                -DDEVICE_NR_PAGES_BITS=5 \
                -DDEVICE_NR_BLOCKS_BITS=21
 
-TEST_TARGET += zone-test.out
 DEVICE_LIBS += -lzbd
 else ifeq ($(USE_BLUEDBM_DEVICE), 1)
 # BlueDBM Device's Setting
@@ -153,8 +146,7 @@ CFLAGS := -Wall \
 CXXFLAGS := $(CFLAGS) \
             -std=c++11
 
-UNITY_ROOT := ./unity
-INCLUDES := -I./include -I./unity/src $(DEVICE_INCLUDES)
+INCLUDES := -I./include $(DEVICE_INCLUDES)
 RUST_LIB_DIR := target/$(if $(filter 1,$(USE_DEBUG)),debug,release)
 RUST_LIB := $(RUST_LIB_DIR)/libftl_rust.a
 LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -L$(RUST_LIB_DIR) -lftl_rust
@@ -213,14 +205,9 @@ endif
 
 all: build_rust $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 
-test: build_rust $(TEST_TARGET)
-	@for target in $(TEST_TARGET) ; do \
-		./$$target ; \
-	done
-	# show coverage 
-	@for target in $(TEST_TARGET) ; do \
-		gcov $$target-*.gcda || true ; \
-	done
+# `make test` is the Rust suite: the C tests are gone, so this is a thin alias
+# for `cargo-test`, which derives the feature flags from the USE_* switches.
+test: cargo-test
 
 integration-test: $(INTEGRATION_TEST_TARGET)
 	./$(INTEGRATION_TEST_TARGET)
@@ -247,29 +234,6 @@ $(LIBRARY_TARGET): $(OBJS)
 
 %.o: %.c
 	$(CC) $(MACROS) $(CFLAGS) -c $< -o $@ $(INCLUDES)
-
-unity.o: unity.c
-	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
-
-lru-test.out: unity.o test/lru-test.o $(RUST_LIB)
-	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
-
-bits-test.out: unity.o test/bits-test.o $(RUST_LIB)
-	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
-
-ramdisk-test.out: $(OBJS) unity.o test/ramdisk-test.o $(RUST_LIB)
-	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
-
-list-test.out: unity.o test/list-test.o $(RUST_LIB)
-	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
-
-crc32-test.out: unity.o test/crc32-test.o $(RUST_LIB)
-	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
-
-ifeq ($(USE_ZONE_DEVICE), 1)
-zone-test.out: $(OBJS) unity.o test/zone-test.o $(RUST_LIB)
-	$(CXX) $(MACROS) $(CXXFLAGS) -DENABLE_LOG_SILENT $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
-endif
 
 
 docker-builder:
@@ -299,10 +263,10 @@ documents:
 	doxygen -s Doxyfile
 
 flow:
-	find . -type f -name '*.[ch]' ! -path "./unity/*" ! -path "./test/*" | xargs -i cflow {}
+	find . -type f -name '*.[ch]' | xargs -i cflow {}
 
 format:
-	find . -type f -name '*.[ch]' ! -path "./unity/*" ! -path "./test/*" | xargs -i clang-format -i {}
+	find . -type f -name '*.[ch]' | xargs -i clang-format -i {}
 
 compiledb:
 	bear -- $(MAKE) all
@@ -311,13 +275,10 @@ compiledb:
 
 clean:
 	find . -name '*.o' -exec rm -f {} +
-	find . -name '*.gcov' -exec rm -f {} +
-	find . -name '*.gcda' -exec rm -f {} +
-	find . -name '*.gcno' -exec rm -f {} +
-	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
+	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
 	cargo clean
 
-.PHONY: build_rust cargo-test cargo-clippy cargo-coverage FORCE
+.PHONY: build_rust cargo-test cargo-clippy cargo-coverage test FORCE
 build_rust: $(RUST_LIB)
 
 # Run the Rust test suite. Requires no extra toolchain components.

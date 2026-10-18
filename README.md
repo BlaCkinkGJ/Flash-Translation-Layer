@@ -25,13 +25,16 @@ Before you build this repository, you must install some packages from the packag
 
 ```bash
 sudo apt update -y
-sudo apt install -y git make gcc g++ libglib2.0-dev libiberty-dev
+sudo apt install -y git make gcc g++
 ```
+
+The Rust toolchain is required as well: install it from
+[rustup](https://rustup.rs/) so `cargo` is on `PATH`.
 
 After you download the packages, you must receive this project code using `git clone` like below.
 
 ```
-git clone --recursive ${REPOSITORY_URL}
+git clone ${REPOSITORY_URL}
 ```
 
 Now you move to this repository's project directory root by using `mv`.
@@ -56,13 +59,15 @@ Before you execute the test and related things, you must install the below tools
 - [cppcheck](https://cppcheck.sourceforge.io/)
 - [lizard](https://github.com/terryyin/lizard)
 
-You can check the source code status by using `make check`. If you want to generate test files, execute the below command.
+You can check the source code status by using `make check`. The unit and
+integration tests are Rust and driven by cargo, so run the suite with:
 
 ```bash
-make clean && make -j$(nproc) test USE_LOG_SILENT=1
+make test USE_LOG_SILENT=1
 ```
 
-After the build finish, you can get the various test files from the results. Run those files to test whether the project's module works correctly.
+`make test` runs `cargo test --all-targets` with the feature flags the `USE_*`
+switches derive, so `USE_LOG_SILENT=1` selects the `silent` feature.
 
 ### Execution
 
