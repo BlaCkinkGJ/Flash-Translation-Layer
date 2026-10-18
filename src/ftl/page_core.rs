@@ -1,23 +1,23 @@
 //! Page FTL core lifecycle, checkpoint and request dispatch, ported from
 //! `ftl/page/page-core.c`.
 //!
-//! [`open`] mirrors C's `page_ftl_open`: initialize the two mutexes, open the
-//! device, allocate the bus rwlock array, the L2P table, the segment array with
-//! its `use_bits` bitmaps and the `gc_seg_bits` bitmap, load the checkpoint and
-//! start the GC thread. [`close`] mirrors C's `page_ftl_close`: save the
-//! checkpoint, join the GC thread, destroy the two mutexes, release every
-//! allocation and close the device. [`submit_request`] mirrors C's
-//! `page_ftl_submit_request`, the dispatch the interface layer and the GC loop
-//! drive.
+//! [`open`] mirrors C's `page_ftl_open`: open the device, allocate the L2P
+//! table, the segment array with its `use_bits` bitmaps and the `gc_seg_bits`
+//! bitmap, load the checkpoint and spawn the GC thread. [`close`] mirrors C's
+//! `page_ftl_close`: save or discard the checkpoint, join the GC thread,
+//! release every allocation and close the device. [`submit_request`]
+//! mirrors C's `page_ftl_submit_request`, the dispatch the interface layer and
+//! the GC loop drive.
 //!
 //! The statics mirror the file's statics: [`alloc_bitmap`], [`init_segment`],
-//! [`init_bus_lock`], [`init_map`], [`gc_thread_main`] with
+//! [`init_map`], [`gc_thread_main`] with
 //! its [`gc_thread_iteration`] turn and [`gc_pass`] body, and the checkpoint
 //! pair [`checkpoint_save`] / [`checkpoint_load`]. C's
 //! `page_ftl_segment_data_init` lives here as [`segment_data_init`], its C home
 //! (`ftl/page/page-core.c:110`), and [`crate::ftl::page_gc`] calls it. C's
 //! `page_ftl_free_segments` has no port: the buffers it freed are owned here,
-//! so [`close`] drops them.
+//! so [`close`] drops them, and C's `page_ftl_init_bus_lock` has no port
+//! either: that lock array is deleted (see the deviations in [`crate::ftl`]).
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
@@ -31,9 +31,7 @@ use std::ffi::CStr;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::sync::Mutex;
-
-use libc::pthread_rwlock_t;
+use std::sync::{Mutex, MutexGuard};
 
 use crate::bits::set_bit;
 use crate::crc32::crc32;
@@ -41,7 +39,9 @@ use crate::device::{device_address, device_request, DeviceDirection, PADDR_EMPTY
 use crate::ftl::page_gc::{do_gc, gc_from_list};
 use crate::ftl::page_read::read_page;
 use crate::ftl::page_write::write_page;
-use crate::ftl::{PageFtl, PageFtlLock, PageFtlSegment, PAGE_FTL_GC_RATIO, PAGE_FTL_GC_THRESHOLD};
+use crate::ftl::{
+    lock_recover, PageFtl, PageFtlLock, PageFtlSegment, PAGE_FTL_GC_RATIO, PAGE_FTL_GC_THRESHOLD,
+};
 use crate::{pr_debug, pr_err, pr_warn};
 
 /// C's `CRC32_INIT` (`include/crc32.h:9`), the seed of the checkpoint's
@@ -62,11 +62,12 @@ const GC_THREAD_INTERVAL: Duration = Duration::from_secs(1);
 /// after the join, so the map holds one entry per FTL being shut down.
 static GC_THREAD_STOP: Mutex<Option<HashSet<usize>>> = Mutex::new(None);
 
-/// The GC thread stop set.
-fn gc_thread_stop() -> std::sync::MutexGuard<'static, Option<HashSet<usize>>> {
-    GC_THREAD_STOP
-        .lock()
-        .expect("the GC thread stop set is never poisoned")
+/// The GC thread stop set, through the crate's lock policy
+/// ([`crate::ftl::lock_recover`]). The set is a `HashSet` of addresses whose
+/// updates cannot panic, so the policy's recovery only ever has to deal with a
+/// poison another thread's panic left behind.
+fn gc_thread_stop() -> MutexGuard<'static, Option<HashSet<usize>>> {
+    lock_recover(&GC_THREAD_STOP)
 }
 
 /// Ask the collector of the FTL at `key` to stop, C's
@@ -132,12 +133,6 @@ fn bits_to_bytes(bits: usize) -> usize {
     (bits / 64 + 1) * size_of::<u64>()
 }
 
-/// C's `malloc` plus the `memset(0)` the bus rwlock array gets. A null return
-/// is C's allocation failure.
-fn alloc_zeroed(bytes: usize) -> *mut c_void {
-    unsafe { libc::calloc(1, bytes) }
-}
-
 /// C's `page_ftl_alloc_bitmap` (`ftl/page/page-core.c:85`): a zeroed bitmap of
 /// `bits` bits, or `None` where C reports `-ENOMEM` through its out parameter.
 fn alloc_bitmap(bits: usize) -> Option<Vec<u64>> {
@@ -196,35 +191,6 @@ fn init_segment(pgftl: &mut PageFtl) -> c_int {
         );
     }
     pgftl.segments = segments;
-
-    0
-}
-
-/// C's `page_ftl_init_bus_lock` (`ftl/page/page-core.c:183`): one rwlock per
-/// bus.
-///
-/// The array lands in the FTL before the locks are initialized, so close
-/// reclaims it after a partial failure. It is zeroed, which makes the locks the
-/// error path destroys a valid initial state instead of C's uninitialized
-/// memory.
-fn init_bus_lock(pgftl: &mut PageFtl) -> c_int {
-    let nr_bus = pgftl.dev().info.nr_bus;
-
-    let bus_rwlock = alloc_zeroed(size_of::<pthread_rwlock_t>().saturating_mul(nr_bus))
-        as *mut pthread_rwlock_t;
-    if bus_rwlock.is_null() {
-        pr_err!("rwlock allocation failed");
-        return -libc::ENOMEM;
-    }
-    pgftl.bus_rwlock = bus_rwlock;
-
-    for bus in 0..nr_bus {
-        let err = unsafe { libc::pthread_rwlock_init(bus_rwlock.add(bus), ptr::null()) };
-        if err != 0 {
-            pr_err!("rwlock initialize failed");
-            return -err;
-        }
-    }
 
     0
 }
@@ -311,15 +277,29 @@ fn gc_thread_iteration(pgftl: &mut PageFtl, exit_requested: bool) -> bool {
     }
 }
 
+/// The FTL pointer the collector thread carries, as a `Send` handle.
+///
+/// A Rust thread's closure has to be `Send` and the [`PageFtl`] is not: it holds
+/// the device pointer and is reached from C through raw pointers. C passed the
+/// same pointer to `pthread_create` as a `void *` with no such bound. The
+/// safety argument is C's: the FTL stays alive and unmoved until the join in
+/// [`close`], and the collector touches nothing but it.
+struct GcThreadTarget(*mut PageFtl);
+
+// SAFETY: `open` spawns the thread over an FTL it holds alive until `close`
+// joins it, and `GcThreadTarget` is a plain pointer wrapper whose only
+// operation is to be moved into that thread.
+unsafe impl Send for GcThreadTarget {}
+
 /// C's `page_ftl_gc_thread` (`ftl/page/page-core.c:33`): sleep, then run one
 /// [`gc_thread_iteration`] until the exit flag is raised or a pass fails.
 ///
-/// `data` is the [`PageFtl`] that created the thread, which stays alive until
-/// the join in [`close`], the contract C's `pthread_create` call site relies
-/// on. The body dereferences it, so the function is only reachable through
-/// `pthread_create`.
-extern "C" fn gc_thread_main(data: *mut c_void) -> *mut c_void {
-    let pgftl = data as *mut PageFtl;
+/// The target is the [`PageFtl`] that spawned the thread, which stays alive
+/// until the join in [`close`], the contract C's `pthread_create` call site
+/// relies on. C's thread function took a `void *` argument and returned one,
+/// which a Rust thread function has no room for.
+fn gc_thread_main(target: GcThreadTarget) {
+    let pgftl = target.0;
     assert!(!pgftl.is_null(), "the garbage collector has no page FTL");
     assert!(
         !unsafe { (*pgftl).dev }.is_null(),
@@ -337,8 +317,6 @@ extern "C" fn gc_thread_main(data: *mut c_void) -> *mut c_void {
             break;
         }
     }
-
-    ptr::null_mut()
 }
 
 /// Save `pgftl`'s L2P table and the segment state to `path`.
@@ -654,6 +632,26 @@ fn save_checkpoint(pgftl: &mut PageFtl) {
     }
 }
 
+/// Drop the checkpoint file of `pgftl`, so the next `open` starts from C's
+/// empty mapping instead of loading the state a broken run left behind.
+///
+/// C has no recovery step at all (`ftl/page/page-core.c:238`), so an empty
+/// mapping is the closest match. The path is taken out of the FTL the way
+/// [`save_checkpoint`] takes it, which also keeps a later `save_checkpoint` on
+/// the same structure from writing one.
+fn discard_checkpoint(pgftl: &mut PageFtl) {
+    let Some(path) = pgftl.checkpoint.take() else {
+        return;
+    };
+    match std::fs::remove_file(&*path) {
+        Ok(()) => pr_warn!("checkpoint {} discarded, the next open starts empty", path),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            pr_debug!("checkpoint {} is already gone", path)
+        }
+        Err(err) => pr_warn!("checkpoint {} cannot be removed ({})", path, err),
+    }
+}
+
 /// C's `page_ftl_open` (`ftl/page/page-core.c:240`): bring an FTL up on the
 /// device its `dev` points at.
 ///
@@ -677,17 +675,6 @@ pub unsafe fn open(pgftl: &mut PageFtl, name: *const c_char, flags: c_int) -> c_
         pr_warn!("current version needs to O_CREAT flag");
     }
 
-    let mut err = unsafe { libc::pthread_mutex_init(&mut pgftl.mutex, ptr::null()) };
-    if err != 0 {
-        pr_err!("mutex initialize failed");
-        return open_failed(pgftl, -err);
-    }
-    err = unsafe { libc::pthread_mutex_init(&mut pgftl.gc_mutex, ptr::null()) };
-    if err != 0 {
-        pr_err!("gc_mutex initialize failed");
-        return open_failed(pgftl, -err);
-    }
-
     let dev = pgftl.dev;
     let Some(device_open) = (unsafe { (*dev).d_op.as_ref() }).and_then(|ops| ops.open) else {
         pr_err!("device open failed");
@@ -698,11 +685,7 @@ pub unsafe fn open(pgftl: &mut PageFtl, name: *const c_char, flags: c_int) -> c_
         return open_failed(pgftl, -libc::EINVAL);
     }
 
-    let mut err = init_bus_lock(pgftl);
-    if err != 0 {
-        return open_failed(pgftl, err);
-    }
-    err = init_map(pgftl);
+    let mut err = init_map(pgftl);
     if err != 0 {
         return open_failed(pgftl, err);
     }
@@ -722,19 +705,27 @@ pub unsafe fn open(pgftl: &mut PageFtl, name: *const c_char, flags: c_int) -> c_
     pgftl.o_flags = flags;
     load_checkpoint(pgftl, name);
 
-    clear_gc_stop(pgftl as *mut PageFtl as usize);
-    let status = unsafe {
-        libc::pthread_create(
-            &mut pgftl.gc_thread,
-            ptr::null(),
-            gc_thread_main,
-            pgftl as *mut PageFtl as *mut c_void,
-        )
+    let key = pgftl as *mut PageFtl as usize;
+    clear_gc_stop(key);
+    // C's `pthread_create`, with the target the collector dereferences. The
+    // spawn error's errno is C's `status` from `pthread_create`, which the open
+    // reports negated; `EAGAIN` is the fallback for an `io::Error` that carries
+    // none, which is the code a thread creation that runs out of resources
+    // produces.
+    let target = GcThreadTarget(pgftl);
+    let collector = std::thread::Builder::new()
+        // `Builder::name` takes a `String` on this toolchain.
+        .name("page-ftl-gc".to_string())
+        .spawn(move || gc_thread_main(target));
+    let collector = match collector {
+        Ok(handle) => handle,
+        Err(err) => {
+            pr_err!("garbage collection thread creation failed");
+            let errno = err.raw_os_error().unwrap_or(libc::EAGAIN);
+            return open_failed(pgftl, -errno);
+        }
     };
-    if status != 0 {
-        pr_err!("garbage collection thread creation failed");
-        return open_failed(pgftl, -status);
-    }
+    pgftl.gc_thread = Some(collector);
 
     pgftl.checkpoint = checkpoint_path(name);
 
@@ -751,6 +742,11 @@ fn open_failed(pgftl: &mut PageFtl, err: c_int) -> c_int {
 /// C's `page_ftl_close` (`ftl/page/page-core.c:414`): save the checkpoint,
 /// stop the GC thread, release every allocation and close the device.
 ///
+/// A collector that panicked left the mapping half updated, so this closes on
+/// an empty mapping instead: the join's panic is logged, the checkpoint is
+/// removed rather than saved, and the next `open` starts where C's always does,
+/// with nothing mapped.
+///
 /// Returns the device's result, and 0 when there is no device to close.
 ///
 /// # Safety
@@ -761,20 +757,25 @@ pub unsafe fn close(pgftl: &mut PageFtl) -> c_int {
     request_gc_stop(key);
 
     // C joins whatever `gc_thread` holds, including the zeroed field `open`
-    // left behind when it failed before creating the thread. The port joins
-    // only a thread it created, and clears the field so a second close cannot
-    // join twice.
-    if pgftl.gc_thread != 0 {
-        unsafe { libc::pthread_join(pgftl.gc_thread, ptr::null_mut()) };
-        pgftl.gc_thread = 0;
-    }
+    // left behind when it failed before creating the thread. The port joins a
+    // thread it spawned, and takes the handle out of the field so a second
+    // close cannot join twice, where C joins again.
+    let collector_panicked = match pgftl.gc_thread.take() {
+        Some(collector) => collector.join().is_err(),
+        None => false,
+    };
     clear_gc_stop(key);
 
-    save_checkpoint(pgftl);
-
-    unsafe {
-        libc::pthread_mutex_destroy(&mut pgftl.mutex);
-        libc::pthread_mutex_destroy(&mut pgftl.gc_mutex);
+    if collector_panicked {
+        // The panic is what makes the mapping untrustworthy: a pass that died
+        // mid way can leave a half updated `use_bits` bitmap, a free page count
+        // or the allocation cursor, and the checkpoint's own counters are what
+        // the next `open` would believe. C saves nothing and recovers nothing,
+        // so the file goes and the next open starts empty.
+        pr_err!("the garbage collection thread panicked, discarding the checkpoint");
+        discard_checkpoint(pgftl);
+    } else {
+        save_checkpoint(pgftl);
     }
 
     // C's `page_ftl_free_segments` and its four `free` calls
@@ -785,15 +786,6 @@ pub unsafe fn close(pgftl: &mut PageFtl) -> c_int {
     pgftl.trans_map = Vec::new();
     pgftl.gc_list = Vec::new();
     pgftl.gc_seg_bits = Vec::new();
-
-    if !pgftl.dev.is_null() && !pgftl.bus_rwlock.is_null() {
-        let nr_bus = unsafe { (*pgftl.dev).info.nr_bus };
-        for bus in 0..nr_bus {
-            unsafe { libc::pthread_rwlock_destroy(pgftl.bus_rwlock.add(bus)) };
-        }
-        unsafe { libc::free(pgftl.bus_rwlock as *mut c_void) };
-        pgftl.bus_rwlock = ptr::null_mut();
-    }
 
     if !pgftl.dev.is_null() && !unsafe { (*pgftl.dev).d_op }.is_null() {
         let dev = pgftl.dev;
@@ -990,20 +982,17 @@ mod tests {
             PADDR_EMPTY
         );
         assert!(!pgftl.segments.is_empty());
-        assert!(!pgftl.bus_rwlock.is_null());
         assert!(!pgftl.gc_seg_bits.is_empty());
         assert!(pgftl.gc_list.is_empty());
         assert_eq!(pgftl.alloc_segnum, 0);
         assert_eq!(pgftl.o_flags, FLAGS);
-        assert_ne!(pgftl.gc_thread, 0, "the GC thread is running");
+        assert!(pgftl.gc_thread.is_some(), "the GC thread is running");
         assert!(!gc_stop_requested(key));
 
-        // Both mutexes are initialized and unlocked.
-        assert_eq!(
-            unsafe { libc::pthread_mutex_trylock(&mut pgftl.mutex as *mut libc::pthread_mutex_t) },
-            0
-        );
-        unsafe { libc::pthread_mutex_unlock(&mut pgftl.mutex as *mut libc::pthread_mutex_t) };
+        // The FTL's lock is free: the open holds nothing. The collector takes
+        // it once a second, so this reads it in the same case the C test's
+        // `pthread_mutex_trylock` reads it.
+        assert!(pgftl.mutex.try_lock().is_ok());
 
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
 
@@ -1011,10 +1000,9 @@ mod tests {
         let pgftl = f.pgftl.as_mut();
         assert!(pgftl.trans_map.is_empty());
         assert!(pgftl.segments.is_empty());
-        assert!(pgftl.bus_rwlock.is_null());
         assert!(pgftl.gc_seg_bits.is_empty());
         assert!(pgftl.gc_list.is_empty());
-        assert_eq!(pgftl.gc_thread, 0);
+        assert!(pgftl.gc_thread.is_none());
 
         // The device is closed too: the ramdisk released its bitmap.
         assert!(unsafe { (*dev).badseg_bitmap }.is_null());
@@ -1030,7 +1018,7 @@ mod tests {
         assert_eq!(pgftl.o_flags, libc::O_RDWR);
         assert!(!pgftl.trans_map.is_empty());
         assert!(!pgftl.segments.is_empty());
-        assert_ne!(pgftl.gc_thread, 0);
+        assert!(pgftl.gc_thread.is_some());
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         assert!(f.pgftl.trans_map.is_empty());
     }
@@ -1058,10 +1046,81 @@ mod tests {
         // the key it set.
         assert_eq!(unsafe { close(&mut first.pgftl) }, 0);
         assert!(!gc_stop_requested(first_key));
-        assert_eq!(first.pgftl.gc_thread, 0);
+        assert!(first.pgftl.gc_thread.is_none());
         assert_eq!(unsafe { close(&mut second.pgftl) }, 0);
         assert!(!gc_stop_requested(second_key));
-        assert_eq!(second.pgftl.gc_thread, 0);
+        assert!(second.pgftl.gc_thread.is_none());
+    }
+
+    #[test]
+    fn a_panicking_collector_discards_the_checkpoint() {
+        // A pass that panics mid way can leave a half updated `use_bits` bitmap,
+        // free page count or allocation cursor, so the close that joins it must
+        // not persist that state: it removes the checkpoint instead, and the
+        // next open starts from C's empty mapping, which is the closest match
+        // for a C that never recovers anything (`ftl/page/page-core.c:238`).
+        let name = checkpoint_name("panicked-collector");
+        let name_c = std::ffi::CString::new(name.clone()).unwrap();
+        let file = format!("{name}.ckpt");
+
+        // A healthy checkpoint holding one mapped page, so there is state a
+        // lazy close could persist.
+        let mut mapping = empty_mapping();
+        mapping[0] = device_address::from_segment_page(0, 0).lpn;
+        let image = checkpoint_image(
+            NR_SEGMENTS as u64,
+            PAGES_PER_SEGMENT as u64,
+            0,
+            &mapping,
+            &[PAGES_PER_SEGMENT as u32 - 1, PAGES_PER_SEGMENT as u32],
+        );
+        std::fs::write(&file, &image).unwrap();
+
+        let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
+        assert_eq!(
+            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
+            0
+        );
+        assert_ne!(f.pgftl.trans_map[0], PADDR_EMPTY, "the mapping is loaded");
+
+        // The open's own collector is stopped and joined, and the handle left
+        // in its place is the one a pass that panicked leaves behind: `close`
+        // joins it and the join reports the panic.
+        let key = f.pgftl.as_ref() as *const PageFtl as usize;
+        request_gc_stop(key);
+        f.pgftl
+            .gc_thread
+            .take()
+            .expect("the open spawned the collector")
+            .join()
+            .expect("the collector stops cleanly");
+        clear_gc_stop(key);
+        f.pgftl.gc_thread = Some(
+            std::thread::Builder::new()
+                .name("broken-collector".to_string())
+                .spawn(|| panic!("the collector is broken"))
+                .expect("spawn the broken collector"),
+        );
+
+        assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
+        assert!(
+            !std::path::Path::new(&file).exists(),
+            "the panicked close removed the checkpoint"
+        );
+
+        // The next open finds no file, so the mapping is empty rather than the
+        // one the checkpoint held before the panic.
+        assert_eq!(
+            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
+            0
+        );
+        assert!(
+            f.pgftl.trans_map.iter().all(|&entry| entry == PADDR_EMPTY),
+            "the next open starts from an empty mapping"
+        );
+        assert!(f.pgftl.segments.iter().all(use_bits_clear));
+        assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]
@@ -1390,9 +1449,8 @@ mod tests {
         // The guards ran before anything was touched.
         assert!(f.pgftl.trans_map.is_empty());
         assert!(f.pgftl.segments.is_empty());
-        assert!(f.pgftl.bus_rwlock.is_null());
         assert!(f.pgftl.gc_seg_bits.is_empty());
-        assert_eq!(f.pgftl.gc_thread, 0);
+        assert!(f.pgftl.gc_thread.is_none());
     }
 
     #[test]
@@ -1415,9 +1473,8 @@ mod tests {
         assert_eq!(ret, -libc::EINVAL, "C maps every device failure to EINVAL");
         assert!(f.pgftl.trans_map.is_empty());
         assert!(f.pgftl.segments.is_empty());
-        assert!(f.pgftl.bus_rwlock.is_null());
         assert!(f.pgftl.gc_seg_bits.is_empty());
-        assert_eq!(f.pgftl.gc_thread, 0);
+        assert!(f.pgftl.gc_thread.is_none());
 
         // A device with no operations at all.
         let empty = crate::device::device_operations {
@@ -1435,7 +1492,7 @@ mod tests {
         assert_eq!(ret, -libc::EINVAL);
         assert!(f.pgftl.trans_map.is_empty());
         assert!(f.pgftl.segments.is_empty());
-        assert_eq!(f.pgftl.gc_thread, 0);
+        assert!(f.pgftl.gc_thread.is_none());
     }
 
     #[test]
@@ -1451,9 +1508,8 @@ mod tests {
         // The failed open released everything it had taken.
         assert!(f.pgftl.trans_map.is_empty());
         assert!(f.pgftl.segments.is_empty());
-        assert!(f.pgftl.bus_rwlock.is_null());
         assert!(f.pgftl.gc_seg_bits.is_empty());
-        assert_eq!(f.pgftl.gc_thread, 0);
+        assert!(f.pgftl.gc_thread.is_none());
     }
 
     #[test]
