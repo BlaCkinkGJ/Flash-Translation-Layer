@@ -51,8 +51,10 @@ unsafe fn reclaim_scratch(page_ptr: *mut u8, page_size: usize, read_rq: *mut dev
 /// second reference to the page FTL or to the caller's request.
 ///
 /// # Safety
-/// `read_rq` is a live request produced by [`read_page`], with a non-null
-/// `data` buffer of `data_len` bytes and the caller request in `rq_private`.
+/// `read_rq` is a live request produced by [`read_page`]: its `data` came from a
+/// `Vec<u8>` of `data_len` bytes that was forgotten, so its length equals its
+/// capacity, and `rq_private` holds the live caller request whose `data` points
+/// at its own `data_len` writable bytes and stays valid until this returns.
 unsafe extern "C" fn read_end_rq(read_rq: *mut device_request) {
     let request = (*read_rq).rq_private as *mut device_request;
 
@@ -130,8 +132,9 @@ pub fn read_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resul
     core::mem::forget(page);
 
     // The native API borrows the request, so a request reused across reads can
-    // still carry the previous completion. C frees the request on every call
-    // and can never observe a stale flag.
+    // still carry the previous completion. C frees the request on the zero fill
+    // and success paths and never sets the flag on its error paths, so it can
+    // never observe a stale one.
     unsafe {
         AtomicI32::from_ptr(ptr::addr_of_mut!(request.is_finish)).store(0, Ordering::SeqCst);
     }

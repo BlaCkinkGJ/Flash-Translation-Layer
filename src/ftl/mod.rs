@@ -57,9 +57,10 @@
 //!   read (`ftl/page/page-read.c:76-78`).
 //! - `page_read::read_page` clears the request's `is_finish` word before it
 //!   submits the read, so a request reused across calls cannot return early on
-//!   the previous completion's flag. C frees the request on every call
-//!   (`ftl/page/page-read.c:85`, `ftl/page/page-read.c:135`) and can never
-//!   observe a stale one.
+//!   the previous completion's flag. C frees the request on the zero fill and
+//!   success paths (`ftl/page/page-read.c:85`, `ftl/page/page-read.c:135`) and
+//!   never sets the flag on its error paths, so it can never observe a stale
+//!   one.
 //! - When `d_op->read` returns negative, C leaks the scratch page buffer and
 //!   the internal read request by nulling both locals before the cleanup label
 //!   (`ftl/page/page-read.c:121-127`). The Rust read path reclaims both.
