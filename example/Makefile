@@ -1,16 +1,15 @@
-.SUFFIXES : .c .cpp .o
-FTL_INCLUDE_PATH = /usr/local/include/ftl
-
-CXX = g++
-# `libftl.a` calls into `libftl_rust.a`, so an installed consumer links both.
-LIBS = -lftl -lftl_rust -lpthread
-CFLAGS = -I$(FTL_INCLUDE_PATH)
+# The example is an in-crate cargo target now, so it needs neither the
+# installed headers nor the installed archives. `cargo build` names the
+# manifest because this directory is not the crate root.
 TARGET = rw_example
+MANIFEST = ../Cargo.toml
+CARGO ?= cargo
 
-all: $(TARGET)
+.PHONY: all clean
 
-rw_example: rw_example.o
-	$(CXX) $(CFLAGS) -o $@ $^ $(LIBS)
+all:
+	$(CARGO) build --example $(TARGET) --manifest-path $(MANIFEST)
+	cp ../target/debug/examples/$(TARGET) $(TARGET)
 
 clean:
-	rm -rf $(TARGET) *.o
+	rm -rf $(TARGET)
