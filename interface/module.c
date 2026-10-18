@@ -20,9 +20,13 @@
  *
  * @note
  * You must follow the submodule index in the `module.h`
+ *
+ * Task 14 cutover: the Rust dispatch in `src/module.rs` owns this table. It
+ * points at the same `ffi_` entry point, so that deleting the `ftl/page` C
+ * sources leaves no caller behind here.
  */
 static int (*submodule_init[])(struct flash_device *, uint64_t) = {
-	/* [PAGE_FTL_MODULE] = */ page_ftl_module_init,
+	/* [PAGE_FTL_MODULE] = */ ffi_page_ftl_module_init,
 };
 
 /**
@@ -41,7 +45,7 @@ static int (*submodule_init[])(struct flash_device *, uint64_t) = {
 int module_init(const int modnum, struct flash_device **__flash, uint64_t flags)
 {
 	int err;
-	err = flash_module_init(__flash, flags);
+	err = ffi_flash_module_init(__flash, flags);
 	if (err) {
 		pr_err("flash initialize failed\n");
 		return err;
@@ -75,7 +79,7 @@ int module_exit(struct flash_device *flash)
 		pr_info("submodule deallocates success\n");
 	}
 
-	err = flash_module_exit(flash);
+	err = ffi_flash_module_exit(flash);
 	if (err) {
 		pr_err("flash resources free failed\n");
 		return err;

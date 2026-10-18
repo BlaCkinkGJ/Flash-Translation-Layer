@@ -14,6 +14,10 @@ struct device *dev;
 void setUp(void)
 {
 	int ret;
+	/*
+	 * The zone backend is still the C implementation, so drive it through the
+	 * C dispatch. Its Rust module is a stub until the hardware port lands.
+	 */
 	ret = device_module_init(ZONE_MODULE, &dev, 0);
 	TEST_ASSERT_EQUAL_INT(0, ret);
 }

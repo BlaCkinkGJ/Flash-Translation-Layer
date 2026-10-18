@@ -40,7 +40,7 @@ use crate::device::{device_address, device_request, DeviceDirection, PADDR_EMPTY
 use crate::ftl::page_gc::{do_gc, gc_from_list};
 use crate::ftl::page_read::read_page;
 use crate::ftl::page_write::write_page;
-use crate::ftl::{PageFtl, PageFtlSegment, PAGE_FTL_GC_RATIO, PAGE_FTL_GC_THRESHOLD};
+use crate::ftl::{PageFtl, PageFtlLock, PageFtlSegment, PAGE_FTL_GC_RATIO, PAGE_FTL_GC_THRESHOLD};
 use crate::list::{ffi_list_free, ffi_list_prepend};
 use crate::{pr_debug, pr_err, pr_warn};
 
@@ -377,7 +377,11 @@ extern "C" fn gc_thread_main(data: *mut c_void) -> *mut c_void {
     loop {
         std::thread::sleep(GC_THREAD_INTERVAL);
         let exit_requested = gc_stop_requested(pgftl as usize);
-        if !unsafe { gc_thread_iteration(&mut *pgftl, exit_requested) } {
+        // C's GC thread reaches the FTL through `page_ftl_gc_from_list`, which
+        // takes `pgftl->mutex` itself (`ftl/page/page-gc.c:259`, `:283`). The
+        // native path below owns the borrow instead, so the mutex is held here.
+        let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+        if !gc_thread_iteration(lock.get(), exit_requested) {
             break;
         }
     }
@@ -929,7 +933,8 @@ pub unsafe extern "C" fn ffi_page_ftl_submit_request(
         pr_err!("null detected");
         return -(libc::EINVAL as isize);
     }
-    match submit_request(&mut *pgftl, &mut *request) {
+    let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+    match submit_request(lock.get(), &mut *request) {
         Ok(ret) => ret,
         Err(err) => -(err.raw_os_error().unwrap_or(libc::EIO) as isize),
     }

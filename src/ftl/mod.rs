@@ -33,6 +33,17 @@
 //!   `layout_matches_c` asserts both the present and absent offsets.
 //! - The header's `static inline` helpers are safe methods here, not exported
 //!   C-ABI symbols. The C inlines stay live until the cutover.
+//! - C's `pgftl->mutex` and `pgftl->gc_mutex` become the `&mut PageFtl` borrow
+//!   everywhere inside the native layer, so the C ABI layer has to hold the
+//!   real mutex for that borrow to exclude a second caller. Every entry point
+//!   two C threads can reach takes [`PageFtlLock`] across the whole operation:
+//!   the three `page_interface` flash hooks, the `ffi_` mirrors of
+//!   `page_core::submit_request`, `page_read::read_page`,
+//!   `page_write::write_page`, `page_gc::do_gc`, `page_gc::gc_from_list`, and
+//!   the GC thread's iteration. C's regions are narrower, three small ones per
+//!   write (`ftl/page/page-write.c:187-189`, `:201-203`, `:226-228`), so a
+//!   Rust entry serializes the whole operation instead. `page_core::open` and
+//!   `page_core::close` create and destroy the mutex and hold nothing.
 //! - `nr_free_pages` and `nr_valid_pages` are `AtomicI32` fields. C reaches
 //!   them only through `__atomic_*` builtins, and `AtomicI32` has the same size
 //!   and alignment as `int`, so the offsets hold and Rust cannot touch them
@@ -289,6 +300,7 @@
 //!   handle, a handle with no table and a table with no operation report
 //!   `-EINVAL`, where C dereferences the first two and calls the third.
 
+use core::ptr;
 use core::sync::atomic::{AtomicI32, Ordering};
 
 use libc::{pthread_mutex_t, pthread_rwlock_t, pthread_t};
@@ -462,6 +474,48 @@ impl PageFtl {
             free_pages += segment.free_pages() as usize;
         }
         free_pages
+    }
+}
+
+/// C's `pthread_mutex_lock(&pgftl->mutex)` / `unlock`, as an RAII guard.
+///
+/// The native layer models `pgftl->mutex` as an exclusive `&mut PageFtl`
+/// borrow, so that borrow only excludes another thread if whoever takes it also
+/// holds the mutex. Every entry point two C threads can reach at the same time
+/// takes one of these before it borrows the FTL. Without it, two callers can
+/// borrow the same FTL at once and hand out the same free page, which is what
+/// C's lock in `page_ftl_get_free_page`'s callers prevents
+/// (`ftl/page/page-write.c:187-189`).
+///
+/// [`page_core::open`] and [`page_core::close`] are the exception: they create
+/// and destroy the mutex, so they cannot hold it. Neither can the operations
+/// [`page_core::open`] runs before the mutex exists, which is why
+/// [`page_core::segment_data_init`] takes its borrow directly.
+pub struct PageFtlLock<'a> {
+    pgftl: &'a mut PageFtl,
+}
+
+impl<'a> PageFtlLock<'a> {
+    /// Take the FTL's mutex and borrow the FTL behind it.
+    ///
+    /// # Safety
+    /// `pgftl` is a live, opened FTL whose `mutex` is initialized by
+    /// [`page_core::open`], and no other thread holds the mutex.
+    pub unsafe fn acquire(pgftl: *mut PageFtl) -> PageFtlLock<'a> {
+        libc::pthread_mutex_lock(ptr::addr_of_mut!((*pgftl).mutex));
+        PageFtlLock { pgftl: &mut *pgftl }
+    }
+
+    /// The FTL behind the lock.
+    pub fn get(&mut self) -> &mut PageFtl {
+        self.pgftl
+    }
+}
+
+impl Drop for PageFtlLock<'_> {
+    fn drop(&mut self) {
+        let mutex = ptr::addr_of_mut!(self.pgftl.mutex);
+        unsafe { libc::pthread_mutex_unlock(mutex) };
     }
 }
 

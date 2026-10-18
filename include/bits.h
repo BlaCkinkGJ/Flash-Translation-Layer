@@ -13,6 +13,31 @@
 	(((uint64_t)x / BITS_PER_UINT64 + 1) * sizeof(uint64_t))
 #define BITS_TO_UINT64(x) ((uint64_t)x / BITS_PER_UINT64)
 
+/*
+ * The bitmap helpers live in Rust (`src/bits.rs`) since the Task 14 cutover.
+ * They are header-only in C, so there is no C symbol to drop and no call site
+ * to rename: the helpers below are one-line forwards to the `ffi_` entry
+ * points. The names stay because the still compiled `device/ramdisk/ramdisk.c`,
+ * the `ftl/page` sources and `test/bits-test.c` call them, as do
+ * `device/bluedbm/bluedbm.c` and `device/raspberry/raspberry.c`, which the
+ * cutover does not touch.
+ */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void ffi_set_bit(uint64_t *bits, uint64_t index);
+int ffi_get_bit(const uint64_t *bits, uint64_t index);
+void ffi_reset_bit(uint64_t *bits, uint64_t index);
+uint64_t ffi_find_first_zero_bit(const uint64_t *bits, uint64_t size,
+				 uint64_t idx);
+uint64_t ffi_find_first_one_bit(const uint64_t *bits, uint64_t size,
+				uint64_t idx);
+
+#ifdef __cplusplus
+}
+#endif
+
 /**
  * @brief set the index position bit in the array(uint64_t)
  *
@@ -21,8 +46,7 @@
  */
 static inline void set_bit(uint64_t *bits, uint64_t index)
 {
-	bits[BITS_TO_UINT64(index)] |=
-		((uint64_t)0x1 << (index % BITS_PER_UINT64));
+	ffi_set_bit(bits, index);
 }
 
 /**
@@ -35,8 +59,7 @@ static inline void set_bit(uint64_t *bits, uint64_t index)
  */
 static inline int get_bit(uint64_t *bits, uint64_t index)
 {
-	return (bits[BITS_TO_UINT64(index)] &
-		((uint64_t)0x1 << (index % BITS_PER_UINT64))) > 0;
+	return ffi_get_bit(bits, index);
 }
 
 /**
@@ -47,8 +70,7 @@ static inline int get_bit(uint64_t *bits, uint64_t index)
  */
 static inline void reset_bit(uint64_t *bits, uint64_t index)
 {
-	bits[BITS_TO_UINT64(index)] &=
-		~((uint64_t)0x1 << (index % BITS_PER_UINT64));
+	ffi_reset_bit(bits, index);
 }
 
 /**
@@ -58,26 +80,12 @@ static inline void reset_bit(uint64_t *bits, uint64_t index)
  * @param size bitmap's size (the number of bits NOT bytes)
  * @param idx start position bit
  *
- * @return first zero bit position
+ * @return first zero bit position, BITS_NOT_FOUND when there is none
  */
 static inline uint64_t find_first_zero_bit(uint64_t *bits, uint64_t size,
 					   uint64_t idx)
 {
-	while (idx < size) {
-		uint64_t bucket = bits[BITS_TO_UINT64(idx)];
-		if (bucket < (uint64_t)UINT64_MAX) {
-			uint64_t diff = 0;
-			for (diff = 0; diff < BITS_PER_UINT64; diff++) {
-				if ((bucket & (uint64_t)((uint64_t)0x1
-							 << diff)) == 0x0) {
-					break;
-				}
-			}
-			return idx + diff;
-		}
-		idx += BITS_PER_UINT64;
-	}
-	return BITS_NOT_FOUND;
+	return ffi_find_first_zero_bit(bits, size, idx);
 }
 
 /**
@@ -87,26 +95,12 @@ static inline uint64_t find_first_zero_bit(uint64_t *bits, uint64_t size,
  * @param size bitmap's size (the number of bits NOT bytes)
  * @param idx start position bit
  *
- * @return first one bit position
+ * @return first one bit position, BITS_NOT_FOUND when there is none
  */
 static inline uint64_t find_first_one_bit(uint64_t *bits, uint64_t size,
 					  uint64_t idx)
 {
-	while (idx < size) {
-		uint64_t bucket = bits[BITS_TO_UINT64(idx)];
-		if (bucket > (uint64_t)0x0) {
-			uint64_t diff = 0;
-			for (diff = 0; diff < BITS_PER_UINT64; diff++) {
-				if ((bucket &
-				     (uint64_t)((uint64_t)0x1 << diff)) > 0) {
-					break;
-				}
-			}
-			return idx + diff;
-		}
-		idx += BITS_PER_UINT64;
-	}
-	return BITS_NOT_FOUND;
+	return ffi_find_first_one_bit(bits, size, idx);
 }
 
 #endif

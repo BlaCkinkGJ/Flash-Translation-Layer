@@ -13,14 +13,14 @@ struct device *dev;
 void setUp(void)
 {
 	int ret;
-	ret = device_module_init(RAMDISK_MODULE, &dev, 0);
+	ret = ffi_device_module_init(RAMDISK_MODULE, &dev, 0);
 	TEST_ASSERT_EQUAL_INT(0, ret);
 }
 
 void tearDown(void)
 {
 	TEST_ASSERT_NOT_NULL(dev);
-	device_module_exit(dev);
+	ffi_device_module_exit(dev);
 }
 
 void test_open_and_close(void)

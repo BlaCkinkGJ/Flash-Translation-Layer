@@ -181,13 +181,13 @@ int main(void)
 
 	memset(is_check, 0, sizeof(is_check));
 #if defined(DEVICE_USE_ZONED)
-	assert(0 == module_init(PAGE_FTL_MODULE, &flash, ZONE_MODULE));
+	assert(0 == ffi_module_init(PAGE_FTL_MODULE, &flash, ZONE_MODULE));
 #elif defined(DEVICE_USE_BLUEDBM)
-	assert(0 == module_init(PAGE_FTL_MODULE, &flash, BLUEDBM_MODULE));
+	assert(0 == ffi_module_init(PAGE_FTL_MODULE, &flash, BLUEDBM_MODULE));
 #elif defined(DEVICE_USE_RASPBERRY)
-	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RASPBERRY_MODULE));
+	assert(0 == ffi_module_init(PAGE_FTL_MODULE, &flash, RASPBERRY_MODULE));
 #else
-	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
+	assert(0 == ffi_module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
 #endif
 	assert(0 == flash->f_op->open(flash, DEVICE_PATH, O_CREAT | O_RDWR));
 	thread_id =
@@ -235,7 +235,7 @@ int main(void)
 	pthread_join(threads[5], (void **)&status);
 
 	flash->f_op->close(flash);
-	assert(0 == module_exit(flash));
+	assert(0 == ffi_module_exit(flash));
 
 	is_all_valid = 1;
 	for (i = 0; i < sizeof(is_check) / sizeof(int); i++) {

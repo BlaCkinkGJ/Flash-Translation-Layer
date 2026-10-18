@@ -200,6 +200,28 @@ ssize_t page_ftl_do_gc(struct page_ftl *);
 ssize_t page_ftl_gc_from_list(struct page_ftl *, struct device_request *,
 			      double gc_ratio);
 
+/*
+ * Task 14 cutover: the Rust port in `src/ftl/` is the live implementation. The
+ * C prototypes above stay only as long as the `ftl/page` C sources are still
+ * compiled.
+ */
+int ffi_page_ftl_open(struct page_ftl *, const char *name, int flags);
+int ffi_page_ftl_close(struct page_ftl *);
+
+ssize_t ffi_page_ftl_submit_request(struct page_ftl *,
+				    struct device_request *);
+ssize_t ffi_page_ftl_write(struct page_ftl *, struct device_request *);
+ssize_t ffi_page_ftl_read(struct page_ftl *, struct device_request *);
+
+int ffi_page_ftl_module_init(struct flash_device *, uint64_t flags);
+int ffi_page_ftl_module_exit(struct flash_device *);
+
+/* The internal step functions (get_free_page, update_map, segment_data_init,
+ * do_gc, gc_from_list) are not declared here: no C code calls them, and the
+ * opaque handle end state in Task 16b (#86) keeps this header to the entry
+ * points above. Their Rust symbols stay exported for the Rust tests.
+ */
+
 static inline size_t page_ftl_get_map_size(struct page_ftl *pgftl)
 {
 	struct device *dev = pgftl->dev;

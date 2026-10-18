@@ -97,6 +97,17 @@ int lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value);
 uintptr_t lru_get(struct lru_cache *cache, const uint64_t key);
 int lru_free(struct lru_cache *cache);
 
+/*
+ * Task 14 cutover: `src/lru.rs` is the live implementation and these are the
+ * entry points the callers use. The C prototypes above stay only as long as
+ * `util/lru.c` is still compiled, and go with it.
+ */
+struct lru_cache *ffi_lru_init(const size_t capacity,
+			       lru_dealloc_fn deallocate);
+int ffi_lru_put(struct lru_cache *cache, const uint64_t key, uintptr_t value);
+uintptr_t ffi_lru_get(struct lru_cache *cache, const uint64_t key);
+int ffi_lru_free(struct lru_cache *cache);
+
 /**
  * @brief get evict size of the LRU cache
  *

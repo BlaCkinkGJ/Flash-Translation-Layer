@@ -42,7 +42,7 @@ use crate::device::{
 use crate::ftl::page_core::{segment_data_init, submit_request};
 use crate::ftl::page_read::read_page;
 use crate::ftl::page_write::write_page;
-use crate::ftl::{PageFtl, PageFtlSegment};
+use crate::ftl::{PageFtl, PageFtlLock, PageFtlSegment};
 use crate::list::{ffi_list_remove, ffi_list_sort};
 use crate::{pr_debug, pr_err};
 
@@ -337,7 +337,8 @@ pub unsafe extern "C" fn ffi_page_ftl_do_gc(pgftl: *mut PageFtl) -> isize {
         return -(libc::EINVAL as isize);
     }
 
-    match do_gc(&mut *pgftl) {
+    let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+    match do_gc(lock.get()) {
         Ok(()) => 0,
         Err(err) => -(err.raw_os_error().unwrap_or(libc::EIO) as isize),
     }
@@ -361,7 +362,8 @@ pub unsafe extern "C" fn ffi_page_ftl_gc_from_list(
         return -(libc::EINVAL as isize);
     }
 
-    match gc_from_list(&mut *pgftl, &mut *request, gc_ratio) {
+    let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+    match gc_from_list(lock.get(), &mut *request, gc_ratio) {
         Ok(count) => count,
         Err(err) => -(err.raw_os_error().unwrap_or(libc::EIO) as isize),
     }
