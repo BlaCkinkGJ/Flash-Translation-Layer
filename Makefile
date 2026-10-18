@@ -1,4 +1,4 @@
-VPATH = device device/zone device/bluedbm device/raspberry interface unity/src test
+VPATH = device device/zone device/bluedbm device/raspberry unity/src test
 # You can generate the compile_commands.json file by using
 # `make clean -j$(nproc)`
 # `bear make all -j$(nproc)`
@@ -178,10 +178,10 @@ RUST_FEATURES += raspberry
 endif
 RUST_FEATURE_FLAG := $(if $(strip $(RUST_FEATURES)),--features '$(strip $(RUST_FEATURES))')
 
-# Task 16a: the FTL (`ftl/page/`), the generic helpers (`util/`) and the
-# ramdisk backend (`device/ramdisk/`) come from Rust only, so their C sources
-# are gone. The remaining C is the device module, its optional backends, and
-# the module and flash interface.
+# Task 16: the FTL (`ftl/page/`), the generic helpers (`util/`), the ramdisk
+# backend (`device/ramdisk/`) and the module and flash interfaces
+# (`interface/`) are Rust only, so their C sources are gone. The C left is the
+# device module and its optional backends, which is what `libftl.a` holds.
 ZONED_SRCS =
 BLUEDBM_SRCS =
 RASPBERRY_SRCS =
@@ -203,10 +203,7 @@ DEVICE_SRCS := $(BLUEDBM_SRCS) \
                $(RASPBERRY_SRCS) \
                device/*.c
 
-INTERFACE_SRCS := interface/*.c
-
-SRCS := $(DEVICE_SRCS) \
-        $(INTERFACE_SRCS)
+SRCS := $(DEVICE_SRCS)
 
 OBJS := $(patsubst %.c,%.o,$(sort $(wildcard $(SRCS))))
 

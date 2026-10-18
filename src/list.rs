@@ -1,13 +1,15 @@
-//! Doubly-linked list ported from `include/list.h` + `util/list.c`.
+//! Doubly-linked list ported from `include/list.h` and from `util/list.c`,
+//! deleted in Task 16a.
 //!
 //! The C ABI is preserved verbatim: `list_node_t` is `#[repr(C)]` with the
 //! same three pointers, nodes are heap-allocated by `ffi_list_prepend`, and
-//! released only by `ffi_list_remove` / `ffi_list_free`. C callers
-//! (`ftl/page/page-write.c`, `ftl/page/page-gc.c`) walk `->next` and read
-//! `->data` directly, so the node layout is part of the contract.
+//! released only by `ffi_list_remove` / `ffi_list_free`. `test/list-test.c`
+//! walks `->next` and reads `->data` directly, so the node layout is part of
+//! the contract.
 //!
-//! Symbols carry the `ffi_` prefix so they can coexist with `util/list.c`
-//! while both implementations are linked. The cutover is Task 14.
+//! Symbols carry the `ffi_` prefix because they are the C ABI this module
+//! exports. `include/list.h` keeps the struct, its layout assertions and these
+//! prototypes, which is all of the C surface left.
 //!
 //! Deliberate deviations from the C original:
 //!

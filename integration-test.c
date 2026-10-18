@@ -1,5 +1,5 @@
 /**
- * @file main.c
+ * @file integration-test.c
  * @brief main program for test the interface
  * @author Gijun Oh
  * @version 0.2

@@ -103,12 +103,13 @@ FLASH_STATIC_ASSERT(sizeof(struct flash_operations) == 5 * sizeof(void *),
 
 #undef FLASH_STATIC_ASSERT
 
-int flash_module_init(struct flash_device **, uint64_t flags);
-int flash_module_exit(struct flash_device *);
-
 /*
- * Task 14 cutover: `src/flash.rs` is the live implementation. The C prototypes
- * above stay only as long as `interface/flash.c` is still compiled.
+ * Task 16: `src/flash.rs` is the only implementation. `interface/flash.c` and
+ * its `flash_module_init` / `flash_module_exit` pair are gone, so a handle
+ * comes from here and goes back here, which keeps the free in
+ * `ffi_flash_module_exit` matched to the allocation. The assertions above still
+ * pin the layout C and Rust share through this header, which is what lets
+ * `f_op`, `f_private` and `f_submodule_exit` cross the boundary.
  */
 int ffi_flash_module_init(struct flash_device **, uint64_t flags);
 int ffi_flash_module_exit(struct flash_device *);

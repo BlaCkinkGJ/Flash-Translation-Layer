@@ -43,8 +43,8 @@ LIST_STATIC_ASSERT(sizeof(list_node_t) == 3 * sizeof(void *),
 
 /*
  * Task 16a: `util/list.c` is gone, so the `list_*` prototypes went with it.
- * Task 14 cutover: `src/list.rs` is the live implementation and these are the
- * entry points the callers use.
+ * `src/list.rs` is the only implementation now, and these are the entry points
+ * the callers use.
  */
 list_node_t *ffi_list_prepend(list_node_t *list, void *data);
 list_node_t *ffi_list_remove(list_node_t *list, void *data);

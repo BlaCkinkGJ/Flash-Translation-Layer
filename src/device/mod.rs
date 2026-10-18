@@ -17,14 +17,16 @@
 //! `non_camel_case_types`). Type aliases are camel-cased as in `src/lru.rs`.
 //!
 //! Two layers live here. The C ABI layer (the `#[repr(C)]` mirrors, the `ffi_*`
-//! entry points and the vtable) is what C calls until the cutover. The native
+//! entry points and the vtable) is what C calls. The native
 //! layer ([`device_address`] helpers, [`DeviceDirection`], [`Request`] and the
 //! accessors on [`device_request`] and [`device`]) is what Rust callers use, so
 //! the FTL port (Tasks 8-13) does not hand-roll raw pointers, `errno` or
 //! atomics.
 //!
-//! Symbols carry the `ffi_` prefix so they can coexist with `device/device.c`
-//! while both implementations are linked. The cutover is Task 14.
+//! Symbols carry the `ffi_` prefix because they are the C ABI this module
+//! exports. `device/device.c` is still compiled: its table installs the same
+//! Rust backends for the C pair (`device_module_init` / `device_module_exit`),
+//! which `test/zone-test.c` calls.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -41,8 +43,8 @@
 //! - `ffi_device_module_init` cannot fail with `-ENOMEM`: `Box` aborts on OOM,
 //!   as in `src/list.rs`.
 //! - Geometry lives on [`device`] as safe methods instead of the header's
-//!   `static inline`s. The C inlines stay until the cutover, so no C-ABI
-//!   symbol is exported for them yet.
+//!   `static inline`s. The C inlines in `include/device.h` stay, so no C-ABI
+//!   symbol is exported for them.
 //! - The bit counts and `DEVICE_PAGE_SIZE` are the default (ramdisk)
 //!   `DEVICE_INFO` from the Makefile. The non-default backends compile C with
 //!   different `-DDEVICE_NR_*_BITS` (zoned `3/3/5/21`, raspberry `1/1/4/24`
@@ -56,8 +58,7 @@
 //! - `ffi_device_module_init` dispatches through a backend table where the
 //!   ramdisk entry is wired (Task 6) and the three stub slots are wired behind
 //!   their Cargo features (Task 7). C's `device/device.c` keeps its own table
-//!   and stays the live path for C callers until the cutover, so nothing
-//!   regresses meanwhile.
+//!   for the C entry points, so both dispatchers stand on their own.
 
 pub mod ramdisk;
 
@@ -589,9 +590,8 @@ const RASPBERRY_INIT: Option<SubmoduleInitFn> = None;
 ///
 /// Task 6 wired the ramdisk entry and Task 7 wires the bluedbm / zone /
 /// raspberry stub slots, each enabled by its Cargo feature. C's
-/// `device/device.c` keeps its own table and stays the live path for C callers
-/// until the Task 14 cutover, so no C caller regresses while the Rust table is
-/// still being filled.
+/// `device/device.c` keeps its own table for `test/zone-test.c`, so the C entry
+/// point does not wait on this one.
 static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] = [
     Some(ramdisk::ffi_ramdisk_device_init),
     BLUEDBM_INIT,

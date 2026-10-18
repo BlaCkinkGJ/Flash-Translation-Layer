@@ -8,8 +8,9 @@
 //! both sides by `layout_matches_c` here and the `LRU_STATIC_ASSERT`s in
 //! `include/lru.h`.
 //!
-//! Symbols carry the `ffi_` prefix so they can coexist with `util/lru.c`
-//! while both implementations are linked. The cutover is Task 14.
+//! Symbols carry the `ffi_` prefix because they are the C ABI this module
+//! exports. `util/lru.c` is gone (Task 16a), and `include/lru.h` keeps the
+//! structs, their layout assertions and these prototypes.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -36,7 +37,8 @@
 //! - The eviction policy is C's, not a standard evict-one: a `put` into a full
 //!   cache evicts `capacity` entries, i.e. drains it. Pinned by
 //!   `eviction_drains_whole_cache_when_full`. The issue raised this as an open
-//!   question and the port keeps C behaviour so the cutover stays invisible.
+//!   question and the port keeps that behaviour rather than a standard
+//!   evict-one.
 
 use crate::{pr_debug, pr_err};
 use std::collections::HashMap;
@@ -63,8 +65,8 @@ pub struct lru_node {
 ///
 /// `index` sits after the C fields, so the C-visible prefix keeps its offsets
 /// while `sizeof(struct lru_cache)` no longer matches. C must therefore not
-/// size-allocate it. Only `util/lru.c`'s `malloc` ever did, and that dies
-/// with the C implementation at Task 14.
+/// size-allocate it. `util/lru.c`'s `malloc` was the only caller that did, and
+/// it went with the C source in Task 16a.
 ///
 /// The embedded `nil` is self-referential: never move an `lru_cache` by value
 /// after `ffi_lru_init`, or `head` / `nil.next` / `nil.prev` go stale.

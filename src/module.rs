@@ -1,6 +1,7 @@
-//! Module dispatch ported from `include/module.h` + `interface/module.c`.
+//! Module dispatch ported from `interface/module.c`, deleted in Task 16, and
+//! the `include/module.h` that still declares the C surface.
 //!
-//! `module_init` is the library's public entry point: it builds the flash
+//! [`ffi_module_init`] is the library's public entry point: it builds the flash
 //! handle, then hands it to the submodule selected by `modnum`. In this repo
 //! the flag word doubles as the device module number, because
 //! `page_ftl_module_init` reads the NAND backend out of `flags` (`RAMDISK_MODULE`
@@ -8,11 +9,11 @@
 //!
 //! The submodule table has C's single entry (`PAGE_FTL_MODULE = 0`), filled
 //! with `crate::ftl::page_interface::ffi_page_ftl_module_init`, the bridge
-//! ported from `ftl/page/page-interface.c`. C's `interface/module.c` keeps its
-//! own table and stays the live path for C callers until the Task 14 cutover.
+//! ported from `ftl/page/page-interface.c`. The C table went with
+//! `interface/module.c`, so this one is the only dispatcher left.
 //!
-//! Symbols carry the `ffi_` prefix so they can coexist with `interface/module.c`
-//! while both implementations are linked.
+//! Symbols carry the `ffi_` prefix because this module is the crate's C ABI
+//! surface.
 //!
 //! Deliberate deviations from the C original:
 //!
