@@ -597,8 +597,8 @@ mod tests {
         let err = write_at(&mut f, DEVICE_PAGE_SIZE - 4, &mut tail).unwrap_err();
         assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
 
-        // The last table slot is `entries - 1`, so both that slot and anything
-        // past it are rejected. C's `lpn > nr_entries` check
+        // The last valid slot is `entries - 1`, so `entries` and anything past
+        // it are rejected. C's `lpn > nr_entries` check
         // (`page-write.c:175-179`) lets the first of the two through, and the
         // out of range `trans_map` read that follows is what this guard
         // prevents.
