@@ -218,6 +218,16 @@ impl device_address {
     pub const fn block(&self) -> u32 {
         (self.lpn >> BLOCK_SHIFT) & BLOCK_MASK
     }
+
+    /// Page index inside the segment, the inverse of
+    /// [`Self::from_segment_page`].
+    ///
+    /// The low (bus + chip + page) bits are the segment-local page number that
+    /// `paddr.lpn |= page` builds in C's `page_ftl_get_free_page` and that a
+    /// segment's `use_bits` bitmap indexes.
+    pub const fn segment_page(&self) -> u32 {
+        self.lpn & ((1 << BLOCK_SHIFT) - 1)
+    }
 }
 
 impl From<u32> for device_address {

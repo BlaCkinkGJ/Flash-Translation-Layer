@@ -14,6 +14,7 @@
 //! the packed address keeps the segment in the high bits and the store is sized
 //! by the *default* page count.
 
+use core::ffi::{c_char, c_int};
 use core::ptr;
 use core::sync::atomic::{AtomicI32, Ordering};
 use std::io;
@@ -205,6 +206,145 @@ unsafe extern "C" fn failing_read(_dev: *mut device, _request: *mut device_reque
 /// and what keeps the request owned by the caller.
 unsafe extern "C" fn failing_erase(_dev: *mut device, _request: *mut device_request) -> i32 {
     -libc::EIO
+}
+
+/// Leaves the geometry the ramdisk's `open` installed alone, so
+/// [`CoreFixture`] keeps the narrowed geometry and the store the ramdisk
+/// already allocated while `page_ftl_open` runs.
+unsafe extern "C" fn keep_geometry_open(
+    _dev: *mut device,
+    _name: *const c_char,
+    _flags: c_int,
+) -> c_int {
+    0
+}
+
+/// Fails every device open with `EIO`, so a test can drive the FTL's open error
+/// path. The ramdisk has no failing case of its own.
+pub unsafe extern "C" fn failing_open(
+    _dev: *mut device,
+    _name: *const c_char,
+    _flags: c_int,
+) -> c_int {
+    -libc::EIO
+}
+
+/// A ramdisk device plus an unopened [`PageFtl`], for the `page_core`
+/// lifecycle tests.
+///
+/// [`Fixture`] builds the FTL's state by hand because the read, write and GC
+/// paths take it as input. `page_ftl_open` builds that state itself, so this
+/// fixture owns only the device and the zeroed structure, and the allocations
+/// the FTL makes belong to the lifecycle the test drives.
+pub struct CoreFixture {
+    pub dev: *mut device,
+    pub pgftl: Box<PageFtl>,
+    /// The operations installed for the fixture's life: the ramdisk's, with
+    /// [`keep_geometry_open`] in place of its `open`.
+    ops: Box<device_operations>,
+    /// The operations to restore on drop.
+    saved_ops: *const device_operations,
+}
+
+impl CoreFixture {
+    /// A ramdisk of `nr_segments` segments with `pages_per_segment` pages each,
+    /// and a zeroed page FTL pointing at it.
+    ///
+    /// The ramdisk's `open` installs the module's default geometry and
+    /// `page_ftl_open` calls it again, which would undo the narrowing below.
+    /// The fixture therefore installs [`keep_geometry_open`] before the FTL is
+    /// opened, so the narrowed geometry and the store the ramdisk already
+    /// allocated survive.
+    pub fn new(nr_segments: usize, pages_per_segment: usize) -> Self {
+        assert!(nr_segments > 0 && pages_per_segment > 0);
+
+        let mut dev: *mut device = ptr::null_mut();
+        unsafe {
+            assert_eq!(
+                ffi_device_module_init(DeviceModule::Ramdisk as u64, &mut dev, 0),
+                0
+            );
+            assert_eq!(
+                ffi_ramdisk_open(dev, ptr::null(), libc::O_CREAT | libc::O_RDWR),
+                0
+            );
+            (*dev).info.nr_bus = 1;
+            (*dev).info.nr_chips = 1;
+            (*dev).info.package.nr_blocks = nr_segments;
+            (*dev).info.package.block.nr_pages = pages_per_segment;
+        }
+
+        let mut pgftl =
+            Box::new(unsafe { core::mem::MaybeUninit::<PageFtl>::zeroed().assume_init() });
+        pgftl.dev = dev;
+
+        let saved_ops = unsafe { (*dev).d_op };
+        let real = unsafe { &*saved_ops };
+        let ops = Box::new(device_operations {
+            open: Some(keep_geometry_open),
+            write: real.write,
+            read: real.read,
+            erase: real.erase,
+            close: real.close,
+        });
+        unsafe { (*dev).d_op = &*ops };
+
+        CoreFixture {
+            dev,
+            pgftl,
+            ops,
+            saved_ops,
+        }
+    }
+
+    /// Install `ops` as the device's operations, run `body`, then restore the
+    /// fixture's own. `ops` must outlive the call.
+    ///
+    /// # Safety
+    /// The body must not leave a request in flight, and it must leave the
+    /// device in a state the fixture's teardown can release.
+    pub unsafe fn with_ops<T>(
+        &mut self,
+        ops: &device_operations,
+        body: impl FnOnce(&mut CoreFixture) -> T,
+    ) -> T {
+        let saved = (*self.dev).d_op;
+        (*self.dev).d_op = ops;
+        let ret = body(self);
+        (*self.dev).d_op = saved;
+        ret
+    }
+
+    /// Run `body` with the device's read operation failing, then restore.
+    ///
+    /// # Safety
+    /// The body must not leave a request in flight.
+    pub unsafe fn with_failing_read<T>(&mut self, body: impl FnOnce(&mut CoreFixture) -> T) -> T {
+        let real = &*self.ops;
+        let broken = device_operations {
+            open: real.open,
+            write: real.write,
+            read: Some(failing_read),
+            erase: real.erase,
+            close: real.close,
+        };
+        self.with_ops(&broken, body)
+    }
+}
+
+impl Drop for CoreFixture {
+    fn drop(&mut self) {
+        unsafe {
+            // A test that opened and did not close leaves the FTL's state to
+            // this teardown, which is also what releases the thread.
+            if !self.pgftl.trans_map.is_null() || !self.pgftl.segments.is_null() {
+                let _ = crate::ftl::page_core::close(&mut self.pgftl);
+            }
+            (*self.dev).d_op = self.saved_ops;
+            assert_eq!(ffi_ramdisk_close(self.dev), 0);
+            assert_eq!(ffi_device_module_exit(self.dev), 0);
+        }
+    }
 }
 
 impl Drop for Fixture {

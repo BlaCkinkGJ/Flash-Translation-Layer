@@ -17,9 +17,9 @@
 //!
 //! `page_ftl_get_free_page` and `page_ftl_update_map` from `ftl/page/page-map.c`
 //! live in [`page_map`], with `ffi_`-prefixed entry points so they can coexist
-//! with the still-linked C implementations until the cutover. The read, write
-//! and garbage collection paths live in [`page_read`], [`page_write`] and
-//! [`page_gc`] the same way.
+//! with the still-linked C implementations until the cutover. The read, write,
+//! garbage collection and core lifecycle paths live in [`page_read`],
+//! [`page_write`], [`page_gc`] and [`page_core`] the same way.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -121,11 +121,10 @@
 //!   (`ftl/page/page-gc.c:259-261`, `:283-290`). The exclusive borrow is what
 //!   keeps the copy's `read_page` / `write_page` calls from interleaving with
 //!   another writer, the same trade the read and write paths make.
-//! - C's `page_ftl_submit_request` serializes the GC loop's erase dispatch with
-//!   `pgftl->gc_mutex` (`ftl/page/page-core.c:360-369`). The private
-//!   `page_gc::submit_request` replaces that lock with the `&mut PageFtl`
-//!   borrow. It is a local mirror of the dispatch until the `page-core.c` port
-//!   (Task 12) owns the real one.
+//! - `page_core::submit_request` is C's `page_ftl_submit_request`
+//!   (`ftl/page/page-core.c:329`), the dispatch the GC loop and the interface
+//!   layer drive. It replaces C's `gc_mutex` hold around the erase case
+//!   (`:360-369`) with the `&mut PageFtl` borrow.
 //! - `page_gc::read_valid_page` returns an owned `Vec<u8>` and
 //!   `page_gc::write_valid_page` a `Result`, instead of C's buffer
 //!   out-parameter plus length return, so the page buffer and the request are
@@ -150,10 +149,11 @@
 //!   (`ftl/page/page-gc.c:97-101`). `page_gc::segment_erase` reclaims the
 //!   request there and reports `EIO` for a non-negative failure, keeping the
 //!   negated errno for a negative one.
-//! - `page_gc::segment_data_init` mirrors `page_ftl_segment_data_init`, the one
-//!   piece of `page-core.c` the reset step needs (`ftl/page/page-core.c:110`).
-//!   It returns `()`, because the C function returns 0 unconditionally, so the
-//!   error branch C checks at `ftl/page/page-gc.c:285-288` cannot be taken.
+//! - `page_core::segment_data_init` is C's `page_ftl_segment_data_init`
+//!   (`ftl/page/page-core.c:110`), which the GC reset step and the
+//!   checkpoint's rebuild both call. It returns `()`, because the C function
+//!   returns 0 unconditionally, so the error branch C checks at
+//!   `ftl/page/page-gc.c:285-288` cannot be taken.
 //! - `page_gc::gc_from_list` builds the segment count with Rust's saturating
 //!   float to `usize` cast, where C's cast of the same product is undefined for
 //!   a negative or out of range `gc_ratio` (`ftl/page/page-gc.c:310`). The
@@ -164,6 +164,69 @@
 //! - `page_gc::ffi_page_ftl_do_gc` and `page_gc::ffi_page_ftl_gc_from_list`
 //!   return `-EINVAL` for a `NULL` FTL or request, where C dereferences them
 //!   (`ftl/page/page-gc.c:260`, `:309-312`).
+//! - `page_core::submit_request` returns `-EINVAL` for a flag C does not define
+//!   without releasing C's `gc_mutex`, which C holds across the whole switch
+//!   (`ftl/page/page-core.c:338`, `:370-374`), so C's next dispatch blocks
+//!   forever. The port holds the borrow, not a lock.
+//! - `page_core::open` reports a failed `pthread_mutex_init`,
+//!   `pthread_rwlock_init` or `pthread_create` as the negated pthread code
+//!   (`ftl/page/page-core.c:197-200`, `:254-263`, `:303-307`). C returns
+//!   `errno` for the rwlock case, which is not the pthread result and is
+//!   usually 0, so C reports success after a failure, and it returns the
+//!   positive pthread code for the two mutex cases instead of a negated errno.
+//! - C tests `gc_thread_status < 0` after `pthread_create`
+//!   (`ftl/page/page-core.c:305`), but the call reports a positive error code,
+//!   so C ignores a collector that never started and reports a successful open.
+//!   The port fails the open with `-status`.
+//! - `page_core::open`'s error path runs `page_core::close`, which joins
+//!   `pgftl->gc_thread` (`ftl/page/page-core.c:423`) even when the open never
+//!   created the thread, so C joins its zeroed field. The port joins only a
+//!   non-zero thread id, and clears the field after the join so a second close
+//!   cannot join twice where C joins again.
+//! - The GC thread's exit request is keyed by FTL. C's is one
+//!   `static int is_gc_thread_exit` for the whole process
+//!   (`ftl/page/page-core.c:24`, `:302`, `:422`), so one FTL's close stops
+//!   every other FTL's collector, and an `open` that runs between another FTL's
+//!   close and the thread's next turn leaves that thread waiting for a request
+//!   that never comes.
+//! - `page_core::init_segment` saturates the `sizeof(segment) * nr_segments`
+//!   product (`ftl/page/page-core.c:142-146`), which C wraps, so an absurd
+//!   geometry reports `-ENOMEM` there instead of taking a short allocation the
+//!   loop then writes past.
+//! - The partial allocation paths reclaim what they took. C leaves the segment
+//!   array and the bitmaps already handed out unreachable when a later bitmap
+//!   fails, because `pgftl->segments` is only assigned after the loop
+//!   (`ftl/page/page-core.c:148-183`), and it destroys and frees an
+//!   uninitialized rwlock array on the error path (`:452-460`). The port
+//!   installs each array in the FTL before anything is handed out and zeroes
+//!   it, so `close` reclaims every allocation and sees zeroed locks.
+//! - `page_core::close` reports `-ENODEV` when the device has no `d_op` or no
+//!   `close` (`ftl/page/page-core.c:462-465`), where C calls through the
+//!   missing entry, and `page_core::open` reports `-EINVAL` for a device
+//!   without an `open` (`:267-272`), where C calls a `NULL` function pointer.
+//! - The core lifecycle's C-ABI entry points refuse a `NULL` FTL, device,
+//!   request or segment with `-EINVAL`, where C dereferences them and asserts
+//!   on the device (`ftl/page/page-core.c:252`). `ffi_page_ftl_close` keeps C's
+//!   0 for a `NULL` FTL (`:418-421`).
+//! - C's GC thread loop body is a block inside the loop
+//!   (`ftl/page/page-core.c:55-71`). The port splits it into
+//!   `page_core::gc_thread_iteration` and `page_core::gc_pass`, so a test can
+//!   drive one turn of the collector instead of racing the thread, and builds
+//!   the erase request per pass where C reuses one for the thread's life
+//!   (`:38-42`). `page_ftl_do_gc` never reads the request either way.
+//! - The thread's pause is `std::thread::sleep`. C asserts that `nanosleep`
+//!   returns 0 (`ftl/page/page-core.c:55`), so a signal that interrupts the
+//!   sleep aborts the process there, while the port resumes the pause.
+//! - The checkpoint is the port's own addition: C never persists the mapping
+//!   table and leaves recovery as a `@todo` (`ftl/page/page-core.c:238`).
+//!   `page_core::close` writes the L2P table, `alloc_segnum` and a CRC32 over
+//!   the entries to `<device name>.ckpt`, and `page_core::open` loads it back
+//!   and rebuilds the segment counters, the `use_bits` bits and the GC lists
+//!   from it. A missing, foreign, truncated or checksum-failing file leaves
+//!   C's empty mapping in place, an unreadable file is a warning, and a failed
+//!   write never turns a successful close into a failure. The path cannot ride
+//!   in `struct page_ftl`, whose layout is pinned, so it is keyed by FTL in a
+//!   static map that `close` clears.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -172,6 +235,7 @@ use libc::{pthread_mutex_t, pthread_rwlock_t, pthread_t};
 use crate::device::device;
 use crate::list::list_node_t;
 
+pub mod page_core;
 pub mod page_gc;
 pub mod page_map;
 pub mod page_read;
@@ -202,7 +266,9 @@ pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;
 /// One entry per segment (block). `use_bits` is a bitmap of `pages_per_segment`
 /// bits owned by the FTL, `lpn_list` links the valid pages for GC. Both are
 /// borrowed raw pointers here because C allocates and frees them: see
-/// `page_ftl_segment_data_init` in `ftl/page/page-core.c` (Task 9+).
+/// `page_ftl_segment_data_init` in `ftl/page/page-core.c`, now
+/// [`page_core::segment_data_init`], which frees the list and clears the
+/// bitmap.
 ///
 /// The two counters are `AtomicI32` because C reaches them only through
 /// `__atomic_load_n`, `__atomic_fetch_add`, `__atomic_fetch_sub` and

@@ -13,6 +13,11 @@
 //! the Task 14 cutover. C does not declare `page_ftl_gc_list_cmp` in a header,
 //! so its port stays private.
 //!
+//! The loop's request dispatch is
+//! [`crate::ftl::page_core::submit_request`], C's `page_ftl_submit_request`,
+//! which lives in `page-core.c`. The segment reset the erase step runs is
+//! [`crate::ftl::page_core::segment_data_init`] for the same reason.
+//!
 //! The flow is the C flow. The GC list is sorted by valid page count and its
 //! head taken, the victim's free page count is zeroed so the copy cannot
 //! allocate back into it, every LPN on the victim's list is read from its
@@ -34,10 +39,11 @@ use crate::device::{
     device_address, device_request, ffi_device_alloc_request, ffi_device_free_request,
     DeviceDirection, Request, DEVICE_DEFAULT_REQUEST,
 };
+use crate::ftl::page_core::{segment_data_init, submit_request};
 use crate::ftl::page_read::read_page;
 use crate::ftl::page_write::write_page;
 use crate::ftl::{PageFtl, PageFtlSegment};
-use crate::list::{ffi_list_free, ffi_list_remove, ffi_list_sort};
+use crate::list::{ffi_list_remove, ffi_list_sort};
 use crate::{pr_debug, pr_err};
 
 /// C's `page_ftl_gc_list_cmp`: order two segments by their valid page count,
@@ -86,34 +92,6 @@ fn pick_gc_target(pgftl: &mut PageFtl) -> Option<*mut PageFtlSegment> {
     pgftl.gc_list = unsafe { ffi_list_remove(pgftl.gc_list, segment as *mut c_void) };
     unsafe { (*segment).nr_free_pages.store(0, Ordering::SeqCst) };
     Some(segment)
-}
-
-/// C's `page_ftl_segment_data_init` (`ftl/page/page-core.c:110`): reset a
-/// segment to empty.
-///
-/// The free page count goes back to the segment's page count, the valid count
-/// and the `use_bits` bitmap are cleared, and the LPN list is freed. C clears
-/// `BITS_TO_UINT64_ALIGN(nr_pages_per_segment)` bytes, which is
-/// `nr_pages_per_segment / 64 + 1` `u64` words, the same expression
-/// `page_ftl_alloc_bitmap` allocates with.
-fn segment_data_init(pgftl: &PageFtl, segment: *mut PageFtlSegment) {
-    let pages_per_segment = pgftl.dev().pages_per_segment();
-
-    unsafe {
-        let segment = &mut *segment;
-        segment
-            .nr_free_pages
-            .store(pages_per_segment as i32, Ordering::SeqCst);
-        segment.nr_valid_pages.store(0, Ordering::SeqCst);
-
-        let words = pages_per_segment / 64 + 1;
-        slice::from_raw_parts_mut(segment.use_bits, words).fill(0);
-
-        if !segment.lpn_list.is_null() {
-            ffi_list_free(segment.lpn_list);
-            segment.lpn_list = core::ptr::null_mut();
-        }
-    }
 }
 
 /// C's `page_ftl_segment_erase`: hand an erase request for `paddr` to the
@@ -297,34 +275,13 @@ pub fn do_gc(pgftl: &mut PageFtl) -> io::Result<()> {
         return Err(err);
     }
 
-    segment_data_init(pgftl, segment);
+    unsafe { segment_data_init(pgftl, segment) };
     reset_bit(
         unsafe { slice::from_raw_parts_mut(pgftl.gc_seg_bits, segnum / 64 + 1) },
         segnum as u64,
     );
 
     Ok(())
-}
-
-/// C's `page_ftl_submit_request` (`ftl/page/page-core.c:329`), the dispatch the
-/// GC loop drives.
-///
-/// Returns C's `ssize_t`: 0 for an erase, the byte count the read or write path
-/// reports, or a negated errno. C's `gc_mutex`, which the erase case holds
-/// across `page_ftl_do_gc`, is the `&mut PageFtl` borrow here.
-///
-/// `page-core.rs` (Task 12) owns this function's home. It lives here until that
-/// module lands, because `gc_from_list` cannot run its loop without it.
-fn submit_request(pgftl: &mut PageFtl, request: &mut device_request) -> io::Result<isize> {
-    match DeviceDirection::from_flag(request.flag) {
-        Some(DeviceDirection::Write) => write_page(pgftl, request).map(|len| len as isize),
-        Some(DeviceDirection::Read) => read_page(pgftl, request).map(|len| len as isize),
-        Some(DeviceDirection::Erase) => do_gc(pgftl).map(|()| 0),
-        None => {
-            pr_err!("invalid flag detected: {}", request.flag);
-            Err(io::Error::from_raw_os_error(libc::EINVAL))
-        }
-    }
 }
 
 /// C's `page_ftl_gc_from_list`: garbage collect up to `gc_ratio * nr_segments`
