@@ -120,8 +120,7 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
 endif
 
 ifeq ($(USE_ZONE_DEVICE), 1)
-DEVICE_INFO += -DDEVICE_USE_ZONED \
-               -DPAGE_FTL_USE_GLOBAL_RWLOCK
+DEVICE_INFO += -DDEVICE_USE_ZONED
 endif
 
 ifeq ($(USE_BLUEDBM_DEVICE), 1)
@@ -161,11 +160,9 @@ RUST_LIB := $(RUST_LIB_DIR)/libftl_rust.a
 LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -L$(RUST_LIB_DIR) -lftl_rust
 
 # Cargo features mirroring the C build switches, so the Rust staticlib and the
-# C objects agree on which layout, backend list and log level are compiled in.
-# `page_ftl_global_rwlock` mirrors the zoned build's
-# -DPAGE_FTL_USE_GLOBAL_RWLOCK, and each backend feature mirrors the
-# USE_*_DEVICE switch that installs the same backend in C. Missing these makes
-# the Rust backend table silently disagree with C's.
+# C objects agree on which backend list and log level are compiled in. Each
+# backend feature mirrors the USE_*_DEVICE switch that installs the same backend
+# in C. Missing these makes the Rust backend table silently disagree with C's.
 RUST_FEATURES :=
 ifeq ($(USE_LOG_SILENT), 1)
 RUST_FEATURES += silent
@@ -174,7 +171,7 @@ ifeq ($(USE_BLUEDBM_DEVICE), 1)
 RUST_FEATURES += bluedbm
 endif
 ifeq ($(USE_ZONE_DEVICE), 1)
-RUST_FEATURES += zone page_ftl_global_rwlock
+RUST_FEATURES += zone
 endif
 ifeq ($(USE_RASPBERRY_DEVICE), 1)
 RUST_FEATURES += raspberry

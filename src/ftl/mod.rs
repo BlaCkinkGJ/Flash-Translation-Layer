@@ -19,21 +19,45 @@
 //!
 //! Deliberate deviations from the C original:
 //!
-//! - The `rwlock` field is behind the `page_ftl_global_rwlock` cargo feature,
-//!   mirroring C's `PAGE_FTL_USE_GLOBAL_RWLOCK` (the Makefile sets it for the
-//!   non-default `USE_ZONE_DEVICE` build). Nothing in Rust reads the field, and
-//!   issue #88 owns both switches.
-//! - C's `pgftl->mutex` and `pgftl->gc_mutex` become the `&mut PageFtl` borrow
-//!   everywhere inside the native layer, so an entry point has to hold the real
-//!   mutex for that borrow to exclude a second caller. Every entry point two C
-//!   threads can reach takes [`PageFtlLock`] across the whole operation: the
-//!   three `page_interface` flash hooks and the `ffi_` entry points of
-//!   `page_core::submit_request`, `page_read::read_page`,
+//! - Both rwlocks are gone. C's `pgftl->rwlock` and its
+//!   `PAGE_FTL_USE_GLOBAL_RWLOCK` switch (which the Makefile set for the
+//!   `USE_ZONE_DEVICE` build) made `page_ftl_submit_request` take one lock for
+//!   the whole device, a writer for a write or an erase and a reader for a
+//!   read, on top of the mutex rather than instead of it
+//!   (`ftl/page/page-core.c:341-367`). The port's dispatch already holds one
+//!   exclusive borrow of the FTL for the whole operation, so that lock had no
+//!   reader concurrency left to hand out and nothing read the field. C's
+//!   per-bus array goes with it: `pgftl->bus_rwlock` and
+//!   `page_ftl_init_bus_lock` (`ftl/page/page-core.c:183-205`) built one lock
+//!   per bus and `page_ftl_close` released them, and no caller in C ever locked
+//!   one either, so a `Vec` of locks nothing takes would imply a per-bus
+//!   serialization that does not exist. The `Mutex<()>` below is the port's
+//!   only lock, and it is what serializes every entry point.
+//! - C's `pgftl->mutex` becomes the `Mutex<()>` field [`PageFtlLock`] takes,
+//!   and C's `pgftl->gc_mutex` is dropped: both become the `&mut PageFtl`
+//!   borrow everywhere inside the native layer, so an entry point has to hold
+//!   the real mutex for that borrow to exclude a second caller. Every entry
+//!   point two C threads can reach takes [`PageFtlLock`] across the whole
+//!   operation: the three `page_interface` flash hooks and the `ffi_` entry
+//!   points of `page_core::submit_request`, `page_read::read_page`,
 //!   `page_write::write_page`, `page_gc::do_gc`, `page_gc::gc_from_list`, plus
 //!   the GC thread's iteration. C's regions are narrower, three small ones per
 //!   write (`ftl/page/page-write.c:187-189`, `:201-203`, `:226-228`), so a
 //!   Rust entry serializes the whole operation instead. `page_core::open` and
-//!   `page_core::close` create and destroy the mutex and hold nothing.
+//!   `page_core::close` hold nothing: the `Mutex` is built with the structure
+//!   and needs no init or destroy call, where C ran `pthread_mutex_init` in
+//!   `open` and `pthread_mutex_destroy` in `close`. `gc_mutex` guarded the
+//!   dispatch switch (`ftl/page/page-core.c:338`), which the borrow of
+//!   `page_core::submit_request` covers, so a second lock would guard nothing.
+//! - The lock policy is to recover a poisoned guard. Every lock site goes
+//!   through `lock_recover`, which logs and takes the guarded state back,
+//!   because C has no poisoning concept: a thread that died mid operation left
+//!   the mutex free and the next caller carried on. The alternative would turn
+//!   one panic into a panic in every later caller. What can poison a lock here
+//!   is the collector, which is a Rust thread, so `page_core::close` logs the
+//!   panic its join reports and discards the checkpoint, and the next `open`
+//!   starts from an empty mapping rather than from state a panicked pass may
+//!   have torn.
 //! - `nr_free_pages` and `nr_valid_pages` are `AtomicI32` fields, because the
 //!   GC thread and the callers' threads both reach them. C touched them through
 //!   `__atomic_*` builtins. `is_gc` existed only to hold `use_bits` at C's
@@ -170,21 +194,39 @@
 //!   without releasing C's `gc_mutex`, which C holds across the whole switch
 //!   (`ftl/page/page-core.c:338`, `:370-374`), so C's next dispatch blocks
 //!   forever. The port holds the borrow, not a lock.
-//! - `page_core::open` reports a failed `pthread_mutex_init`,
-//!   `pthread_rwlock_init` or `pthread_create` as the negated pthread code
-//!   (`ftl/page/page-core.c:197-200`, `:254-263`, `:303-307`). C returns
-//!   `errno` for the rwlock case, which is not the pthread result and is
-//!   usually 0, so C reports success after a failure, and it returns the
-//!   positive pthread code for the two mutex cases instead of a negated errno.
+//! - `page_core::open` has no lock failure to report any more. C's two
+//!   `pthread_mutex_init` calls, the bus array's `malloc` and its
+//!   `pthread_rwlock_init` could fail (`ftl/page/page-core.c:189-200`,
+//!   `:254-263`), and C reports those with a mixture of negated errno and
+//!   positive pthread code, plus `errno` for the array's rwlock case, which is
+//!   not the pthread result and is usually 0, so C reports success after a
+//!   failure. `Mutex::new` cannot fail and the array is gone. What is left is
+//!   the collector's thread creation: the port spawns it with
+//!   `std::thread::Builder::spawn` and reports a failure as the negated
+//!   `io::Error` errno, C's `-status` from `pthread_create` (`:303-307`).
 //! - C tests `gc_thread_status < 0` after `pthread_create`
 //!   (`ftl/page/page-core.c:305`), but the call reports a positive error code,
 //!   so C ignores a collector that never started and reports a successful open.
-//!   The port fails the open with `-status`.
+//!   The port fails the open on a spawn error.
+//! - The collector is a `std::thread` and `pgftl->gc_thread` is its
+//!   `Option<JoinHandle<()>>`, so `open` spawns it and `close` joins it where C
+//!   called `pthread_create` and `pthread_join` on a `pthread_t`. The handle
+//!   reaches the thread through a `Send` wrapper over the FTL pointer, because
+//!   a Rust thread's closure must be `Send` and C's `void *` argument had no
+//!   such bound. A collector that panics poisons the FTL's lock and the join
+//!   reports it, and the port then treats the mapping as untrustworthy: a pass
+//!   that died mid way can leave a half updated `use_bits` bitmap, free page
+//!   count or allocation cursor, and the checkpoint's own counters are what the
+//!   next `open` would believe. `close` logs the panic, removes the checkpoint
+//!   instead of writing one, and still closes the device. C has no thread
+//!   result and no recovery step at all, so an empty mapping is the closest
+//!   match: the next `open` finds no file and starts unmapped
+//!   (`ftl/page/page-core.c:238`).
 //! - `page_core::open`'s error path runs `page_core::close`, which joins
 //!   `pgftl->gc_thread` (`ftl/page/page-core.c:423`) even when the open never
 //!   created the thread, so C joins its zeroed field. The port joins only a
-//!   non-zero thread id, and clears the field after the join so a second close
-//!   cannot join twice where C joins again.
+//!   handle it holds, and takes it out of the field so a second close cannot
+//!   join twice where C joins again.
 //! - The GC thread's exit request is keyed by FTL. C's is one
 //!   `static int is_gc_thread_exit` for the whole process
 //!   (`ftl/page/page-core.c:24`, `:302`, `:422`), so one FTL's close stops
@@ -202,11 +244,11 @@
 //! - The partial allocation paths reclaim what they took. C leaves the segment
 //!   array and the bitmaps already handed out unreachable when a later bitmap
 //!   fails, because `pgftl->segments` is only assigned after the loop
-//!   (`ftl/page/page-core.c:148-183`), and it destroys and frees an
-//!   uninitialized rwlock array on the error path (`:452-460`). The segment
-//!   array, its bitmaps and the L2P table are owned here, so a failed `open`
-//!   drops them with the local the loop was filling, and the rwlock array is
-//!   zeroed before `close` sees it.
+//!   (`ftl/page/page-core.c:148-183`), and its `close` destroys and frees the
+//!   bus rwlock array on the error path (`:452-460`) even when the open failed
+//!   before that array was initialized. The segment array, its bitmaps and the
+//!   L2P table are owned here, so a failed `open` drops them with the local the
+//!   loop was filling, and there is no lock array left to release.
 //! - `page_core::close` reports `-ENODEV` when the device has no `d_op` or no
 //!   `close` (`ftl/page/page-core.c:462-465`), where C calls through the
 //!   missing entry, and `page_core::open` reports `-EINVAL` for a device
@@ -305,13 +347,13 @@
 //!   spins on the current offset forever (`integration-test.c:60-65`), so a
 //!   lost block fails the suite instead of hanging the CI job.
 
-use core::mem::MaybeUninit;
 use core::ptr;
 use core::sync::atomic::{AtomicI32, Ordering};
-
-use libc::{pthread_mutex_t, pthread_rwlock_t, pthread_t};
+use std::sync::{Mutex, MutexGuard};
+use std::thread::JoinHandle;
 
 use crate::device::device;
+use crate::pr_warn;
 
 pub mod page_core;
 pub mod page_gc;
@@ -399,26 +441,25 @@ impl PageFtlSegment {
 /// queued. All four are owned here, where C allocated them with `malloc` and
 /// freed them in `page_ftl_close` ([`page_core::close`]).
 ///
-/// The `pthread_*` fields and `o_flags` are still C's: the two mutexes are what
-/// [`PageFtlLock`] takes, `gc_thread` is the id [`page_core::close`] joins, and
-/// `bus_rwlock` is the per-bus lock array. Issue #88 replaces them.
+/// The synchronization is Rust's: `mutex` is the lock [`PageFtlLock`] takes and
+/// `gc_thread` is the collector's [`JoinHandle`]. See the deviations in
+/// [`crate::ftl`] for what happened to C's `gc_mutex` and to its two rwlocks.
 ///
-/// `checkpoint` is the file [`page_core::close`] writes the mapping to, set by
-/// [`page_core::open`] from the name it was handed. C had no room for it: its
-/// layout was pinned, so the path lived in a table keyed by the FTL address.
+/// `checkpoint` is the port's own: C never persists the mapping, so it had no
+/// field for a path, and its layout was pinned anyway, so the path would have
+/// lived in a table keyed by the FTL address.
 pub struct PageFtl {
     pub trans_map: Vec<u32>,
     pub alloc_segnum: u64,
     pub segments: Vec<PageFtlSegment>,
     pub dev: *mut device,
-    pub mutex: pthread_mutex_t,
-    pub gc_mutex: pthread_mutex_t,
-    pub bus_rwlock: *mut pthread_rwlock_t,
-    /// Present only under C's `-DPAGE_FTL_USE_GLOBAL_RWLOCK`, which the
-    /// `page_ftl_global_rwlock` cargo feature mirrors. Nothing reads it.
-    #[cfg(feature = "page_ftl_global_rwlock")]
-    pub rwlock: pthread_rwlock_t,
-    pub gc_thread: pthread_t,
+    /// C's `pgftl->mutex`, the lock every entry point takes through
+    /// [`PageFtlLock`].
+    pub mutex: Mutex<()>,
+    /// C's `pgftl->gc_thread`, as the handle [`page_core::close`] joins.
+    /// `None` outside an open and close pair: `page_core::open` spawns the
+    /// collector and `page_core::close` takes the handle back out.
+    pub gc_thread: Option<JoinHandle<()>>,
     pub o_flags: core::ffi::c_int,
     pub gc_list: Vec<usize>,
     pub gc_seg_bits: Vec<u64>,
@@ -432,26 +473,17 @@ pub struct PageFtl {
 
 impl PageFtl {
     /// An FTL with no buffers, no device and no lock held: C's `memset(0)` of
-    /// `struct page_ftl`, with the empty buffers Rust needs where C had `NULL`
-    /// pointers. [`page_core::open`] and the test fixtures build from here.
+    /// `struct page_ftl`, with the empty buffers and the lock Rust needs where C
+    /// had `NULL` pointers and an uninitialized `pthread_mutex_t`.
+    /// [`page_core::open`] and the test fixtures build from here.
     pub fn empty() -> PageFtl {
         PageFtl {
             trans_map: Vec::new(),
             alloc_segnum: 0,
             segments: Vec::new(),
             dev: ptr::null_mut(),
-            // SAFETY: zeroed bytes are a valid `pthread_mutex_t`, C's state
-            // before `pthread_mutex_init`.
-            mutex: unsafe { MaybeUninit::<pthread_mutex_t>::zeroed().assume_init() },
-            // SAFETY: zeroed bytes are a valid `pthread_mutex_t`, C's state
-            // before `pthread_mutex_init`.
-            gc_mutex: unsafe { MaybeUninit::<pthread_mutex_t>::zeroed().assume_init() },
-            bus_rwlock: ptr::null_mut(),
-            // SAFETY: zeroed bytes are a valid `pthread_rwlock_t`, C's state
-            // before `pthread_rwlock_init`.
-            #[cfg(feature = "page_ftl_global_rwlock")]
-            rwlock: unsafe { MaybeUninit::<pthread_rwlock_t>::zeroed().assume_init() },
-            gc_thread: 0,
+            mutex: Mutex::new(()),
+            gc_thread: None,
             o_flags: 0,
             gc_list: Vec::new(),
             gc_seg_bits: Vec::new(),
@@ -498,6 +530,33 @@ impl PageFtl {
     }
 }
 
+/// Take `mutex`, recovering a guard a panicking thread poisoned.
+///
+/// This is the crate's lock policy, and every lock site goes through it: the
+/// FTL's own lock in [`PageFtlLock`] and the collector's stop set in
+/// `page_core`. C has no poisoning concept, so a thread that died mid operation
+/// left the mutex free and the next caller carried on. The port keeps that
+/// behaviour rather than turning one panic into a panic in every later caller:
+/// a poisoned guard is logged and recovered, and the mapping a panicked pass
+/// may have torn is dropped with its checkpoint by `page_core::close`, so the
+/// next `open` starts from an empty mapping instead of from state nothing can
+/// vouch for.
+///
+/// A panic inside a guarded operation cannot reach the caller anyway when it
+/// unwinds through an `extern "C"` entry point, which aborts. What this covers
+/// is the collector: it is a Rust thread like any other, so a panic there
+/// poisons the lock of a process that keeps running. `page_core::close` logs
+/// that thread's result on the join and discards its checkpoint.
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            pr_warn!("a page FTL lock was poisoned by a panicking thread");
+            poisoned.into_inner()
+        }
+    }
+}
+
 /// C's `pthread_mutex_lock(&pgftl->mutex)` / `unlock`, as an RAII guard.
 ///
 /// The native layer models `pgftl->mutex` as an exclusive `&mut PageFtl`
@@ -508,11 +567,16 @@ impl PageFtl {
 /// C's lock in `page_ftl_get_free_page`'s callers prevents
 /// (`ftl/page/page-write.c:187-189`).
 ///
-/// [`page_core::open`] and [`page_core::close`] are the exception: they create
-/// and destroy the mutex, so they cannot hold it. Neither can the operations
-/// [`page_core::open`] runs before the mutex exists, which is why
-/// [`page_core::segment_data_init`] takes its borrow directly.
+/// [`page_core::open`] and [`page_core::close`] are the exception: they
+/// establish and end the lifecycle the lock belongs to, so they hold nothing.
+/// Neither can the operations [`page_core::open`] runs before the collector
+/// exists (`page_core::segment_data_init`, `page_core::checkpoint_load`), which
+/// is why they take their borrow directly.
+///
+/// The guard is what releases the mutex, so it is held for the lock's whole
+/// life even though nothing reads it.
 pub struct PageFtlLock<'a> {
+    _guard: MutexGuard<'a, ()>,
     pgftl: &'a mut PageFtl,
 }
 
@@ -520,23 +584,18 @@ impl<'a> PageFtlLock<'a> {
     /// Take the FTL's mutex and borrow the FTL behind it.
     ///
     /// # Safety
-    /// `pgftl` is a live, opened FTL whose `mutex` is initialized by
-    /// [`page_core::open`], and no other thread holds the mutex.
+    /// `pgftl` is a live, opened FTL that no other thread holds the mutex of,
+    /// and it stays alive and unmoved until the lock is dropped.
     pub unsafe fn acquire(pgftl: *mut PageFtl) -> PageFtlLock<'a> {
-        libc::pthread_mutex_lock(ptr::addr_of_mut!((*pgftl).mutex));
-        PageFtlLock { pgftl: &mut *pgftl }
+        PageFtlLock {
+            _guard: lock_recover(&(*pgftl).mutex),
+            pgftl: &mut *pgftl,
+        }
     }
 
     /// The FTL behind the lock.
     pub fn get(&mut self) -> &mut PageFtl {
         self.pgftl
-    }
-}
-
-impl Drop for PageFtlLock<'_> {
-    fn drop(&mut self) {
-        let mutex = ptr::addr_of_mut!(self.pgftl.mutex);
-        unsafe { libc::pthread_mutex_unlock(mutex) };
     }
 }
 
