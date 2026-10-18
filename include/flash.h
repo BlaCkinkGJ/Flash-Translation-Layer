@@ -101,6 +101,8 @@ FLASH_STATIC_ASSERT(offsetof(struct flash_operations, close) ==
 FLASH_STATIC_ASSERT(sizeof(struct flash_operations) == 5 * sizeof(void *),
 		    "flash_operations must be five pointers, no padding");
 
+#undef FLASH_STATIC_ASSERT
+
 int flash_module_init(struct flash_device **, uint64_t flags);
 int flash_module_exit(struct flash_device *);
 

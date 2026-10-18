@@ -21,8 +21,10 @@
 //!   unchecked, so it reads a pointer off the table.
 //! - A module number with no submodule returns `-ENODEV`. C calls the `NULL`
 //!   entry.
-//! - A `NULL` flash output pointer returns `-EINVAL` and a `NULL` flash handle
-//!   to [`ffi_module_exit`] returns `-EINVAL`. C dereferences both.
+//! - A `NULL` flash output pointer returns `-EINVAL`. C dereferences it.
+//!   A `NULL` flash handle to [`ffi_module_exit`] is a logged no-op returning
+//!   `0`, as [`crate::flash::ffi_flash_module_exit`] and C's
+//!   `flash_module_exit` do. C's `module_exit` dereferences it.
 //! - A failing submodule init releases the flash handle and clears the output
 //!   pointer. C returns the error and leaks the handle.
 //! - The `modnum` range check happens before the flash handle is allocated, so
@@ -125,15 +127,17 @@ pub unsafe extern "C" fn ffi_module_init(
 /// Free the module's resources, mirroring C's `module_exit`.
 ///
 /// The submodule teardown runs first and a failure there stops the sequence, so
-/// the caller keeps a usable flash handle to retry with, exactly as in C.
+/// the caller keeps a usable flash handle to retry with, exactly as in C. A
+/// `NULL` handle is a logged no-op that returns `0`, as [`ffi_flash_module_exit`]
+/// and `ffi_device_module_exit` do. C dereferences it.
 ///
 /// # Safety
-/// `flash` came from [`ffi_module_init`].
+/// `flash` is `NULL` or came from [`ffi_module_init`].
 #[no_mangle]
 pub unsafe extern "C" fn ffi_module_exit(flash: *mut flash_device) -> c_int {
     if flash.is_null() {
         pr_err!("flash pointer is NULL");
-        return -libc::EINVAL;
+        return 0;
     }
 
     if let Some(submodule_exit) = (*flash).f_submodule_exit {
@@ -159,105 +163,102 @@ pub unsafe extern "C" fn ffi_module_exit(flash: *mut flash_device) -> c_int {
 mod tests {
     use super::*;
     use core::ptr;
-    use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+    use core::sync::atomic::{AtomicUsize, Ordering};
 
     const MARKER: usize = 0x5a5a;
 
-    static INIT_SEEN: AtomicPtr<flash_device> = AtomicPtr::new(ptr::null_mut());
-    static INIT_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static EXIT_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static INIT_ERROR: AtomicUsize = AtomicUsize::new(0);
-    static EXIT_ERROR: AtomicUsize = AtomicUsize::new(0);
-
-    /// The mock submodule reports through process wide counters and error
-    /// slots, so the tests that drive it run one at a time.
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn lock() -> std::sync::MutexGuard<'static, ()> {
-        TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    /// Per test mock state. Each test below takes its own slot, so the parallel
+    /// test harness cannot let one test observe another one's calls or errors.
+    struct Mock {
+        calls: AtomicUsize,
+        exits: AtomicUsize,
+        init_error: AtomicUsize,
+        exit_error: AtomicUsize,
     }
 
-    /// Clear the mocks. The guard keeps the tests that share these counters
-    /// from running at the same time, so hold it for the whole test.
-    fn reset() -> std::sync::MutexGuard<'static, ()> {
-        let guard = lock();
-        INIT_SEEN.store(ptr::null_mut(), Ordering::SeqCst);
-        INIT_CALLS.store(0, Ordering::SeqCst);
-        EXIT_CALLS.store(0, Ordering::SeqCst);
-        INIT_ERROR.store(0, Ordering::SeqCst);
-        EXIT_ERROR.store(0, Ordering::SeqCst);
-        guard
+    impl Mock {
+        const fn new() -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                exits: AtomicUsize::new(0),
+                init_error: AtomicUsize::new(0),
+                exit_error: AtomicUsize::new(0),
+            }
+        }
     }
 
-    unsafe extern "C" fn mock_submodule_init(flash: *mut flash_device, _flags: u64) -> c_int {
-        INIT_CALLS.fetch_add(1, Ordering::SeqCst);
-        INIT_SEEN.store(flash, Ordering::SeqCst);
+    const DISPATCH: usize = 0;
+    const RANGE: usize = 1;
+    const INIT_FAILURE: usize = 2;
+    const EXIT_FAILURE: usize = 3;
 
-        let error = INIT_ERROR.load(Ordering::SeqCst);
+    static MOCKS: [Mock; 4] = [Mock::new(), Mock::new(), Mock::new(), Mock::new()];
+
+    unsafe extern "C" fn mock_submodule_init<const SLOT: usize>(
+        flash: *mut flash_device,
+        _flags: u64,
+    ) -> c_int {
+        MOCKS[SLOT].calls.fetch_add(1, Ordering::SeqCst);
+
+        let error = MOCKS[SLOT].init_error.load(Ordering::SeqCst);
         if error != 0 {
             return -(error as c_int);
         }
 
         (*flash).set_private(MARKER as *mut core::ffi::c_void);
-        (*flash).set_submodule_exit(Some(mock_submodule_exit));
+        (*flash).set_submodule_exit(Some(mock_submodule_exit::<SLOT>));
         0
     }
 
-    unsafe extern "C" fn mock_submodule_exit(_flash: *mut flash_device) -> c_int {
-        EXIT_CALLS.fetch_add(1, Ordering::SeqCst);
-        -(EXIT_ERROR.load(Ordering::SeqCst) as c_int)
+    unsafe extern "C" fn mock_submodule_exit<const SLOT: usize>(
+        _flash: *mut flash_device,
+    ) -> c_int {
+        MOCKS[SLOT].exits.fetch_add(1, Ordering::SeqCst);
+        -(MOCKS[SLOT].exit_error.load(Ordering::SeqCst) as c_int)
     }
-
-    /// A table holding only the mock submodule, the stand-in for C's
-    /// `submodule_init[]` until Task 13b fills it.
-    static MOCK_TABLE: [Option<SubmoduleInitFn>; MODULE_COUNT] = [Some(mock_submodule_init)];
 
     #[test]
     fn init_dispatches_the_submodule_and_exit_runs_its_teardown() {
-        let _guard = reset();
+        let table: [Option<SubmoduleInitFn>; MODULE_COUNT] =
+            [Some(mock_submodule_init::<DISPATCH>)];
         let mut flash: *mut flash_device = ptr::null_mut();
 
-        let ret = unsafe { module_init_with(&MOCK_TABLE, PAGE_FTL_MODULE, &mut flash, 0) };
+        let ret = unsafe { module_init_with(&table, PAGE_FTL_MODULE, &mut flash, 0) };
         assert_eq!(ret, 0, "module init");
-        assert_eq!(INIT_CALLS.load(Ordering::SeqCst), 1);
-        assert_eq!(INIT_SEEN.load(Ordering::SeqCst), flash);
-        unsafe { assert_eq!((*flash).private(), MARKER as *mut core::ffi::c_void) };
+        assert_eq!(MOCKS[DISPATCH].calls.load(Ordering::SeqCst), 1);
+        unsafe { assert_eq!((*flash).f_private, MARKER as *mut core::ffi::c_void) };
 
         assert_eq!(unsafe { ffi_module_exit(flash) }, 0);
-        assert_eq!(EXIT_CALLS.load(Ordering::SeqCst), 1);
+        assert_eq!(MOCKS[DISPATCH].exits.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn init_reports_a_missing_submodule_without_leaking_the_flash() {
-        let _guard = reset();
         let mut flash: *mut flash_device = ptr::null_mut();
 
         let ret = unsafe { module_init_with(&[None], PAGE_FTL_MODULE, &mut flash, 0) };
         assert_eq!(ret, -libc::ENODEV);
         assert!(flash.is_null(), "failed dispatch clears the output pointer");
-        assert_eq!(INIT_CALLS.load(Ordering::SeqCst), 0);
     }
 
     #[test]
     fn init_rejects_an_out_of_range_module_number() {
-        let _guard = reset();
+        let table: [Option<SubmoduleInitFn>; MODULE_COUNT] =
+            [Some(mock_submodule_init::<RANGE>)];
         let mut flash: *mut flash_device = ptr::null_mut();
 
-        let ret = unsafe { module_init_with(&MOCK_TABLE, MODULE_COUNT as c_int, &mut flash, 0) };
+        let ret = unsafe { module_init_with(&table, MODULE_COUNT as c_int, &mut flash, 0) };
         assert_eq!(ret, -libc::EINVAL);
         assert!(flash.is_null());
-        assert_eq!(INIT_CALLS.load(Ordering::SeqCst), 0);
+        assert_eq!(MOCKS[RANGE].calls.load(Ordering::SeqCst), 0);
 
-        let ret = unsafe { module_init_with(&MOCK_TABLE, -1, &mut flash, 0) };
+        let ret = unsafe { module_init_with(&table, -1, &mut flash, 0) };
         assert_eq!(ret, -libc::EINVAL);
         assert!(flash.is_null());
     }
 
     #[test]
     fn init_rejects_a_null_output_pointer() {
-        let _guard = reset();
         assert_eq!(
             unsafe { ffi_module_init(PAGE_FTL_MODULE, ptr::null_mut(), 0) },
             -libc::EINVAL
@@ -266,37 +267,60 @@ mod tests {
 
     #[test]
     fn a_failing_submodule_init_is_propagated_and_the_flash_is_released() {
-        let _guard = reset();
-        INIT_ERROR.store(libc::ENOMEM as usize, Ordering::SeqCst);
+        let table: [Option<SubmoduleInitFn>; MODULE_COUNT] =
+            [Some(mock_submodule_init::<INIT_FAILURE>)];
+        MOCKS[INIT_FAILURE]
+            .init_error
+            .store(libc::ENOMEM as usize, Ordering::SeqCst);
         let mut flash: *mut flash_device = ptr::null_mut();
 
-        let ret = unsafe { module_init_with(&MOCK_TABLE, PAGE_FTL_MODULE, &mut flash, 0) };
+        let ret = unsafe { module_init_with(&table, PAGE_FTL_MODULE, &mut flash, 0) };
         assert_eq!(ret, -libc::ENOMEM);
         assert!(flash.is_null());
-        assert_eq!(INIT_CALLS.load(Ordering::SeqCst), 1);
+        assert_eq!(MOCKS[INIT_FAILURE].calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn a_failing_submodule_exit_stops_before_the_flash_is_freed() {
-        let _guard = reset();
+        let table: [Option<SubmoduleInitFn>; MODULE_COUNT] =
+            [Some(mock_submodule_init::<EXIT_FAILURE>)];
         let mut flash: *mut flash_device = ptr::null_mut();
         assert_eq!(
-            unsafe { module_init_with(&MOCK_TABLE, PAGE_FTL_MODULE, &mut flash, 0) },
+            unsafe { module_init_with(&table, PAGE_FTL_MODULE, &mut flash, 0) },
             0
         );
 
-        EXIT_ERROR.store(libc::EIO as usize, Ordering::SeqCst);
+        MOCKS[EXIT_FAILURE]
+            .exit_error
+            .store(libc::EIO as usize, Ordering::SeqCst);
         assert_eq!(unsafe { ffi_module_exit(flash) }, -libc::EIO);
-        assert_eq!(EXIT_CALLS.load(Ordering::SeqCst), 1);
+        assert_eq!(MOCKS[EXIT_FAILURE].exits.load(Ordering::SeqCst), 1);
 
         // C keeps the handle for a retry, so release it the same way here.
-        EXIT_ERROR.store(0, Ordering::SeqCst);
+        MOCKS[EXIT_FAILURE].exit_error.store(0, Ordering::SeqCst);
         unsafe { (*flash).set_submodule_exit(None) };
         assert_eq!(unsafe { ffi_module_exit(flash) }, 0);
     }
 
     #[test]
-    fn exit_rejects_a_null_flash_handle() {
-        assert_eq!(unsafe { ffi_module_exit(ptr::null_mut()) }, -libc::EINVAL);
+    fn exit_tolerates_a_null_flash_handle() {
+        assert_eq!(unsafe { ffi_module_exit(ptr::null_mut()) }, 0);
+    }
+
+    /// Pins the shipped table's behaviour: the page FTL entry is empty until
+    /// Task 13b installs `page_ftl_module_init`, so the exported pair reports
+    /// `-ENODEV` and leaves no handle behind. Delete this test in 13b.
+    #[test]
+    fn the_shipped_table_reports_no_submodule_for_the_page_ftl() {
+        let mut flash: *mut flash_device = ptr::null_mut();
+
+        let ret = unsafe { ffi_module_init(PAGE_FTL_MODULE, &mut flash, 0) };
+        assert_eq!(ret, -libc::ENODEV);
+        assert!(flash.is_null(), "failed dispatch clears the output pointer");
+
+        assert_eq!(
+            unsafe { ffi_module_init(MODULE_COUNT as c_int, &mut flash, 0) },
+            -libc::EINVAL
+        );
     }
 }

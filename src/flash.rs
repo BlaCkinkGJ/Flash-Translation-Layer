@@ -25,7 +25,7 @@
 //!   word is consumed by the submodule, not by the flash layer.
 
 use core::ffi::{c_char, c_int, c_uint, c_void};
-use core::mem::MaybeUninit;
+use core::ptr;
 use libc::{off_t, size_t, ssize_t};
 
 use crate::pr_err;
@@ -51,8 +51,9 @@ pub struct flash_device {
 /// examples and `integration-test.c` drive. The C header also declares
 /// `ioctl` as variadic and the page FTL implements it for `PAGE_FTL_IOCTL_TRIM`.
 /// Only the request argument is ever passed, and a variadic function cannot be
-/// defined in stable Rust, so a Rust installed table leaves this slot `NULL`
-/// until the bridge task fills it.
+/// defined in stable Rust, so a Rust installed table leaves this slot `NULL` and
+/// the bridge task must either keep this op implemented in C or narrow the slot
+/// to a non-variadic pointer matching the calls the repository makes.
 #[repr(C)]
 pub struct flash_operations {
     pub open: Option<unsafe extern "C" fn(*mut flash_device, *const c_char, c_int) -> c_int>,
@@ -74,13 +75,6 @@ impl flash_device {
         self.f_op = ops;
     }
 
-    /// The installed vtable, or `None` while no submodule has taken over.
-    pub fn operations(&self) -> Option<&flash_operations> {
-        // SAFETY: `f_op` is either `NULL` or the static table a submodule
-        // installed, and the borrow lives as long as this device.
-        unsafe { self.f_op.as_ref() }
-    }
-
     /// Hand the submodule's own state to the flash handle (C's `f_private`).
     ///
     /// # Safety
@@ -88,11 +82,6 @@ impl flash_device {
     /// operations.
     pub unsafe fn set_private(&mut self, private: *mut c_void) {
         self.f_private = private;
-    }
-
-    /// The submodule's private state, `NULL` before a submodule installs one.
-    pub fn private(&self) -> *mut c_void {
-        self.f_private
     }
 
     /// Install the submodule's teardown, run by [`crate::module::ffi_module_exit`]
@@ -130,8 +119,11 @@ pub unsafe extern "C" fn ffi_flash_module_init(
         return -libc::EINVAL;
     }
 
-    let handle: Box<flash_device> =
-        Box::new(MaybeUninit::<flash_device>::zeroed().assume_init());
+    let handle: Box<flash_device> = Box::new(flash_device {
+        f_op: ptr::null(),
+        f_private: ptr::null_mut(),
+        f_submodule_exit: None,
+    });
     *flash = Box::into_raw(handle);
 
     0
@@ -194,7 +186,6 @@ mod tests {
             assert!((*flash).f_op.is_null());
             assert!((*flash).f_private.is_null());
             assert!((*flash).f_submodule_exit.is_none());
-            assert!((*flash).operations().is_none());
             assert_eq!(ffi_flash_module_exit(flash), 0);
         }
     }
@@ -234,11 +225,8 @@ mod tests {
             (*flash).set_private(marker);
             (*flash).set_submodule_exit(Some(mark_exit));
 
-            let seen = (*flash)
-                .operations()
-                .map(|ops| ops as *const flash_operations);
-            assert_eq!(seen, Some(&OPS as *const flash_operations));
-            assert_eq!((*flash).private(), marker);
+            assert_eq!((*flash).f_op, &OPS as *const flash_operations);
+            assert_eq!((*flash).f_private, marker);
 
             let exit = (*flash).f_submodule_exit.expect("submodule exit installed");
             assert_eq!(exit(flash), 42);
