@@ -17,7 +17,8 @@
 //!
 //! `page_ftl_get_free_page` and `page_ftl_update_map` from `ftl/page/page-map.c`
 //! live in [`page_map`], with `ffi_`-prefixed entry points so they can coexist
-//! with the still-linked C implementations until the cutover.
+//! with the still-linked C implementations until the cutover. The read and
+//! write paths live in [`page_read`] and [`page_write`] the same way.
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -74,6 +75,46 @@
 //!   request allocation keeps the `-ENOMEM` path.
 //! - `page_read::ffi_page_ftl_read` returns `-EINVAL` for a `NULL` FTL or
 //!   request, where C dereferences them (`ftl/page/page-read.c:71-74`).
+//! - The write path's device write goes through an internal request instead of
+//!   the caller's. C hands the caller's request to `d_op->write` and its
+//!   `page_ftl_write_end_rq` frees both that request and the scratch page
+//!   (`ftl/page/page-write.c:59-63`, `:213-218`, `:220`).
+//!   `page_write::write_page` borrows the caller's request instead, so
+//!   `page_write::write_end_rq` frees the scratch page and the internal
+//!   request, and `page_write::ffi_page_ftl_write` frees the caller's request
+//!   on the success path.
+//! - The write path replaces C's three `pthread_mutex_lock(&pgftl->mutex)`
+//!   regions around the free page allocation, the `is_exist` probe and the
+//!   metadata update (`ftl/page/page-write.c:187-189`, `:201-203`, `:226-228`)
+//!   with the `&mut PageFtl` borrow.
+//! - The write path's scratch page is a `vec!`, which aborts on out of memory
+//!   like the rest of the port, so C's `-ENOMEM` from the page `malloc`
+//!   (`ftl/page/page-write.c:195-199`) has no Rust equivalent. The internal
+//!   request allocation keeps the `-ENOMEM` path.
+//! - C leaks the scratch page when the device write fails and the read request
+//!   when the read for overwrite fails (`ftl/page/page-write.c:100-103`,
+//!   `:220-225`), since the caller only frees its own request
+//!   (`ftl/page/page-interface.c:140-144`). `page_write` reclaims both through
+//!   their owning types.
+//! - `page_write::write_page` keeps C's collapse of every read-for-overwrite
+//!   failure to `-EFAULT` (`ftl/page/page-write.c:99-103`) and C's `-ENOMEM`
+//!   for the request allocation that fails first (`ftl/page/page-write.c:91-94`).
+//! - A `NULL` `request->data` is refused with `-EINVAL` before the write path's
+//!   splice, where C's `memcpy` faults for a non-zero `write_size`
+//!   (`ftl/page/page-write.c:211`). That also covers a zero `write_size` with a
+//!   `NULL` data pointer, where C copies nothing and writes the page.
+//! - C returns the device write's value verbatim
+//!   (`ftl/page/page-write.c:221-225`), so a short positive write reaches the
+//!   caller as a short count. `page_write::write_page` cannot carry a positive
+//!   failure in `io::Result` and reports `EIO` for a non-negative mismatch,
+//!   keeping the negated errno for a negative one.
+//! - `page_write::ffi_page_ftl_write` returns `-EINVAL` for a `NULL` FTL or
+//!   request, where C dereferences them.
+//! - `page_write::write_page` refuses a logical page at or past the L2P table
+//!   with `lpn >= map_entries()`, where C writes `lpn > nr_entries`
+//!   (`ftl/page/page-write.c:175-179`) and lets the first slot past the table
+//!   through, which then reads `trans_map` one entry past its end. The port
+//!   uses the bound `update_map` already applies.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -84,6 +125,7 @@ use crate::list::list_node_t;
 
 pub mod page_map;
 pub mod page_read;
+pub mod page_write;
 
 /// C's `PAGE_FTL_CACHE_SIZE`, the write-back cache slot count (unused while
 /// `PAGE_FTL_USE_CACHE` stays commented out in the header).
