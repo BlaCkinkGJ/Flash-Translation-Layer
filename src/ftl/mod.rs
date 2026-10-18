@@ -55,10 +55,11 @@
 //! - `page_read::read_page` takes `&mut PageFtl`, so the exclusive borrow
 //!   replaces C's `pthread_mutex_lock(&pgftl->mutex)` around the `trans_map`
 //!   read (`ftl/page/page-read.c:76-78`).
-//! - The read path stores the same atomic `is_finish` word but polls it instead
-//!   of parking on the request's condition variable. C signals `request->cond`
-//!   under `request->mutex` and waits on it
-//!   (`ftl/page/page-read.c:36-41`, `ftl/page/page-read.c:129-133`).
+//! - `page_read::read_page` clears the request's `is_finish` word before it
+//!   submits the read, so a request reused across calls cannot return early on
+//!   the previous completion's flag. C frees the request on every call
+//!   (`ftl/page/page-read.c:85`, `ftl/page/page-read.c:135`) and can never
+//!   observe a stale one.
 //! - When `d_op->read` returns negative, C leaks the scratch page buffer and
 //!   the internal read request by nulling both locals before the cleanup label
 //!   (`ftl/page/page-read.c:121-127`). The Rust read path reclaims both.
@@ -67,7 +68,7 @@
 //!   (`ftl/page/page-read.c:98-102`) has no Rust equivalent. The internal
 //!   request allocation keeps the `-ENOMEM` path.
 //! - `page_read::ffi_page_ftl_read` returns `-EINVAL` for a `NULL` FTL or
-//!   request, where C dereferences them.
+//!   request, where C dereferences them (`ftl/page/page-read.c:71-74`).
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
