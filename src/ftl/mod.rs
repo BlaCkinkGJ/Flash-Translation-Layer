@@ -299,6 +299,17 @@
 //!   reach themselves (`integration-test.c:95`, `benchmark.c:646`). A `NULL`
 //!   handle, a handle with no table and a table with no operation report
 //!   `-EINVAL`, where C dereferences the first two and calls the third.
+//! - `tests/integration.rs` drives C's `integration-test.c` scenario over the
+//!   same ABI with deterministic wait jitter: C reseeds `srand()` from
+//!   `time(NULL)` inside every loop (`integration-test.c:55`, `:91`, `:129`)
+//!   and draws `rand() % 500` for the same three bases (`:74`, `:107`, `:145`),
+//!   where the port gives each worker one fixed xorshift stream. It also bounds
+//!   the `is_check` index against the range, where C stores whatever the device
+//!   returned (`integration-test.c:71`), and fails on a missing block, where C
+//!   only prints the offsets and returns 0 (`:240-252`). It also bounds each
+//!   read retry with a thirty second per offset deadline, where C's reader
+//!   spins on the current offset forever (`integration-test.c:60-65`), so a
+//!   lost block fails the suite instead of hanging the CI job.
 
 use core::ptr;
 use core::sync::atomic::{AtomicI32, Ordering};
