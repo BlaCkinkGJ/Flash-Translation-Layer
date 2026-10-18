@@ -20,13 +20,10 @@ enum {
 	PAGE_FTL_MODULE = 0 /**< page FTL number*/,
 };
 
-int module_init(const int modnum, struct flash_device **, uint64_t flags);
-int module_exit(struct flash_device *);
-
 /*
- * Task 14 cutover: `src/module.rs` is the live implementation, and these are
- * the entry points the callers use. The C prototypes above stay only as long
- * as `interface/module.c` is still compiled.
+ * Task 16: `src/module.rs` is the only implementation, and the submodule table
+ * `interface/module.c` held lives there. The pair below is the whole C surface
+ * of the module layer.
  */
 int ffi_module_init(const int modnum, struct flash_device **, uint64_t flags);
 int ffi_module_exit(struct flash_device *);

@@ -17,10 +17,8 @@
 /*
  * Task 16a: `device/ramdisk/ramdisk.c` is gone, so its prototypes and the
  * `struct ramdisk` they were written against go with it. `src/device/ramdisk.rs`
- * keeps its own state and nothing outside the C source ever read the struct.
- *
- * Task 14 cutover: `src/device/ramdisk.rs` is the live implementation. The init
- * and exit routines are what the device module installs.
+ * keeps its own state and nothing outside the C source ever read the struct,
+ * and the init and exit routines below are what the device module installs.
  */
 int ffi_ramdisk_device_init(struct device *, uint64_t flags);
 int ffi_ramdisk_device_exit(struct device *);

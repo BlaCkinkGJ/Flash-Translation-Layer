@@ -94,8 +94,8 @@ LRU_STATIC_ASSERT(offsetof(struct lru_cache, nil) == 4 * sizeof(size_t),
 
 /*
  * Task 16a: `util/lru.c` is gone, so the `lru_*` prototypes went with it.
- * Task 14 cutover: `src/lru.rs` is the live implementation and these are the
- * entry points the callers use.
+ * `src/lru.rs` is the only implementation now, and these are the entry points
+ * the callers use.
  */
 struct lru_cache *ffi_lru_init(const size_t capacity,
 			       lru_dealloc_fn deallocate);

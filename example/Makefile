@@ -2,7 +2,8 @@
 FTL_INCLUDE_PATH = /usr/local/include/ftl
 
 CXX = g++
-LIBS = -lftl -lpthread
+# `libftl.a` calls into `libftl_rust.a`, so an installed consumer links both.
+LIBS = -lftl -lftl_rust -lpthread
 CFLAGS = -I$(FTL_INCLUDE_PATH)
 TARGET = rw_example
 

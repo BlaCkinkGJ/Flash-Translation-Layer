@@ -7,6 +7,12 @@
 
 This repository contains the simple Flash Translation Layers made on the Linux Environments. Furthermore, this repository works on the Ramdisk and various devices(e.g., Zoned Block Device, bluedbm, etc.).
 
+The page FTL, the utilities, the device dispatch and the default ramdisk
+backend are Rust, and the Rust library is `libftl_rust.a`. The optional
+zoned, bluedbm and raspberrypi backends stay C and are archived into
+`libftl.a`, which calls into the Rust library, so a consumer of the
+installed library links both (see the Installation section below).
+
 If you have any questions about this project, don't hesitate to contact the maintainer (ss5kijun@gmail.com).
 
 ## Build
@@ -60,17 +66,24 @@ After the build finish, you can get the various test files from the results. Run
 
 ### Execution
 
-Suppose you want to generate a release program through the `main.c`, then you must execute the below commands.
+Suppose you want to build and run the end-to-end test in the
+`integration-test.c`, then you must execute the below commands.
 
 ```bash
-make clean && make -j$(nproc)
+make clean && make -j$(nproc) integration-test
 ```
 
-Now, you can run that program by using `./a.out`. Note that this repository is `main.c` file conducts the integration test of this project.
+That target builds `integration-test.out` out of `integration-test.c` and
+runs it over the ramdisk backend, so a single command builds the C side, the
+Rust library and the test.
 
 ### Installation
 
-This project also supports generating the static library for using the external project. If you want to use it, please follow the below commands.
+This project also supports generating the static libraries for using the
+external project. `make install` puts `libftl.a`, `libftl_rust.a` and the
+headers from `include/` under `/usr/local`, and a consumer links with
+`-lftl -lftl_rust` because the C archive calls the Rust one. If you want to
+use it, please follow the below commands.
 
 ```bash
 make clean
@@ -134,10 +147,13 @@ For example, if you want to see sequential write performance on the ramdisk, typ
 It shows results like:
 
 ```bash
-INFO:[interface/module.c:module_init(49)] flash initialize success
-INFO:[interface/module.c:module_init(55)] submodule initialize success
-INFO:[device/ramdisk/ramdisk.c:ramdisk_open(60)] ramdisk generated (size: 1073741824 bytes)
-INFO:[device/ramdisk/ramdisk.c:ramdisk_open(77)] bitmap generated (size: 16392 bytes)
+{"ts":"2026-10-18T13:38:55Z","level":"INFO","target":"ftl_rust::module",
+  "msg":"flash initialize success"}
+{"ts":"2026-10-18T13:38:55Z","level":"INFO","target":"ftl_rust::module",
+  "msg":"submodule initialize success"}
+{"ts":"2026-10-18T13:38:55Z","level":"INFO",
+  "target":"ftl_rust::device::ramdisk",
+  "msg":"ramdisk generated (size: 1073741824 bytes)"}
 [parameters]
         - modules     pgftl
         - devices     ramdisk
@@ -147,24 +163,29 @@ INFO:[device/ramdisk/ramdisk.c:ramdisk_open(77)] bitmap generated (size: 16392 b
         - # of block  100
         - io size     100MiB
         - path        (null)
+        - warm-up     enabled
 fill data start!
 ready to read!
-Processing: 100.00% [1829.49 MiB/s]
+
+Processing: 0.00% [nan MiB/s]
+Processing: 100.00% [1055.57 MiB/s]
 finish thread 0
 finish thread 1
 finish thread 2
 finish thread 3
 [job information]
-id  time(s)   bw(MiB/s) iops      avg(ms)   max(ms)   min(ms)
+id  time(s)   bw(MiB/s) iops      avg(ms)   max(ms)   min(ms)   
 =====
-0   0.0644    1552.6847 100       0.6440    2.0855    0.1686
-1   0.0530    1886.6408 100       0.5300    2.0855    0.1624
-2   0.0522    1915.5273 100       0.5220    2.1562    0.1530
-3   0.0541    1847.9744 100       0.5411    2.1562    0.1530
+0   0.0935    1069.8505 100       0.9347    1.3310    0.4010    
+1   0.0944    1059.6700 100       0.9437    1.6810    0.4010    
+2   0.0936    1067.8627 100       0.9365    1.6810    0.2980    
+3   0.0938    1066.2345 100       0.9379    1.6810    0.2980    
 [crc status]
 crc check success
-INFO:[interface/module.c:module_exit(75)] submodule deallocates success
-INFO:[interface/module.c:module_exit(83)] flash deallocates success
+{"ts":"2026-10-18T13:38:58Z","level":"INFO","target":"ftl_rust::module",
+  "msg":"submodule deallocates success"}
+{"ts":"2026-10-18T13:38:58Z","level":"INFO","target":"ftl_rust::module",
+  "msg":"flash deallocates success"}
 [parameters]
         - modules     pgftl
         - devices     ramdisk
@@ -174,6 +195,7 @@ INFO:[interface/module.c:module_exit(83)] flash deallocates success
         - # of block  100
         - io size     100MiB
         - path        (null)
+        - warm-up     enabled
 ```
 
 If you encounter a random-related error, please run commands as follows:

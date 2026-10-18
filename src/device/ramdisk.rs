@@ -6,10 +6,10 @@
 //! to zero. It is the default backend and the one the C tests exercise.
 //!
 //! The C ABI layer keeps the C symbol names with the `ffi_` prefix
-//! (`ffi_ramdisk_*`) so it can coexist with `device/ramdisk/ramdisk.c` while
-//! both are linked. The cutover is Task 14. [`DeviceOperations`] holds the
-//! logic and `ffi_ramdisk_device_init` installs it through the shared backend
-//! machinery in [`crate::device`], so there is one vtable and one owner.
+//! (`ffi_ramdisk_*`). `device/ramdisk/ramdisk.c` is gone (Task 16a), so
+//! [`DeviceOperations`] holds the logic and `ffi_ramdisk_device_init` installs
+//! it through the shared backend machinery in [`crate::device`]: one vtable and
+//! one owner.
 //!
 //! Deliberate deviations from the C original:
 //!

@@ -12,8 +12,10 @@
 //! pair and the accessors. `crate::ftl::page_interface::ffi_page_ftl_module_init`
 //! is the installed bridge.
 //!
-//! Symbols carry the `ffi_` prefix so they can coexist with `interface/flash.c`
-//! while both implementations are linked. The cutover is Task 14.
+//! Symbols carry the `ffi_` prefix because this module is the crate's C ABI
+//! surface. `interface/flash.c` is gone (Task 16), so the pair below is the
+//! only place a flash handle is allocated and freed, and C reaches the struct
+//! through the installed header alone.
 //!
 //! Deliberate deviations from the C original:
 //!

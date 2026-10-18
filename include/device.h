@@ -331,8 +331,9 @@ int device_module_init(const uint64_t modnum, struct device **, uint64_t flags);
 int device_module_exit(struct device *);
 
 /*
- * Task 14 cutover: `src/device/mod.rs` and `src/device/ramdisk.rs` are the live
- * implementations. These are the entry points the callers use.
+ * `src/device/mod.rs` and `src/device/ramdisk.rs` are the live implementations,
+ * and these are the entry points the callers use. `device/device.c` still
+ * compiles, and its table installs the same backends for the C pair above.
  */
 struct device_request *ffi_device_alloc_request(uint64_t flags);
 void ffi_device_free_request(struct device_request *request);
