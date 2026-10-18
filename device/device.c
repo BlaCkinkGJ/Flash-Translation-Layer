@@ -35,6 +35,11 @@
  * `-ENOSYS` stubs (`src/device/{bluedbm,zone,raspberry}.rs`), and routing them
  * through the stubs would break those builds instead of cutting them over.
  * Move each one to its `ffi_` entry point when its Rust port lands.
+ *
+ * Task 16a: the C request allocators (`device_alloc_request`,
+ * `device_free_request`) went with the `ftl/page` sources, their last callers.
+ * `ffi_device_alloc_request` / `ffi_device_free_request` in `src/device/mod.rs`
+ * are the live pair.
  */
 static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [RAMDISK_MODULE] = */ ffi_ramdisk_device_init,
@@ -54,57 +59,6 @@ static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [RASPBERRY_MODULE] = */ NULL,
 #endif
 };
-
-/**
- * @brief dynamic allocate the device request
- *
- * @param flags flags for allocate the device request
- *
- * @return device_request pointer when it is allocated or NULL when it is not allocated
- */
-struct device_request *device_alloc_request(uint64_t flags)
-{
-	struct device_request *request;
-	int ret = 0;
-	(void)flags;
-
-	request =
-		(struct device_request *)malloc(sizeof(struct device_request));
-	if (request == NULL) {
-		pr_err("request allocation failed\n");
-		return NULL;
-	}
-	memset(request, 0, sizeof(struct device_request));
-	ret = pthread_mutex_init(&request->mutex, NULL);
-	if (ret) {
-		pr_err("pthread mutex initialize failed\n");
-		errno = ret;
-		return NULL;
-	}
-
-	ret = pthread_cond_init(&request->cond, NULL);
-	if (ret) {
-		pr_err("pthread conditional variable initialize failed\n");
-		errno = ret;
-		return NULL;
-	}
-
-	__atomic_store_n(&request->is_finish, 0, __ATOMIC_SEQ_CST);
-
-	return request;
-}
-
-/**
- * @brief free pre-allocated device_request resource
- *
- * @param request pointer of the device request
- */
-void device_free_request(struct device_request *request)
-{
-	pthread_cond_destroy(&request->cond);
-	pthread_mutex_destroy(&request->mutex);
-	free(request);
-}
 
 /**
  * @brief initialize the device module

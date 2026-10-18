@@ -318,17 +318,21 @@ DEVICE_STATIC_ASSERT(sizeof(struct device_operations) == 5 * sizeof(void *),
 #undef DEVICE_ALIGNOF
 #undef DEVICE_ALIGN_UP
 
-struct device_request *device_alloc_request(uint64_t flags);
-void device_free_request(struct device_request *);
-
+/*
+ * Task 16a: `device_alloc_request` and `device_free_request` went with the C
+ * FTL, which was their last caller. `ffi_device_alloc_request` and
+ * `ffi_device_free_request` below are the live pair.
+ *
+ * `device_module_init` and `device_module_exit` stay: `test/zone-test.c` calls
+ * them, and the table in `device/device.c` is still the only installer for the
+ * zone, bluedbm and raspberry backends, whose Rust ports are `-ENOSYS` stubs.
+ */
 int device_module_init(const uint64_t modnum, struct device **, uint64_t flags);
 int device_module_exit(struct device *);
 
 /*
  * Task 14 cutover: `src/device/mod.rs` and `src/device/ramdisk.rs` are the live
- * implementations. These are the entry points the callers use, and the C
- * prototypes above stay only as long as `device/device.c` and
- * `device/ramdisk/ramdisk.c` are still compiled.
+ * implementations. These are the entry points the callers use.
  */
 struct device_request *ffi_device_alloc_request(uint64_t flags);
 void ffi_device_free_request(struct device_request *request);

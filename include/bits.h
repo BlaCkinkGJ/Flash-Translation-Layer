@@ -17,10 +17,9 @@
  * The bitmap helpers live in Rust (`src/bits.rs`) since the Task 14 cutover.
  * They are header-only in C, so there is no C symbol to drop and no call site
  * to rename: the helpers below are one-line forwards to the `ffi_` entry
- * points. The names stay because the still compiled `device/ramdisk/ramdisk.c`,
- * the `ftl/page` sources and `test/bits-test.c` call them, as do
- * `device/bluedbm/bluedbm.c` and `device/raspberry/raspberry.c`, which the
- * cutover does not touch.
+ * points. The names stay because `test/bits-test.c` calls them, as do
+ * `device/bluedbm/bluedbm.c` and `device/raspberry/raspberry.c`, whose
+ * backends are still the C implementations.
  */
 #ifdef __cplusplus
 extern "C" {
