@@ -294,10 +294,10 @@
 //!   device, so a foreign file cannot decide an allocation here.
 //! - The `ioctl` slot of [`crate::flash::flash_operations`] is narrowed to the
 //!   one argument shape the two callers in this repository use
-//!   (`integration-test.c:162`, `example/rw_example.c:32`), because C declares
-//!   the operation variadic (`include/flash.h:59-60`) and stable Rust cannot
-//!   define a variadic function. The field stays one pointer, so C tables and
-//!   the pinned offsets are unaffected, and
+//!   (`integration-test.rs:322`, `example/rw_example.rs:97`), because C
+//!   declares the operation variadic (`include/flash.h:59-60`) and stable Rust
+//!   cannot define a variadic function. The field stays one pointer, so C
+//!   tables and the pinned offsets are unaffected, and
 //!   `page_interface::page_ftl_ioctl_interface` implements C's
 //!   `page_ftl_ioctl_interface` (`ftl/page/page-interface.c:291-327`) natively.
 //! - `page_interface::ffi_page_ftl_module_init` returns `-EINVAL` for a `NULL`

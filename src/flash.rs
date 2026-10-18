@@ -54,7 +54,7 @@ pub struct flash_device {
 /// examples and `integration-test.c` drive. The C header declares `ioctl`
 /// variadic (`include/flash.h:59-60`) and the page FTL implements it for
 /// `PAGE_FTL_IOCTL_TRIM`, but no call site in this repository ever passes a
-/// variadic argument: `integration-test.c:162` and `example/rw_example.c:32`
+/// variadic argument: `integration-test.rs:322` and `example/rw_example.rs:97`
 /// both pass the request alone. Stable Rust cannot define a variadic function,
 /// so the slot is narrowed to that one shape, which keeps C's pointer sized
 /// field in place (`layout_matches_c`) and lets the Rust page FTL implement
