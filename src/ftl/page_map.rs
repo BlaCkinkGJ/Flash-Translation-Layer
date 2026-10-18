@@ -18,6 +18,7 @@
 
 use core::ffi::c_int;
 use core::sync::atomic::Ordering;
+use std::io;
 
 use crate::bits::{find_first_zero_bit, get_bit, BITS_NOT_FOUND};
 use crate::device::{device_address, PADDR_EMPTY};
@@ -30,11 +31,13 @@ use crate::{pr_err, pr_warn};
 /// segments and segments with no free pages, then returns the first zero bit in
 /// the chosen segment's `use_bits` bitmap. Marks the page used, decrements
 /// `nr_free_pages`, increments `nr_valid_pages`, and advances
-/// `alloc_segnum`. Returns a [`PADDR_EMPTY`]-word address when nothing is free.
-pub fn get_free_page(pgftl: &mut PageFtl) -> device_address {
+/// `alloc_segnum`. Returns `None` when nothing is free, where C returns a
+/// [`PADDR_EMPTY`] word. Use [`PageFtl`] with its mutex held: this takes
+/// `&mut` because C reads `alloc_segnum` and the counters concurrently.
+pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
     if pgftl.segments.is_null() {
         pr_err!("fatal error detected: segment array is NULL");
-        return device_address::from(PADDR_EMPTY);
+        return None;
     }
 
     let dev = pgftl.dev();
@@ -47,7 +50,7 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> device_address {
     loop {
         if idx == nr_segments {
             pr_err!("cannot find the free page in the device");
-            return device_address::from(PADDR_EMPTY);
+            return None;
         }
         let segnum = (pgftl.alloc_segnum as usize + idx) % nr_segments;
         idx += 1;
@@ -86,24 +89,22 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> device_address {
         }
 
         // C: `paddr.lpn = 0; paddr.format.block = (uint16_t)segnum; paddr.lpn |= page;`.
-        // The cast truncates the segment number to 16 bits, matching C.
-        let mut paddr = device_address::new(0, 0, (segnum as u16) as u32, 0);
-        paddr.lpn |= page as u32;
+        let paddr = device_address::from_segment_page(segnum as u16, page as u32);
 
         unsafe { segment.set_use_bit(page) };
         segment.nr_free_pages_atomic().fetch_sub(1, Ordering::SeqCst);
         segment.nr_valid_pages_atomic().fetch_add(1, Ordering::SeqCst);
 
-        return paddr;
+        return Some(paddr);
     }
 }
 
 /// C's `page_ftl_update_map`: store `ppn` for the logical page holding
 /// `sector`.
 ///
-/// Returns `0` on success and `-EINVAL` when the logical page number would run
-/// past the L2P table, exactly like C.
-pub fn update_map(pgftl: &mut PageFtl, sector: usize, ppn: u32) -> c_int {
+/// Fails with `EINVAL` when the logical page number would run past the L2P
+/// table, exactly like C.
+pub fn update_map(pgftl: &mut PageFtl, sector: usize, ppn: u32) -> io::Result<()> {
     let lpn = pgftl.lpn(sector) as u64;
     let map_size = (pgftl.map_size() / core::mem::size_of::<u32>()) as u64;
     if lpn >= map_size {
@@ -112,15 +113,16 @@ pub fn update_map(pgftl: &mut PageFtl, sector: usize, ppn: u32) -> c_int {
             map_size,
             lpn
         );
-        return -libc::EINVAL;
+        return Err(io::Error::from_raw_os_error(libc::EINVAL));
     }
 
     unsafe { *pgftl.trans_map.add(lpn as usize) = ppn };
-    0
+    Ok(())
 }
 
-/// C-ABI entry point for [`get_free_page`]. A `NULL` FTL yields
-/// `PADDR_EMPTY` (C would dereference it).
+/// C-ABI entry point for [`get_free_page`]. The native `None` becomes
+/// `PADDR_EMPTY`, and a `NULL` FTL also yields `PADDR_EMPTY` (C would
+/// dereference it).
 ///
 /// # Safety
 /// `pgftl` is `NULL` or a live page FTL with its geometry and `segments`
@@ -128,7 +130,7 @@ pub fn update_map(pgftl: &mut PageFtl, sector: usize, ppn: u32) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn ffi_page_ftl_get_free_page(pgftl: *mut PageFtl) -> device_address {
     match pgftl.as_mut() {
-        Some(pgftl) => get_free_page(pgftl),
+        Some(pgftl) => get_free_page(pgftl).unwrap_or(device_address::from(PADDR_EMPTY)),
         None => {
             pr_err!("page FTL is NULL");
             device_address::from(PADDR_EMPTY)
@@ -136,8 +138,9 @@ pub unsafe extern "C" fn ffi_page_ftl_get_free_page(pgftl: *mut PageFtl) -> devi
     }
 }
 
-/// C-ABI entry point for [`update_map`]. A `NULL` FTL yields `-EINVAL` (C would
-/// dereference it).
+/// C-ABI entry point for [`update_map`]. The native error becomes its negated
+/// `errno` (C returns `-EINVAL`), and a `NULL` FTL also yields `-EINVAL` (C
+/// would dereference it).
 ///
 /// # Safety
 /// `pgftl` is `NULL` or a live page FTL with `trans_map` and its geometry
@@ -149,7 +152,10 @@ pub unsafe extern "C" fn ffi_page_ftl_update_map(
     ppn: u32,
 ) -> c_int {
     match pgftl.as_mut() {
-        Some(pgftl) => update_map(pgftl, sector, ppn),
+        Some(pgftl) => match update_map(pgftl, sector, ppn) {
+            Ok(()) => 0,
+            Err(err) => -(err.raw_os_error().unwrap_or(libc::EINVAL)),
+        },
         None => {
             pr_err!("page FTL is NULL");
             -libc::EINVAL
@@ -236,24 +242,23 @@ mod tests {
             f.set_free(segnum, 1);
         }
 
-        let first = get_free_page(&mut f.pgftl);
+        let first = get_free_page(&mut f.pgftl).expect("segment 0 has one free page");
         assert_eq!(first, device_address::new(0, 0, 0, 0));
         assert_eq!(first.lpn, 0);
         assert_eq!(f.pgftl.alloc_segnum, 0);
         assert_eq!(f.free(0), 0);
 
-        let second = get_free_page(&mut f.pgftl);
+        let second = get_free_page(&mut f.pgftl).expect("segment 1 has one free page");
         assert_eq!(second.block(), 1);
         assert_eq!(second.lpn, 1 << 11);
         assert_eq!(f.pgftl.alloc_segnum, 1);
 
-        let third = get_free_page(&mut f.pgftl);
+        let third = get_free_page(&mut f.pgftl).expect("segment 2 has one free page");
         assert_eq!(third.block(), 2);
         assert_eq!(f.pgftl.alloc_segnum, 2);
 
         // Every segment is full now.
-        let none = get_free_page(&mut f.pgftl);
-        assert_eq!(none, device_address::from(PADDR_EMPTY));
+        assert_eq!(get_free_page(&mut f.pgftl), None);
     }
 
     #[test]
@@ -267,7 +272,7 @@ mod tests {
         set_bit(&mut f.use_bits[0..1], 0);
         set_bit(&mut f.use_bits[0..1], 1);
 
-        let addr = get_free_page(&mut f.pgftl);
+        let addr = get_free_page(&mut f.pgftl).expect("segment 0 has a free page");
         assert_eq!(addr.block(), 0);
         assert_eq!(addr.lpn & 0x7ff, 2);
         assert_eq!(f.free(0), 1);
@@ -284,7 +289,7 @@ mod tests {
         set_bit(&mut f.badseg, 0);
         f.dev.badseg_bitmap = f.badseg.as_mut_ptr();
 
-        let addr = get_free_page(&mut f.pgftl);
+        let addr = get_free_page(&mut f.pgftl).expect("segment 1 has a free page");
         assert_eq!(addr.block(), 1);
         assert_eq!(f.pgftl.alloc_segnum, 1);
     }
@@ -293,18 +298,19 @@ mod tests {
     fn update_map_writes_in_range_and_rejects_overflow() {
         let mut f = Fixture::new();
 
-        assert_eq!(update_map(&mut f.pgftl, 7, 0xabcd), 0);
+        assert!(update_map(&mut f.pgftl, 7, 0xabcd).is_ok());
         assert_eq!(f.trans_map[0], 0xabcd);
 
         // Second page of the device.
         let sector = DEVICE_PAGE_SIZE + 3;
-        assert_eq!(update_map(&mut f.pgftl, sector, 0x1234), 0);
+        assert!(update_map(&mut f.pgftl, sector, 0x1234).is_ok());
         assert_eq!(f.trans_map[1], 0x1234);
 
         // Past the end of the table.
         let last = f.trans_map.len() - 1;
         let overflow = (last + 1) * DEVICE_PAGE_SIZE;
-        assert_eq!(update_map(&mut f.pgftl, overflow, 1), -libc::EINVAL);
+        let err = update_map(&mut f.pgftl, overflow, 1).unwrap_err();
+        assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
     }
 
     #[test]
@@ -319,7 +325,7 @@ mod tests {
             set_bit(&mut f.use_bits[0..1], bit);
         }
 
-        let addr = get_free_page(&mut f.pgftl);
+        let addr = get_free_page(&mut f.pgftl).expect("segment 1 has a free page");
         // Segment 0's stale counter made its scan miss, so the page comes from
         // segment 1.
         assert_eq!(addr.block(), 1);
@@ -338,10 +344,7 @@ mod tests {
         // zero bits long. C scans nothing, warns, and ends with PADDR_EMPTY.
         f.dev.info.package.block.nr_pages = 0;
 
-        assert_eq!(
-            get_free_page(&mut f.pgftl),
-            device_address::from(PADDR_EMPTY)
-        );
+        assert_eq!(get_free_page(&mut f.pgftl), None);
         // C assigns `alloc_segnum` before the scan and `goto retry` walks on,
         // so the cursor ends on the segment whose scan failed last (0, 1, 0
         // for three segments), not on the last one visited.
@@ -375,5 +378,22 @@ mod tests {
         assert_eq!(addr.block(), 0);
         assert_eq!(unsafe { ffi_page_ftl_update_map(&mut f.pgftl, 0, 99) }, 0);
         assert_eq!(f.trans_map[0], 99);
+
+        // The native `Err` crosses the ABI as the negated `errno`.
+        let last = f.trans_map.len() - 1;
+        let overflow = (last + 1) * DEVICE_PAGE_SIZE;
+        assert_eq!(
+            unsafe { ffi_page_ftl_update_map(&mut f.pgftl, overflow, 1) },
+            -libc::EINVAL
+        );
+
+        // The native `None` crosses the ABI as `PADDR_EMPTY`.
+        for segnum in 0..3 {
+            f.set_free(segnum, 0);
+        }
+        assert_eq!(
+            unsafe { ffi_page_ftl_get_free_page(&mut f.pgftl) },
+            device_address::from(PADDR_EMPTY)
+        );
     }
 }

@@ -187,6 +187,18 @@ impl device_address {
         }
     }
 
+    /// Pack a segment-local page index the way C's `paddr.format.block =
+    /// (uint16_t)segnum; paddr.lpn |= page;` does.
+    ///
+    /// `page` is a linear index across the low (bus + chip + page) bits, not a
+    /// page within a block, so this is not `new(0, 0, segment, page)`. The
+    /// segment number is 16 bits because C's cast truncates it to 16.
+    pub const fn from_segment_page(segment: u16, page: u32) -> Self {
+        Self {
+            lpn: ((segment as u32) << BLOCK_SHIFT) | page,
+        }
+    }
+
     /// Bus (channel) of this address.
     pub const fn bus(&self) -> u32 {
         (self.lpn >> BUS_SHIFT) & BUS_MASK
@@ -836,6 +848,21 @@ mod tests {
         assert_eq!(device_address { lpn: PADDR_EMPTY }.lpn, u32::MAX);
 
         assert_eq!(device_address::default().lpn, 0);
+
+        // `from_segment_page` places the segment at `BLOCK_SHIFT` and ORs a
+        // linear page index below it, which is what C's `format.block` plus
+        // `|= page` yields. It is not `new(0, 0, segment, page)`.
+        assert_eq!(
+            device_address::from_segment_page(1, 0),
+            device_address::new(0, 0, 1, 0)
+        );
+        assert_eq!(device_address::from_segment_page(0, 2).lpn, 2);
+        assert_eq!(device_address::from_segment_page(2, 5).lpn, (2 << 11) | 5);
+        // The segment keeps 16 bits, the width C's cast truncates to.
+        assert_eq!(
+            device_address::from_segment_page(u16::MAX, 0).block(),
+            u16::MAX as u32
+        );
     }
 
     #[test]
