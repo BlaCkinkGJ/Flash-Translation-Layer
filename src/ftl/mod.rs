@@ -29,9 +29,11 @@
 //!   `layout_matches_c` asserts both the present and absent offsets.
 //! - The header's `static inline` helpers are safe methods here, not exported
 //!   C-ABI symbols. The C inlines stay live until the cutover.
-//! - `nr_free_pages` and `nr_valid_pages` stay plain `c_int` fields at the ABI
-//!   boundary. The native paths reach them with `AtomicI32::from_ptr`, the same
-//!   `__ATOMIC_SEQ_CST` semantics the C uses.
+//! - `nr_free_pages` and `nr_valid_pages` are `AtomicI32` fields. C reaches
+//!   them only through `__atomic_*` builtins, and `AtomicI32` has the same size
+//!   and alignment as `int`, so the offsets hold and Rust cannot touch them
+//!   non-atomically. `is_gc` stays a plain `c_int` because no C code reads or
+//!   writes it.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -65,11 +67,22 @@ pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;
 /// bits owned by the FTL, `lpn_list` links the valid pages for GC. Both are
 /// borrowed raw pointers here because C allocates and frees them: see
 /// `page_ftl_segment_data_init` in `ftl/page/page-core.c` (Task 9+).
+///
+/// The two counters are `AtomicI32` because C reaches them only through
+/// `__atomic_load_n`, `__atomic_fetch_add`, `__atomic_fetch_sub` and
+/// `__atomic_store_n` (see `page-map.c`, `page-write.c`, `page-gc.c`,
+/// `page-core.c`). `AtomicI32` has the same size and alignment as `int`, which
+/// `layout_matches_c` asserts, so the mirror keeps C's offsets. A plain field
+/// would let Rust write them non-atomically and race with C.
+///
+/// `is_gc` is an `int` because nothing reads or writes it: the C sources never
+/// touch `segment->is_gc`, and it is kept only because it is part of the C
+/// layout (`use_bits` lands at 16 because of it).
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PageFtlSegment {
-    pub nr_free_pages: core::ffi::c_int,
-    pub nr_valid_pages: core::ffi::c_int,
+    pub nr_free_pages: AtomicI32,
+    pub nr_valid_pages: AtomicI32,
     pub is_gc: core::ffi::c_int,
     pub use_bits: *mut u64,
     pub lpn_list: *mut list_node_t,
@@ -96,21 +109,10 @@ impl PageFtlSegment {
         crate::bits::get_bit(bits, page)
     }
 
-    /// View `nr_free_pages` as an atomic, the way C's `__atomic_*` calls do.
-    /// The returned reference borrows `self`, so it cannot outlive the field.
-    pub fn nr_free_pages_atomic(&self) -> &AtomicI32 {
-        unsafe { AtomicI32::from_ptr(core::ptr::addr_of!(self.nr_free_pages) as *mut i32) }
-    }
-
-    /// View `nr_valid_pages` as an atomic, like [`Self::nr_free_pages_atomic`].
-    pub fn nr_valid_pages_atomic(&self) -> &AtomicI32 {
-        unsafe { AtomicI32::from_ptr(core::ptr::addr_of!(self.nr_valid_pages) as *mut i32) }
-    }
-
     /// Atomically read `nr_free_pages`, mirroring C's `__atomic_load_n(...,
     /// __ATOMIC_SEQ_CST)`.
     pub fn free_pages(&self) -> i32 {
-        self.nr_free_pages_atomic().load(Ordering::SeqCst)
+        self.nr_free_pages.load(Ordering::SeqCst)
     }
 }
 
@@ -206,6 +208,11 @@ mod tests {
 
     #[test]
     fn layout_matches_c() {
+        // The counters are `AtomicI32` in Rust and `int` in C. std guarantees
+        // the size, and the alignment must match too or the offsets below move.
+        assert_eq!(size_of::<AtomicI32>(), size_of::<core::ffi::c_int>());
+        assert_eq!(align_of::<AtomicI32>(), align_of::<core::ffi::c_int>());
+
         // struct page_ftl_segment: 3 ints, then use_bits, lpn_list.
         assert_eq!(offset_of!(PageFtlSegment, nr_free_pages), 0);
         assert_eq!(
@@ -316,15 +323,13 @@ mod tests {
     fn free_pages_sums_segments_and_sets_use_bit() {
         let mut use_bits = [0u64; 2];
         let mut segments = [PageFtlSegment {
-            nr_free_pages: 0,
-            nr_valid_pages: 0,
+            nr_free_pages: AtomicI32::new(0),
+            nr_valid_pages: AtomicI32::new(0),
             is_gc: 0,
             use_bits: use_bits.as_mut_ptr(),
             lpn_list: core::ptr::null_mut(),
         }];
-        segments[0]
-            .nr_free_pages_atomic()
-            .store(3, Ordering::SeqCst);
+        segments[0].nr_free_pages.store(3, Ordering::SeqCst);
 
         let mut dev = unsafe { MaybeUninit::<device>::zeroed().assume_init() };
         dev.info.package.nr_blocks = 1;

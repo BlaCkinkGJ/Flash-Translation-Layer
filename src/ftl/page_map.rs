@@ -92,8 +92,8 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
         let paddr = device_address::from_segment_page(segnum as u16, page as u32);
 
         unsafe { segment.set_use_bit(page) };
-        segment.nr_free_pages_atomic().fetch_sub(1, Ordering::SeqCst);
-        segment.nr_valid_pages_atomic().fetch_add(1, Ordering::SeqCst);
+        segment.nr_free_pages.fetch_sub(1, Ordering::SeqCst);
+        segment.nr_valid_pages.fetch_add(1, Ordering::SeqCst);
 
         return Some(paddr);
     }
@@ -170,6 +170,7 @@ mod tests {
     use crate::device::{device, DEVICE_PAGE_SIZE};
     use crate::ftl::PageFtlSegment;
     use core::mem::MaybeUninit;
+    use core::sync::atomic::AtomicI32;
 
     /// Small but valid geometry: 3 segments of 16 pages each.
     struct Fixture {
@@ -195,8 +196,8 @@ mod tests {
             let mut badseg = vec![0u64; 1];
             let segments: Vec<PageFtlSegment> = (0..3)
                 .map(|i| PageFtlSegment {
-                    nr_free_pages: 16,
-                    nr_valid_pages: 0,
+                    nr_free_pages: AtomicI32::new(16),
+                    nr_valid_pages: AtomicI32::new(0),
                     is_gc: 0,
                     use_bits: unsafe { use_bits.as_mut_ptr().add(i) },
                     lpn_list: core::ptr::null_mut(),
@@ -225,7 +226,7 @@ mod tests {
 
         fn set_free(&mut self, segnum: usize, n: i32) {
             self.segments[segnum]
-                .nr_free_pages_atomic()
+                .nr_free_pages
                 .store(n, Ordering::SeqCst);
         }
 
@@ -276,7 +277,7 @@ mod tests {
         assert_eq!(addr.block(), 0);
         assert_eq!(addr.lpn & 0x7ff, 2);
         assert_eq!(f.free(0), 1);
-        assert_eq!(f.segments[0].nr_valid_pages, 1);
+        assert_eq!(f.segments[0].nr_valid_pages.load(Ordering::SeqCst), 1);
         assert!(unsafe { f.segments[0].use_bit(2) });
     }
 
@@ -351,7 +352,7 @@ mod tests {
         assert_eq!(f.pgftl.alloc_segnum, 0);
         // Nothing was handed out: no counter moved and no bit was set.
         assert_eq!(f.free(0), 16);
-        assert_eq!(f.segments[0].nr_valid_pages, 0);
+        assert_eq!(f.segments[0].nr_valid_pages.load(Ordering::SeqCst), 0);
     }
 
     #[test]
