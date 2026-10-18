@@ -159,6 +159,13 @@ impl PageFtl {
         (dev.total_size() / dev.page_size() + 1) * core::mem::size_of::<u32>()
     }
 
+    /// Number of `uint32_t` slots in the L2P table, the unit [`page_map`]
+    /// indexes with. C divides `page_ftl_get_map_size` by `sizeof(uint32_t)`
+    /// at each call site.
+    pub fn map_entries(&self) -> usize {
+        self.map_size() / core::mem::size_of::<u32>()
+    }
+
     /// C's `page_ftl_get_lpn`: logical page number of `sector`.
     pub fn lpn(&self, sector: usize) -> usize {
         sector / self.dev().page_size()
@@ -315,6 +322,7 @@ mod tests {
         let total = 4 * 512 * DEVICE_PAGE_SIZE;
         assert_eq!(dev.total_size(), total);
         assert_eq!(pgftl.map_size(), (total / DEVICE_PAGE_SIZE + 1) * 4);
+        assert_eq!(pgftl.map_entries(), total / DEVICE_PAGE_SIZE + 1);
         assert_eq!(pgftl.lpn(DEVICE_PAGE_SIZE + 7), 1);
         assert_eq!(pgftl.page_offset(DEVICE_PAGE_SIZE + 7), 7);
     }

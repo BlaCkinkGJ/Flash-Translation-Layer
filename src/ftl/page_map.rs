@@ -106,7 +106,7 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
 /// table, exactly like C.
 pub fn update_map(pgftl: &mut PageFtl, sector: usize, ppn: u32) -> io::Result<()> {
     let lpn = pgftl.lpn(sector) as u64;
-    let map_size = (pgftl.map_size() / core::mem::size_of::<u32>()) as u64;
+    let map_size = pgftl.map_entries() as u64;
     if lpn >= map_size {
         pr_err!(
             "lpn value overflow detected (max: {}, cur: {})",
