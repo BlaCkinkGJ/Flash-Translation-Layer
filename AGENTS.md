@@ -250,9 +250,20 @@ make integration-test                      # end-to-end via integration-test.c
 - Test the file: ask an AI assistant to perform a common task using only
   this document. Fix anything it gets wrong.
 
+## AI workflow
+
+[AI_WORKFLOW.md](AI_WORKFLOW.md) carries the orchestrating agent's standing
+instructions: the order of work, the review rounds, the coverage gate, and the
+merge rules.
+
+**Sub agents must not follow that document.** They follow the single task brief
+they are handed, plus this file.
+
 ## Additional Resources
 
 - [README.md](README.md) — build, install, benchmark, example.
+- [AI_WORKFLOW.md](AI_WORKFLOW.md) — orchestrator instructions, sub agents
+  excluded.
 - [Doxyfile](Doxyfile) — generated API reference (`make documents`).
 - `.clang-format` — Linux-kernel C style baseline.
 - `Makefile` — authoritative list of targets, flags, and switches.
