@@ -46,6 +46,28 @@
 //!   [`crate::bits::find_first_zero_bit`], which clamps to `size` and returns
 //!   `BITS_NOT_FOUND`, so it warns and retries the next segment. The Rust
 //!   behaviour never allocates a page at or past `pages_per_segment`.
+//! - The native `page_read::read_page` borrows the caller's request and never
+//!   frees it, because Rust owns it through [`crate::device::Request`]. C's
+//!   `page_ftl_read` frees the caller's request on the zero-fill path
+//!   (`ftl/page/page-read.c:85`) and the success path
+//!   (`ftl/page/page-read.c:135`). `page_read::ffi_page_ftl_read` reproduces
+//!   C's free.
+//! - `page_read::read_page` takes `&mut PageFtl`, so the exclusive borrow
+//!   replaces C's `pthread_mutex_lock(&pgftl->mutex)` around the `trans_map`
+//!   read (`ftl/page/page-read.c:76-78`).
+//! - The read path stores the same atomic `is_finish` word but polls it instead
+//!   of parking on the request's condition variable. C signals `request->cond`
+//!   under `request->mutex` and waits on it
+//!   (`ftl/page/page-read.c:36-41`, `ftl/page/page-read.c:129-133`).
+//! - When `d_op->read` returns negative, C leaks the scratch page buffer and
+//!   the internal read request by nulling both locals before the cleanup label
+//!   (`ftl/page/page-read.c:121-127`). The Rust read path reclaims both.
+//! - The read path's scratch page buffer is a `vec!`, which aborts on out of
+//!   memory like the rest of the port, so C's `-ENOMEM` from the page `malloc`
+//!   (`ftl/page/page-read.c:98-102`) has no Rust equivalent. The internal
+//!   request allocation keeps the `-ENOMEM` path.
+//! - `page_read::ffi_page_ftl_read` returns `-EINVAL` for a `NULL` FTL or
+//!   request, where C dereferences them.
 
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -55,6 +77,7 @@ use crate::device::device;
 use crate::list::list_node_t;
 
 pub mod page_map;
+pub mod page_read;
 
 /// C's `PAGE_FTL_CACHE_SIZE`, the write-back cache slot count (unused while
 /// `PAGE_FTL_USE_CACHE` stays commented out in the header).
