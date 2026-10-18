@@ -16,45 +16,7 @@
 //! that segment has no free page left. The return value is the caller's byte
 //! count, not the page the device wrote.
 //!
-//! Deliberate deviations from the C original:
-//!
-//! - The device write goes through an internal request instead of the caller's.
-//!   C hands the caller's request to `d_op->write`, and its
-//!   `page_ftl_write_end_rq` frees that request together with the scratch page
-//!   (`ftl/page/page-write.c:59-63`, `:213-218`, `:220`). [`write_page`]
-//!   borrows the caller's request and allocates its own request for the device
-//!   write, so `write_end_rq` frees the scratch page and that internal request,
-//!   and [`ffi_page_ftl_write`] frees the caller's request on the success path.
-//!   A native caller keeps its request.
-//! - C holds `pgftl->mutex` around the free page allocation, the `is_exist`
-//!   probe and the metadata update (`ftl/page/page-write.c:187-189`,
-//!   `:201-203`, `:226-228`). [`write_page`] takes `&mut PageFtl`, and the
-//!   exclusive borrow replaces the lock.
-//! - The scratch page buffer is a `vec!`, which aborts on out of memory like
-//!   the rest of the port, so C's `-ENOMEM` from the page `malloc`
-//!   (`ftl/page/page-write.c:195-199`) has no Rust equivalent. The internal
-//!   request allocation keeps the `-ENOMEM` path.
-//! - A failed device write leaves the scratch page allocated in C, and a failed
-//!   read for overwrite leaves its read request allocated
-//!   (`ftl/page/page-write.c:100-103`, `:220-225`), the caller freeing only its
-//!   own request (`ftl/page/page-interface.c:140-144`). The port reclaims both
-//!   through their owning types.
-//! - C's read for overwrite collapses every `page_ftl_read` failure to
-//!   `-EFAULT` (`ftl/page/page-write.c:99-103`). The port keeps that collapse,
-//!   and keeps C's `-ENOMEM` for the request allocation that fails before the
-//!   read (`ftl/page/page-write.c:91-94`).
-//! - A `NULL` `request->data` is refused with `-EINVAL` before the splice,
-//!   where C's `memcpy` faults for a non-zero `write_size`
-//!   (`ftl/page/page-write.c:211`). The same guard makes a zero `write_size`
-//!   with a `NULL` data pointer fail, where C copies nothing and goes on to
-//!   write the page.
-//! - C returns the device write's value verbatim
-//!   (`ftl/page/page-write.c:221-225`), so a short positive write reaches the
-//!   caller as a short count. [`write_page`] cannot carry a positive failure in
-//!   `io::Result`, so it reports `EIO` for a non-negative mismatch and keeps
-//!   the negated errno for a negative one.
-//! - [`ffi_page_ftl_write`] returns `-EINVAL` for a `NULL` FTL or request,
-//!   where C dereferences them.
+//! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
 use core::ffi::c_void;
 use core::mem;
