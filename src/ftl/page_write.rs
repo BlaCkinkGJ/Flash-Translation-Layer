@@ -31,7 +31,7 @@ use crate::device::{
 };
 use crate::ftl::page_map::{get_free_page, update_map};
 use crate::ftl::page_read::read_page;
-use crate::ftl::{PageFtl, PageFtlSegment};
+use crate::ftl::{PageFtl, PageFtlLock, PageFtlSegment};
 use crate::list::{ffi_list_prepend, ffi_list_remove};
 use crate::{pr_debug, pr_err};
 
@@ -272,7 +272,8 @@ pub unsafe extern "C" fn ffi_page_ftl_write(
         return -(libc::EINVAL as isize);
     }
 
-    match write_page(&mut *pgftl, &mut *request) {
+    let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+    match write_page(lock.get(), &mut *request) {
         Ok(len) => {
             ffi_device_free_request(request);
             len as isize

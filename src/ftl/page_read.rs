@@ -22,7 +22,7 @@ use crate::device::{
     device_address, device_request, ffi_device_alloc_request, ffi_device_free_request,
     DeviceDirection, DEVICE_DEFAULT_REQUEST, PADDR_EMPTY,
 };
-use crate::ftl::PageFtl;
+use crate::ftl::{PageFtl, PageFtlLock};
 use crate::{pr_err, pr_warn};
 
 /// Release the scratch page buffer and the internal read request that were
@@ -211,7 +211,8 @@ pub unsafe extern "C" fn ffi_page_ftl_read(
         return -(libc::EINVAL as isize);
     }
 
-    match read_page(&mut *pgftl, &mut *request) {
+    let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+    match read_page(lock.get(), &mut *request) {
         Ok(len) => {
             ffi_device_free_request(request);
             len as isize

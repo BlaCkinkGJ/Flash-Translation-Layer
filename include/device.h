@@ -324,6 +324,19 @@ void device_free_request(struct device_request *);
 int device_module_init(const uint64_t modnum, struct device **, uint64_t flags);
 int device_module_exit(struct device *);
 
+/*
+ * Task 14 cutover: `src/device/mod.rs` and `src/device/ramdisk.rs` are the live
+ * implementations. These are the entry points the callers use, and the C
+ * prototypes above stay only as long as `device/device.c` and
+ * `device/ramdisk/ramdisk.c` are still compiled.
+ */
+struct device_request *ffi_device_alloc_request(uint64_t flags);
+void ffi_device_free_request(struct device_request *request);
+
+int ffi_device_module_init(const uint64_t modnum, struct device **,
+			   uint64_t flags);
+int ffi_device_module_exit(struct device *);
+
 /**
  * @brief get the number of segments in a flash board
  *

@@ -44,6 +44,15 @@ int zone_close(struct device *);
 int zone_device_init(struct device *, uint64_t flags);
 int zone_device_exit(struct device *);
 
+/*
+ * Task 14 cutover: the Rust backend stub in `src/device/zone.rs` is what
+ * `submodule_init[]` installs when `USE_ZONE_DEVICE=1` enables the cargo `zone`
+ * feature. The C prototypes above stay only as long as `device/zone/zone.c` is
+ * still compiled.
+ */
+int ffi_zone_device_init(struct device *, uint64_t flags);
+int ffi_zone_device_exit(struct device *);
+
 static inline uint64_t zone_get_zone_number(struct device *dev,
 					    struct device_address paddr)
 {

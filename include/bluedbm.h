@@ -43,4 +43,13 @@ int bluedbm_close(struct device *);
 int bluedbm_device_init(struct device *, uint64_t flags);
 int bluedbm_device_exit(struct device *);
 
+/*
+ * Task 14 cutover: the Rust backend stub in `src/device/bluedbm.rs` is what
+ * `submodule_init[]` installs when `USE_BLUEDBM_DEVICE=1` enables the cargo
+ * `bluedbm` feature. The C prototypes above stay only as long as
+ * `device/bluedbm/bluedbm.c` is still compiled.
+ */
+int ffi_bluedbm_device_init(struct device *, uint64_t flags);
+int ffi_bluedbm_device_exit(struct device *);
+
 #endif

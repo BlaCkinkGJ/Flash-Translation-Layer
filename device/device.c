@@ -25,14 +25,19 @@
 #include <inttypes.h>
 #include <pthread.h>
 
-/**
- * @brief initialize the submodule
+/*
+ * Task 14 cutover: the Rust `SUBMODULE_INIT` table in `src/device/mod.rs` owns
+ * the backend init routines, and this table points at the same `ffi_` entry
+ * points so that deleting a backend's C source leaves no caller behind here.
  *
- * @param device pointer of the device structure
- * @param uint64_t contain the flag information
+ * The ramdisk entry is the ported one. The bluedbm, zone and raspberry entries
+ * stay on their C implementations, because their Rust modules are still
+ * `-ENOSYS` stubs (`src/device/{bluedbm,zone,raspberry}.rs`), and routing them
+ * through the stubs would break those builds instead of cutting them over.
+ * Move each one to its `ffi_` entry point when its Rust port lands.
  */
 static int (*submodule_init[])(struct device *, uint64_t) = {
-	/* [RAMDISK_MODULE] = */ ramdisk_device_init,
+	/* [RAMDISK_MODULE] = */ ffi_ramdisk_device_init,
 #ifdef DEVICE_USE_BLUEDBM
 	/* [BULEDBM_MODULE] = */ bluedbm_device_init,
 #else

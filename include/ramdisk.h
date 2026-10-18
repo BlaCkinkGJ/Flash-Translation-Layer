@@ -33,4 +33,13 @@ int ramdisk_close(struct device *);
 int ramdisk_device_init(struct device *, uint64_t flags);
 int ramdisk_device_exit(struct device *);
 
+/*
+ * Task 14 cutover: `src/device/ramdisk.rs` is the live implementation. The
+ * init and exit routines are what `submodule_init[]` installs, and the C
+ * prototypes above stay only as long as `device/ramdisk/ramdisk.c` is still
+ * compiled.
+ */
+int ffi_ramdisk_device_init(struct device *, uint64_t flags);
+int ffi_ramdisk_device_exit(struct device *);
+
 #endif

@@ -16,27 +16,27 @@ void tearDown(void)
 void test_lru_init(void)
 {
 	struct lru_cache *cache;
-	cache = lru_init(0, NULL);
+	cache = ffi_lru_init(0, NULL);
 	TEST_ASSERT_NULL(cache);
-	cache = lru_init(10, NULL);
+	cache = ffi_lru_init(10, NULL);
 	TEST_ASSERT_NOT_NULL(cache);
-	lru_free(cache);
+	ffi_lru_free(cache);
 }
 
 void test_lru_fill(void)
 {
 	struct lru_cache *cache;
-	cache = lru_init(10, NULL);
+	cache = ffi_lru_init(10, NULL);
 	for (size_t i = 1; i <= 10; i++) {
-		TEST_ASSERT_EQUAL_INT(0, lru_put(cache, i, i * 2));
+		TEST_ASSERT_EQUAL_INT(0, ffi_lru_put(cache, i, i * 2));
 	}
 	for (size_t i = 1; i <= 10; i++) {
-		TEST_ASSERT_EQUAL_INT(i * 2, lru_get(cache, i));
+		TEST_ASSERT_EQUAL_INT(i * 2, ffi_lru_get(cache, i));
 	}
 	for (size_t i = 1; i <= 10; i++) {
-		TEST_ASSERT_EQUAL_INT(0, lru_put(cache, i + 10, (i + 10) * 2));
+		TEST_ASSERT_EQUAL_INT(0, ffi_lru_put(cache, i + 10, (i + 10) * 2));
 	}
-	lru_free(cache);
+	ffi_lru_free(cache);
 }
 
 static int dealloc_data(const uint64_t key, uintptr_t value)
@@ -55,25 +55,25 @@ void test_lru_big_fill(void)
 	size_t counter = 0;
 	size_t last_size = 0;
 	struct lru_cache *cache;
-	cache = lru_init(cache_size, dealloc_data);
+	cache = ffi_lru_init(cache_size, dealloc_data);
 	for (int i = 0; i < total_size; i++) {
 		int *data;
 		data = (int *)malloc(sizeof(int));
 		*data = i;
-		lru_put(cache, (uint64_t)i, (uintptr_t)data);
+		ffi_lru_put(cache, (uint64_t)i, (uintptr_t)data);
 	}
 	last_size = cache->size;
 	for (ssize_t i = total_size - 1; i >= 0; i--) {
 		if (counter >= last_size) {
-			TEST_ASSERT_NULL((void *)lru_get(cache, (size_t)i));
+			TEST_ASSERT_NULL((void *)ffi_lru_get(cache, (size_t)i));
 		} else {
-			uintptr_t data = lru_get(cache, (size_t)i);
+			uintptr_t data = ffi_lru_get(cache, (size_t)i);
 			TEST_ASSERT_NOT_NULL((void *)data);
 			TEST_ASSERT_EQUAL_INT(i, *(int *)data);
 		}
 		counter += 1;
 	}
-	TEST_ASSERT_EQUAL_INT(0, lru_free(cache));
+	TEST_ASSERT_EQUAL_INT(0, ffi_lru_free(cache));
 }
 
 void test_lru_small_fill(void)
@@ -81,17 +81,17 @@ void test_lru_small_fill(void)
 	const int cache_size = 2;
 	const int total_size = 100;
 	struct lru_cache *cache;
-	cache = lru_init(cache_size, dealloc_data);
+	cache = ffi_lru_init(cache_size, dealloc_data);
 	for (size_t i = 0; i < total_size; i++) {
 		int *data;
 		uintptr_t test;
 		data = (int *)malloc(sizeof(int));
 		*data = (int)i;
-		lru_put(cache, i, (uintptr_t)data);
-		test = lru_get(cache, i);
+		ffi_lru_put(cache, i, (uintptr_t)data);
+		test = ffi_lru_get(cache, i);
 		TEST_ASSERT_EQUAL_INT(i, *(int *)test);
 	}
-	TEST_ASSERT_EQUAL_INT(0, lru_free(cache));
+	TEST_ASSERT_EQUAL_INT(0, ffi_lru_free(cache));
 }
 
 int main(void)

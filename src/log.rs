@@ -58,7 +58,7 @@ macro_rules! pr_info {
 
 #[cfg(feature = "silent")]
 #[macro_export]
-macro_rules! pr_info { ($($arg:tt)*) => {}; }
+macro_rules! pr_info { ($($arg:tt)*) => {{ let _ = format_args!($($arg)*); }}; }
 
 #[cfg(not(feature = "silent"))]
 #[macro_export]
@@ -71,7 +71,7 @@ macro_rules! pr_warn {
 
 #[cfg(feature = "silent")]
 #[macro_export]
-macro_rules! pr_warn { ($($arg:tt)*) => {}; }
+macro_rules! pr_warn { ($($arg:tt)*) => {{ let _ = format_args!($($arg)*); }}; }
 
 #[cfg(not(feature = "silent"))]
 #[macro_export]
@@ -84,7 +84,7 @@ macro_rules! pr_err {
 
 #[cfg(feature = "silent")]
 #[macro_export]
-macro_rules! pr_err { ($($arg:tt)*) => {}; }
+macro_rules! pr_err { ($($arg:tt)*) => {{ let _ = format_args!($($arg)*); }}; }
 
 /// `pr_debug!` is filtered by the `log` crate via `RUST_LOG=debug`.
 /// The macro itself is not gated by `debug_assertions`, so release

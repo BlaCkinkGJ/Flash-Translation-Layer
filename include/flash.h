@@ -106,6 +106,13 @@ FLASH_STATIC_ASSERT(sizeof(struct flash_operations) == 5 * sizeof(void *),
 int flash_module_init(struct flash_device **, uint64_t flags);
 int flash_module_exit(struct flash_device *);
 
+/*
+ * Task 14 cutover: `src/flash.rs` is the live implementation. The C prototypes
+ * above stay only as long as `interface/flash.c` is still compiled.
+ */
+int ffi_flash_module_init(struct flash_device **, uint64_t flags);
+int ffi_flash_module_exit(struct flash_device *);
+
 #ifdef __cplusplus
 }
 #endif

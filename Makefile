@@ -160,6 +160,27 @@ RUST_LIB_DIR := target/$(if $(filter 1,$(USE_DEBUG)),debug,release)
 RUST_LIB := $(RUST_LIB_DIR)/libftl_rust.a
 LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -L$(RUST_LIB_DIR) -lftl_rust
 
+# Cargo features mirroring the C build switches, so the Rust staticlib and the
+# C objects agree on which layout, backend list and log level are compiled in.
+# `page_ftl_global_rwlock` mirrors the zoned build's
+# -DPAGE_FTL_USE_GLOBAL_RWLOCK, and each backend feature mirrors the
+# USE_*_DEVICE switch that installs the same backend in C. Missing these makes
+# the Rust backend table silently disagree with C's.
+RUST_FEATURES :=
+ifeq ($(USE_LOG_SILENT), 1)
+RUST_FEATURES += silent
+endif
+ifeq ($(USE_BLUEDBM_DEVICE), 1)
+RUST_FEATURES += bluedbm
+endif
+ifeq ($(USE_ZONE_DEVICE), 1)
+RUST_FEATURES += zone page_ftl_global_rwlock
+endif
+ifeq ($(USE_RASPBERRY_DEVICE), 1)
+RUST_FEATURES += raspberry
+endif
+RUST_FEATURE_FLAG := $(if $(strip $(RUST_FEATURES)),--features '$(strip $(RUST_FEATURES))')
+
 RAMDISK_SRCS = device/ramdisk/*.c
 ZONED_SRCS =
 BLUEDBM_SRCS =
@@ -214,11 +235,14 @@ test: build_rust $(TEST_TARGET)
 integration-test: $(INTEGRATION_TEST_TARGET)
 	./$(INTEGRATION_TEST_TARGET)
 
-install: $(LIBRARY_TARGET)
+install: $(LIBRARY_TARGET) $(RUST_LIB)
 	install -d $(DESTDIR)$(PREFIX)/lib/
 	install -m 644 $(LIBRARY_TARGET) $(DESTDIR)$(PREFIX)/lib
+	install -m 644 $(RUST_LIB) $(DESTDIR)$(PREFIX)/lib
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
+	@echo "installed $(LIBRARY_TARGET) and $(RUST_LIB): link with -lftl -lftl_rust"
+	@echo "since the Task 14 cutover, libftl.a calls the Rust C ABI it does not define"
 
 $(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET) $(RUST_LIB)
 	$(CC) $(MACROS) $(CFLAGS) -c integration-test.c $(INCLUDES)
@@ -237,7 +261,7 @@ $(LIBRARY_TARGET): $(OBJS)
 unity.o: unity.c
 	$(CC) $(MACROS) $(CFLAGS) -DENABLE_LOG_SILENT -c $< -o $@ $(INCLUDES)
 
-lru-test.out: unity.o util/lru.o test/lru-test.o $(RUST_LIB)
+lru-test.out: unity.o test/lru-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 bits-test.out: unity.o test/bits-test.o $(RUST_LIB)
@@ -246,7 +270,7 @@ bits-test.out: unity.o test/bits-test.o $(RUST_LIB)
 ramdisk-test.out: $(OBJS) unity.o test/ramdisk-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
-list-test.out: unity.o util/list.o test/list-test.o $(RUST_LIB)
+list-test.out: unity.o test/list-test.o $(RUST_LIB)
 	$(CXX) $(MACROS) $(CXXFLAGS) $(INCLUDES) -o $@ --coverage $(filter %.o, $^) $(LIBS)
 
 crc32-test.out: unity.o test/crc32-test.o $(RUST_LIB)
@@ -308,21 +332,29 @@ build_rust: $(RUST_LIB)
 
 # Run the Rust test suite. Requires no extra toolchain components.
 cargo-test:
-	cargo test --all-targets
+	cargo test --all-targets $(RUST_FEATURE_FLAG)
 
 # Lint the Rust crate with warnings treated as errors, mirroring the C
 # `-Werror` policy. Requires `rustup component add clippy`.
 cargo-clippy:
-	cargo clippy --all-targets -- -D warnings
+	cargo clippy --all-targets $(RUST_FEATURE_FLAG) -- -D warnings
 
 # Emit an LCOV coverage report for the Rust crate.
 # Requires: `rustup component add llvm-tools-preview` and
 #           `cargo install cargo-llvm-cov`.
 cargo-coverage:
-	cargo llvm-cov --lcov --output-path coverage-rust.lcov
+	cargo llvm-cov --lcov --output-path coverage-rust.lcov $(RUST_FEATURE_FLAG)
 
-RUST_SRCS := $(wildcard src/*.rs) Cargo.toml $(wildcard Cargo.lock)
-$(RUST_LIB): $(RUST_SRCS)
-	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release)
+# The Rust sources and the feature switches are cargo's business, so the rule
+# does not try to track them: `FORCE` makes every build re-run cargo, which
+# re-checks sources and features itself and costs one no-op invocation. Without
+# it, a `make test USE_LOG_SILENT=1` after a plain `make` reused the archive
+# built without `silent`, because make only sees file timestamps.
+#
+# RUST_SRCS is kept as the documented input list, so `make -n` and a reader can
+# see what the archive is built from.
+RUST_SRCS := $(shell find src -name '*.rs') Cargo.toml $(wildcard Cargo.lock)
+$(RUST_LIB): $(RUST_SRCS) FORCE
+	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release) $(RUST_FEATURE_FLAG)
 
 FORCE:

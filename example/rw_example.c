@@ -13,7 +13,7 @@ int main(void)
 {
 	struct flash_device *flash = NULL;
 	char buffer[8192];
-	assert(0 == module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
+	assert(0 == ffi_module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));
 	pr_info("module initialize\n");
 	flash->f_op->open(flash, NULL, O_CREAT | O_RDWR);
 	for (int i = 0; i < 8192 * 10; i++) {
@@ -33,7 +33,7 @@ int main(void)
 		}
 	}
 	flash->f_op->close(flash);
-	assert(0 == module_exit(flash));
+	assert(0 == ffi_module_exit(flash));
 	pr_info("module deallcation\n");
 
 	return 0;

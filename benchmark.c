@@ -149,7 +149,7 @@ int main(int argc, char **argv)
 	device = device_list[parm->device_idx];
 	path = parm->device_path;
 
-	assert(module_init(module, &flash, (uint64_t)device) == 0);
+	assert(ffi_module_init(module, &flash, (uint64_t)device) == 0);
 	assert(flash->f_op->open(flash, path, O_CREAT | O_RDWR) == 0);
 	parm->flash = flash;
 
@@ -163,7 +163,7 @@ int main(int argc, char **argv)
 			if (!parm->timer_list[idx]) {
 				continue;
 			}
-			list_free(parm->timer_list[idx]);
+			ffi_list_free(parm->timer_list[idx]);
 			parm->timer_list[idx] = NULL;
 			parm->wp[idx] = 0;
 		}
@@ -220,7 +220,7 @@ int main(int argc, char **argv)
 
 	/* deallocate the crc32 list */
 	assert(flash->f_op->close(flash) == 0);
-	assert(module_exit(flash) == 0);
+	assert(ffi_module_exit(flash) == 0);
 	print_parameters(parm);
 	free_parameters(parm);
 
@@ -554,7 +554,7 @@ static void free_parameters(struct benchmark_parameter *parm)
 			if (!parm->timer_list[idx]) {
 				continue;
 			}
-			list_free(parm->timer_list[idx]);
+			ffi_list_free(parm->timer_list[idx]);
 		}
 		free(parm->timer_list);
 	}
@@ -650,7 +650,7 @@ static void *write_data(void *data)
 			   (unsigned long)(end.tv_nsec - start.tv_nsec);
 		parm->total_time[thread_id] += interval;
 		parm->timer_list[thread_id] =
-			list_prepend(parm->timer_list[thread_id],
+			ffi_list_prepend(parm->timer_list[thread_id],
 				       (void *)(uintptr_t)(interval));
 		parm->wp[thread_id] = (size_t)i;
 	}
@@ -706,7 +706,7 @@ static void *read_data(void *data)
 			   (unsigned long)(end.tv_nsec - start.tv_nsec);
 		parm->total_time[thread_id] += interval;
 		parm->timer_list[thread_id] =
-			list_prepend(parm->timer_list[thread_id],
+			ffi_list_prepend(parm->timer_list[thread_id],
 				       (void *)(uintptr_t)(interval));
 		parm->wp[thread_id] = (size_t)i;
 #ifdef USE_CRC

@@ -31,7 +31,7 @@ static list_node_t *make_int_list(const int *values, size_t count)
 	if (count == 0)
 		return NULL;
 	for (size_t i = 0; i < count; i++) {
-		list = list_prepend(list, (void *)&values[count - 1 - i]);
+		list = ffi_list_prepend(list, (void *)&values[count - 1 - i]);
 	}
 	return list;
 }
@@ -57,7 +57,7 @@ static void assert_sorted_and_linked(list_node_t *list)
 void test_list_sort_empty(void)
 {
 	list_node_t *list = NULL;
-	list = list_sort(list, int_cmp);
+	list = ffi_list_sort(list, int_cmp);
 	TEST_ASSERT_NULL(list);
 }
 
@@ -65,40 +65,40 @@ void test_list_sort_single(void)
 {
 	int v = 42;
 	list_node_t *list = NULL;
-	list = list_prepend(list, &v);
-	list = list_sort(list, int_cmp);
+	list = ffi_list_prepend(list, &v);
+	list = ffi_list_sort(list, int_cmp);
 	TEST_ASSERT_NOT_NULL(list);
 	TEST_ASSERT_NULL(list->next);
 	TEST_ASSERT_EQUAL_PTR(&v, list->data);
 	TEST_ASSERT_NULL(list->prev);
-	list_free(list);
+	ffi_list_free(list);
 }
 
 void test_list_sort_already_sorted(void)
 {
 	int values[] = {1, 2, 3, 4, 5};
 	list_node_t *list = make_int_list(values, sizeof(values) / sizeof(values[0]));
-	list = list_sort(list, int_cmp);
+	list = ffi_list_sort(list, int_cmp);
 	assert_sorted_and_linked(list);
-	list_free(list);
+	ffi_list_free(list);
 }
 
 void test_list_sort_reverse_sorted(void)
 {
 	int values[] = {5, 4, 3, 2, 1};
 	list_node_t *list = make_int_list(values, sizeof(values) / sizeof(values[0]));
-	list = list_sort(list, int_cmp);
+	list = ffi_list_sort(list, int_cmp);
 	assert_sorted_and_linked(list);
-	list_free(list);
+	ffi_list_free(list);
 }
 
 void test_list_sort_duplicates(void)
 {
 	int values[] = {3, 1, 2, 3, 2, 1};
 	list_node_t *list = make_int_list(values, sizeof(values) / sizeof(values[0]));
-	list = list_sort(list, int_cmp);
+	list = ffi_list_sort(list, int_cmp);
 	assert_sorted_and_linked(list);
-	list_free(list);
+	ffi_list_free(list);
 }
 
 void test_list_prepend_length_last(void)
@@ -106,22 +106,22 @@ void test_list_prepend_length_last(void)
 	list_node_t *list = NULL;
 	int v1 = 10, v2 = 20, v3 = 30;
 
-	TEST_ASSERT_EQUAL_UINT32(0, list_length(list));
-	TEST_ASSERT_NULL(list_last(list));
+	TEST_ASSERT_EQUAL_UINT32(0, ffi_list_length(list));
+	TEST_ASSERT_NULL(ffi_list_last(list));
 
-	list = list_prepend(list, &v1);
-	TEST_ASSERT_EQUAL_UINT32(1, list_length(list));
-	TEST_ASSERT_EQUAL_PTR(list, list_last(list));
+	list = ffi_list_prepend(list, &v1);
+	TEST_ASSERT_EQUAL_UINT32(1, ffi_list_length(list));
+	TEST_ASSERT_EQUAL_PTR(list, ffi_list_last(list));
 
-	list = list_prepend(list, &v2);
-	list = list_prepend(list, &v3);
-	TEST_ASSERT_EQUAL_UINT32(3, list_length(list));
+	list = ffi_list_prepend(list, &v2);
+	list = ffi_list_prepend(list, &v3);
+	TEST_ASSERT_EQUAL_UINT32(3, ffi_list_length(list));
 
 	/* Order should be v3 -> v2 -> v1 */
 	TEST_ASSERT_EQUAL_PTR(&v3, list->data);
-	TEST_ASSERT_EQUAL_PTR(&v1, list_last(list)->data);
+	TEST_ASSERT_EQUAL_PTR(&v1, ffi_list_last(list)->data);
 
-	list_free(list);
+	ffi_list_free(list);
 }
 
 void test_list_remove(void)
@@ -129,30 +129,30 @@ void test_list_remove(void)
 	list_node_t *list = NULL;
 	int v1 = 10, v2 = 20, v3 = 30, v4 = 40;
 
-	list = list_prepend(list, &v1);
-	list = list_prepend(list, &v2);
-	list = list_prepend(list, &v3);
+	list = ffi_list_prepend(list, &v1);
+	list = ffi_list_prepend(list, &v2);
+	list = ffi_list_prepend(list, &v3);
 
 	/* Remove head */
-	list = list_remove(list, &v3);
-	TEST_ASSERT_EQUAL_UINT32(2, list_length(list));
+	list = ffi_list_remove(list, &v3);
+	TEST_ASSERT_EQUAL_UINT32(2, ffi_list_length(list));
 	TEST_ASSERT_EQUAL_PTR(&v2, list->data);
 	TEST_ASSERT_NULL(list->prev);
 
 	/* Remove non-existent */
-	list = list_remove(list, &v4);
-	TEST_ASSERT_EQUAL_UINT32(2, list_length(list));
+	list = ffi_list_remove(list, &v4);
+	TEST_ASSERT_EQUAL_UINT32(2, ffi_list_length(list));
 
 	/* Remove tail */
-	list = list_remove(list, &v1);
-	TEST_ASSERT_EQUAL_UINT32(1, list_length(list));
-	TEST_ASSERT_EQUAL_PTR(&v2, list_last(list)->data);
+	list = ffi_list_remove(list, &v1);
+	TEST_ASSERT_EQUAL_UINT32(1, ffi_list_length(list));
+	TEST_ASSERT_EQUAL_PTR(&v2, ffi_list_last(list)->data);
 
 	/* Remove last element */
-	list = list_remove(list, &v2);
+	list = ffi_list_remove(list, &v2);
 	TEST_ASSERT_NULL(list);
 
-	list_free(list);
+	ffi_list_free(list);
 }
 
 int main(void)

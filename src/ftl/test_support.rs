@@ -89,6 +89,12 @@ impl Fixture {
         pgftl.trans_map = trans_map.as_mut_ptr();
         pgftl.segments = segments.as_ptr() as *mut PageFtlSegment;
         pgftl.gc_seg_bits = gc_seg_bits.as_mut_ptr();
+        // `page_ftl_open` initializes this mutex and the C ABI entry points
+        // lock it. The fixture stands in for `open`, so it initializes it too.
+        assert_eq!(
+            unsafe { libc::pthread_mutex_init(ptr::addr_of_mut!(pgftl.mutex), ptr::null()) },
+            0
+        );
 
         Fixture {
             dev,
@@ -354,6 +360,10 @@ impl Drop for Fixture {
             for segment in &mut self.segments {
                 ffi_list_free(segment.lpn_list);
             }
+            assert_eq!(
+                libc::pthread_mutex_destroy(ptr::addr_of_mut!(self.pgftl.mutex)),
+                0
+            );
             assert_eq!(ffi_ramdisk_close(self.dev), 0);
             assert_eq!(ffi_device_module_exit(self.dev), 0);
         }

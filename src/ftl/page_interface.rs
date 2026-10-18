@@ -36,7 +36,7 @@ use crate::device::{
 use crate::flash::{flash_device, flash_operations};
 use crate::ftl::page_core::{self, submit_request};
 use crate::ftl::page_gc::gc_from_list;
-use crate::ftl::{PageFtl, PAGE_FTL_GC_ALL, PAGE_FTL_IOCTL_TRIM};
+use crate::ftl::{PageFtl, PageFtlLock, PAGE_FTL_GC_ALL, PAGE_FTL_IOCTL_TRIM};
 use crate::{pr_debug, pr_err, pr_info};
 
 /// The page FTL a flash handle carries, C's `(struct page_ftl *)flash->f_private`.
@@ -103,19 +103,20 @@ unsafe extern "C" fn page_ftl_write_interface(
         Ok(pgftl) => pgftl,
         Err(err) => return err as ssize_t,
     };
+    // Hold C's `pgftl->mutex` for the whole transfer, the way the native write
+    // path expects the exclusive borrow to be held.
+    let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+    let pgftl = lock.get();
 
-    if !matches!(
-        (*pgftl).o_flags & libc::O_ACCMODE,
-        libc::O_WRONLY | libc::O_RDWR
-    ) {
+    if !matches!(pgftl.o_flags & libc::O_ACCMODE, libc::O_WRONLY | libc::O_RDWR) {
         pr_err!(
             "cannot find the valid write flags (flags: 0x{:x})",
-            (*pgftl).o_flags
+            pgftl.o_flags
         );
         return -(libc::EINVAL as ssize_t);
     }
 
-    let page_size = (*pgftl).dev().page_size();
+    let page_size = pgftl.dev().page_size();
     let buffer_start = buffer as usize;
     let mut size = 0usize;
     let mut remain = count;
@@ -123,7 +124,7 @@ unsafe extern "C" fn page_ftl_write_interface(
     let mut sector = offset as usize;
 
     while remain > 0 {
-        let pos = (*pgftl).page_offset(sector);
+        let pos = pgftl.page_offset(sector);
         let submit_size = if pos + remain < page_size {
             remain
         } else {
@@ -150,7 +151,7 @@ unsafe extern "C" fn page_ftl_write_interface(
             remain
         );
 
-        let write_size = match submit_request(&mut *pgftl, &mut request) {
+        let write_size = match submit_request(pgftl, &mut request) {
             Ok(write_size) => write_size,
             Err(err) => -(err.raw_os_error().unwrap_or(libc::EIO) as ssize_t),
         };
@@ -207,25 +208,25 @@ unsafe extern "C" fn page_ftl_read_interface(
         Ok(pgftl) => pgftl,
         Err(err) => return err as ssize_t,
     };
+    // The read path borrows the FTL exclusively too, so it holds the same lock.
+    let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+    let pgftl = lock.get();
 
-    if !matches!(
-        (*pgftl).o_flags & libc::O_ACCMODE,
-        libc::O_RDONLY | libc::O_RDWR
-    ) {
+    if !matches!(pgftl.o_flags & libc::O_ACCMODE, libc::O_RDONLY | libc::O_RDWR) {
         pr_err!(
             "cannot find the valid read flags (flags: 0x{:x})",
-            (*pgftl).o_flags
+            pgftl.o_flags
         );
         return -(libc::EINVAL as ssize_t);
     }
 
-    let page_size = (*pgftl).dev().page_size();
+    let page_size = pgftl.dev().page_size();
     let mut size = 0usize;
     let mut remain = count;
     let mut sector = offset as usize;
 
     while remain != 0 {
-        let pos = (*pgftl).page_offset(sector);
+        let pos = pgftl.page_offset(sector);
         let submit_size = if pos + remain < page_size {
             remain
         } else {
@@ -244,7 +245,7 @@ unsafe extern "C" fn page_ftl_read_interface(
         request.sector = sector;
         request.data = ptr as *mut c_void;
 
-        let read_size = match submit_request(&mut *pgftl, &mut request) {
+        let read_size = match submit_request(pgftl, &mut request) {
             Ok(read_size) => read_size,
             Err(_) => {
                 pr_err!("page FTL submit request failed");
@@ -290,6 +291,10 @@ unsafe extern "C" fn page_ftl_ioctl_interface(flash: *mut flash_device, request:
         Ok(pgftl) => pgftl,
         Err(err) => return err,
     };
+    // GC walks the segment array and rewrites pages, so it holds the FTL lock
+    // C's `page_ftl_gc_from_list` takes itself (`ftl/page/page-gc.c:259`).
+    let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
+    let pgftl = lock.get();
 
     let mut device_rq = match Request::new() {
         Ok(request) => request,
@@ -305,7 +310,7 @@ unsafe extern "C" fn page_ftl_ioctl_interface(flash: *mut flash_device, request:
     }
 
     device_rq.flag = DeviceDirection::Erase.into();
-    match gc_from_list(&mut *pgftl, &mut device_rq, PAGE_FTL_GC_ALL) {
+    match gc_from_list(pgftl, &mut device_rq, PAGE_FTL_GC_ALL) {
         Ok(ret) => ret as c_int,
         Err(err) => -(err.raw_os_error().unwrap_or(libc::EIO)),
     }
