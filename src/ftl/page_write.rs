@@ -169,8 +169,13 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
     let lpn = pgftl.lpn(sector);
     let offset = pgftl.page_offset(sector);
 
+    // C checks `lpn > nr_entries` (`ftl/page/page-write.c:175-179`), which lets
+    // the slot one past the table through and then reads `trans_map` out of
+    // bounds. `update_map` already refuses that slot with `lpn >= map_size`
+    // (`src/ftl/page_map.rs`), and this guard matches it. See the deviations
+    // block in `crate::ftl`.
     let nr_entries = pgftl.map_entries();
-    if lpn > nr_entries {
+    if lpn >= nr_entries {
         pr_err!("invalid lpn detected (lpn: {}, max: {})", lpn, nr_entries);
         return Err(io::Error::from_raw_os_error(libc::EINVAL));
     }
@@ -592,11 +597,16 @@ mod tests {
         let err = write_at(&mut f, DEVICE_PAGE_SIZE - 4, &mut tail).unwrap_err();
         assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
 
-        // A logical page past the L2P table, C's `lpn > nr_entries` bound
-        // (`page-write.c:175-179`).
+        // The last table slot is `entries - 1`, so both that slot and anything
+        // past it are rejected. C's `lpn > nr_entries` check
+        // (`page-write.c:175-179`) lets the first of the two through, and the
+        // out of range `trans_map` read that follows is what this guard
+        // prevents.
         let mut data = [0u8; 8];
-        let err = write_at(&mut f, (entries + 1) * DEVICE_PAGE_SIZE, &mut data).unwrap_err();
-        assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+        for lpn in [entries, entries + 1] {
+            let err = write_at(&mut f, lpn * DEVICE_PAGE_SIZE, &mut data).unwrap_err();
+            assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+        }
 
         // Neither rejection allocated a page or touched the table, so the guard
         // runs before the free page lookup.
