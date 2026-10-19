@@ -1,3 +1,10 @@
+/**
+ * @file bits.h
+ * @brief bitmap helper macros and inline bit operations
+ * @author Gijun Oh
+ * @version 0.1
+ * @date 2021-10-01
+ */
 #ifndef BITS_H
 #define BITS_H
 

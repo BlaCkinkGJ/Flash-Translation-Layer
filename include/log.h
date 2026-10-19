@@ -1,3 +1,10 @@
+/**
+ * @file log.h
+ * @brief the logging macros a C consumer uses
+ * @author Gijun Oh
+ * @version 0.1
+ * @date 2021-09-23
+ */
 #ifndef LOG_H
 #define LOG_H
 
