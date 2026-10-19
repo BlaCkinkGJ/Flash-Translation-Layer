@@ -15,14 +15,15 @@ operation at a time.
 Three things follow from that, and they explain most of the code:
 
 - **The mapping table is the whole state.** `PageFtl::trans_map` holds one
-  `u32` physical address per logical page, plus one terminator slot
-  (`src/ftl/mod.rs:505`, `:513`). `PADDR_EMPTY` means "not mapped"
+  `u32` physical address per logical page (`src/ftl/mod.rs:452`), plus one
+  terminator slot, because `map_size` adds one entry before it converts bytes
+  to slots (`:505`, `:507`). `PADDR_EMPTY` means "not mapped"
   (`src/device/mod.rs:82`).
 - **A NAND page is programmed once between erases.** An overwrite therefore
   reads the page the LPN currently maps to, splices the new bytes into a copy,
   writes that copy to a free page, and invalidates the old mapping
-  (`src/ftl/page_write.rs:80`, `:157`). The old page stays on the device until
-  its segment is erased.
+  (`src/ftl/page_write.rs:89`, `:205`, `:59`). The old page stays on the
+  device until its segment is erased.
 - **Space is reclaimed by segment.** A segment is one block across every bus
   and chip, so `nr_segments` is the block count and `pages_per_segment` is
   `nr_bus * nr_chips * pages_per_block` (`src/device/mod.rs:407`, `:412`,
@@ -32,8 +33,9 @@ Three things follow from that, and they explain most of the code:
 
 Two layers plus helpers implement this. The device layer owns the backend
 vtable and the geometry. The FTL layer owns the mapping, the allocator, the
-collector and the C-facing bridge. `bits`, `crc32`, `log`, `list` and `lru`
-are shared helpers, and the `ffi_` functions are the C ABI boundary.
+collector and the C-facing bridge. `bits`, `crc32` and `log` are the helpers
+both layers call, `list` and `lru` are exported for C alone, and the `ffi_`
+functions are the C ABI boundary.
 
 ## 2. Module map
 
@@ -227,9 +229,9 @@ stateDiagram-v2
     Free --> InUse: get_free_page sets the bit
     InUse --> Full: nr_free_pages reaches 0
     Full --> Queued: invalidate pushes segnum
-    Queued --> Victim: pick_gc_target sorts by valid pages
-    Victim --> Erasing: valid pages copied out
-    Erasing --> Free: erase and segment_data_init
+    Queued --> Victim: pick_gc_target
+    Victim --> Erasing: valid_page_copy done
+    Erasing --> Free: segment_data_init after erase
     Free --> [*]
 ```
 
