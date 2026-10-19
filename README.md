@@ -18,6 +18,18 @@ below).
 If you have any questions about this project, don't hesitate to contact the
 maintainer (<ss5kijun@gmail.com>).
 
+## Documentation
+
+Three documents cover the parts this README does not:
+
+- [docs/architecture.md](docs/architecture.md): what the layers are, how a
+  read, a write and a garbage collection pass move through them, and where the
+  locks sit.
+- [docs/c-abi.md](docs/c-abi.md): what `include/` exposes to C and C++, who
+  owns what across the boundary, and how `make consumer-check` proves it.
+- [docs/guards.md](docs/guards.md): which header guard, cargo feature, `USE_*`
+  switch and CI job guards what, and what breaks without it.
+
 ## Build
 
 > These instructions are based on the Ubuntu(>=16.04) environments
@@ -63,11 +75,11 @@ requirements are as follows.
 > Moreover, before you run the Zoned Block Device-based program, you must
 > check that you give the super-user privileges to run it.
 
-Without a zoned device, the `null_blk` driver can emulate one and
-`make zone-smoke` runs the zoned backend against it (see
+Without a zoned device, the `null_blk` driver or the `zloop` driver can
+emulate one and `make zone-smoke` runs the zoned backend against it (see
 <https://zonedstorage.io/docs/getting-started/zbd-emulation>). The target
-loads the module with `sudo`, needs libzbd, and prints why it skipped when
-the emulator, the module or the privileges are missing.
+loads the module with `sudo`, needs libzbd, and prints why it skipped and
+exits 0 when it cannot create a device.
 
 ### Test
 
@@ -86,8 +98,10 @@ make test USE_LOG_SILENT=1
 
 `make test` runs `cargo test --all-targets` with the feature flags the
 `USE_*` switches derive, so `USE_LOG_SILENT=1` selects the `silent` feature.
-`make cargo-clippy` lints the crate with warnings as errors and
-`make cargo-coverage` writes an LCOV report.
+`make cargo-clippy` lints the crate with warnings as errors, and
+`make cargo-coverage` writes an LCOV report once
+`rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
+have run.
 
 ### Execution
 
@@ -118,14 +132,19 @@ make -j$(nproc)
 sudo make install
 ```
 
+`make install` depends on the archive, so it runs cargo. Run it as root only
+where root's `PATH` and rustup environment reach the toolchain, or use
+`make install DESTDIR=<dir>` to stage the same tree without root.
+
 ## For building in the macOS
 
 The project targets Linux and does not support the macOS natively. The Rust
 build and the test suite nevertheless run with cargo, so `make test` and the
 benchmark work without Docker. Docker provides the reproducible Linux build:
-the builder image carries the Linux toolchain and `libzbd`, so it builds the
-crate and runs the test suite and `make consumer-check` on Linux, including
-the `zone` feature.
+the builder image carries the Linux toolchain and `libzbd`, so
+`make docker-make-<target>` runs that target on Linux. The `USE_*` switches
+are not forwarded into the container, so pass them there, for example
+`make docker-console` and then `make test USE_ZONE_DEVICE=1`.
 
 First, you need to create the builder image for building this project.
 
@@ -139,6 +158,7 @@ After you create a docker image for building, run commands using
 ```bash
 make docker-make-test # same as `make test` in the Linux
 make docker-make-integration-test # same as `make integration-test` in the Linux
+make docker-make-consumer-check # same as `make consumer-check` in the Linux
 make docker-make-all
 make docker-make-check
 make docker-make-flow
@@ -186,9 +206,9 @@ It shows results like:
 <!-- markdownlint-disable MD013 -->
 
 ```text
-{"ts":"2026-10-19T03:32:22Z","level":"INFO","target":"ftl_rust::module","msg":"flash initialize success"}
-{"ts":"2026-10-19T03:32:22Z","level":"INFO","target":"ftl_rust::module","msg":"submodule initialize success"}
-{"ts":"2026-10-19T03:32:22Z","level":"INFO","target":"ftl_rust::device::ramdisk","msg":"ramdisk generated (size: 1073741824 bytes)"}
+{"ts":"2026-10-19T08:31:07Z","level":"INFO","target":"ftl_rust::module","msg":"flash initialize success"}
+{"ts":"2026-10-19T08:31:07Z","level":"INFO","target":"ftl_rust::module","msg":"submodule initialize success"}
+{"ts":"2026-10-19T08:31:07Z","level":"INFO","target":"ftl_rust::device::ramdisk","msg":"ramdisk generated (size: 1073741824 bytes)"}
 [parameters]
         - modules     pgftl
         - devices     ramdisk
@@ -201,24 +221,23 @@ It shows results like:
         - warm-up     enabled
 fill data start!
 ready to read!
-
 Processing: 0.00% [nan MiB/s]
-Processing: 100.00% [759.32 MiB/s]
+Processing: 100.00% [395.27 MiB/s]
 finish thread 0
 finish thread 1
 finish thread 2
 finish thread 3
 [job information]
-id  time(s)   bw(MiB/s) iops      avg(ms)   max(ms)   min(ms)   
+id  time(s)   bw(MiB/s) iops      avg(ms)   max(ms)   min(ms)
 =====
-0   0.1312    762.3844  100       1.3117    1.8362    0.4278    
-1   0.1308    764.5279  100       1.3080    2.1736    0.4021    
-2   0.1300    769.1356  100       1.3002    2.1736    0.4021    
-3   0.1304    766.9909  100       1.3038    2.3047    0.3904    
+0   0.2607    383.5946  100       2.6069    14.2342   0.3500
+1   0.2465    405.7136  100       2.4648    14.2342   0.3500
+2   0.2420    413.2702  100       2.4197    14.2342   0.3500
+3   0.2505    399.2655  100       2.5046    14.2342   0.3500
 [crc status]
 crc check success
-{"ts":"2026-10-19T03:32:25Z","level":"INFO","target":"ftl_rust::module","msg":"submodule deallocates success"}
-{"ts":"2026-10-19T03:32:25Z","level":"INFO","target":"ftl_rust::module","msg":"flash deallocates success"}
+{"ts":"2026-10-19T08:31:10Z","level":"INFO","target":"ftl_rust::module","msg":"submodule deallocates success"}
+{"ts":"2026-10-19T08:31:10Z","level":"INFO","target":"ftl_rust::module","msg":"flash deallocates success"}
 [parameters]
         - modules     pgftl
         - devices     ramdisk
@@ -233,7 +252,9 @@ crc check success
 
 <!-- markdownlint-enable MD013 -->
 
-If you encounter a random-related error, please run commands as follows:
+CI builds the benchmark in both random modes and then runs it once over the
+ramdisk under `timeout`, so a panic or a hang fails the job. If you encounter
+a random-related error, please run commands as follows:
 
 ```bash
 make benchmark.out USE_LEGACY_RANDOM=1
@@ -243,4 +264,4 @@ make benchmark.out USE_LEGACY_RANDOM=1
 
 You can get this program's documentation file by using `make documents`
 (which runs `doxygen -s Doxyfile`). Also, you can get the flow of each
-function using `make flow`.
+function using `make flow`. The first needs `doxygen`, the second `cflow`.
