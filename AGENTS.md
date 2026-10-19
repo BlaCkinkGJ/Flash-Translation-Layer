@@ -8,18 +8,18 @@ files (nearest file wins).
 
 - **Domain**: NAND Flash Translation Layer (page-mapping FTL), Linux userspace.
 - **Language**: Rust for the page FTL, the helpers, the device dispatch, the
-  module and flash interfaces and the default ramdisk backend, C for the
-  optional device backends (zoned, bluedbm). The migration is
+  module and flash interfaces and the ramdisk, zoned and raspberrypi backends,
+  C for the remaining optional device backend (bluedbm). The migration is
   finished: no module has a C implementation left beside its Rust one. macOS is
   Docker only.
-- **Backends**: ramdisk (default, Rust), raspberrypi (Rust), zoned block device
-  and bluedbm (C, with cargo-gated Rust stubs).
+- **Backends**: ramdisk (default), zoned block device and raspberrypi are Rust,
+  bluedbm is C with a cargo-gated Rust stub.
 
 ## Repository Layout
 
 ```text
 include/           Public C headers (installed to $(PREFIX)/include/ftl)
-device/            C device backends (device.c, zone/, bluedbm/)
+device/            C device backends (device.c, bluedbm/)
 src/               Rust sources (cargo staticlib → libftl_rust.a), FTL under
                    src/ftl/
 tests/             Rust integration test (integration.rs)
@@ -33,7 +33,8 @@ integration-test.rs End-to-end test → integration-test.out
 Linux (Ubuntu >= 16.04) needs `git make gcc g++` and the Rust toolchain
 (`cargo`).
 Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
-[libzbd](https://github.com/westerndigitalcorporation/libzbd),
+[libzbd](https://github.com/westerndigitalcorporation/libzbd) (the zoned backend
+binds it in Rust, so the C build only has to link it),
 `USE_BLUEDBM_DEVICE=1` needs
 [libmemio](https://github.com/pnuoslab/Flash-Board-Tester),
 `USE_RASPBERRY_DEVICE=1` needs `libnand` and `wiringPi`. `make check` needs
@@ -46,6 +47,7 @@ Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
 make clean && make -j$(nproc)   # archives, integration-test.out, benchmark.out
 make clean && make test USE_LOG_SILENT=1  # Rust tests
 make integration-test                     # end-to-end, takes minutes
+make zone-smoke                           # zoned backend vs the null_blk emulator
 make clean && make benchmark.out          # USE_LEGACY_RANDOM=1 on random errors
 sudo make install                         # libraries + headers under /usr/local
 make documents | make flow | make check   # docs, call graph, static analysis

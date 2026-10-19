@@ -30,11 +30,9 @@
  * the backend init routines, and this table points at the same `ffi_` entry
  * points so that deleting a backend's C source leaves no caller behind here.
  *
- * The ramdisk entry is the ported one, and so is the raspberry entry. The
- * bluedbm and zone entries stay on their C implementations, because their Rust
- * modules are still `-ENOSYS` stubs (`src/device/{bluedbm,zone}.rs`), and
- * routing them through the stubs would break those builds instead of cutting
- * them over. Move each one to its `ffi_` entry point when its Rust port lands.
+ * Every entry is now the ported one: the ramdisk backend and the zoned (#108),
+ * raspberry (#115) and bluedbm (#109) ones. No backend has a C implementation
+ * left, and `src/device/mod.rs` wires the same four entry points.
  *
  * Task 16a: the C request allocators (`device_alloc_request`,
  * `device_free_request`) went with the `ftl/page` sources, their last callers.
@@ -49,7 +47,7 @@ static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [BULEDBM_MODULE] = */ NULL,
 #endif
 #ifdef DEVICE_USE_ZONED
-	/* [ZONE_MODULE] = */ zone_device_init,
+	/* [ZONE_MODULE] = */ ffi_zone_device_init,
 #else
 	/* [ZONE_MODULE] = */ NULL,
 #endif

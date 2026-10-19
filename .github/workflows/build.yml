@@ -43,3 +43,67 @@ jobs:
       run: make cargo-clippy
     - name: cargo build --features silent
       run: cargo build --features silent
+
+  # The zoned backend (#108) needs libzbd and a zoned block device, and the job
+  # above has neither. A GitHub runner has sudo and the `null_blk` driver can
+  # emulate a zoned device, so the emulator routine runs here. This job also
+  # carries the coverage measurement, because the emulator is what reaches the
+  # libzbd calls the unit tests cannot.
+  zone-emulator:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: prepare environment
+      run: |
+        sudo apt-get update -y && sudo apt-get clean
+        sudo apt-get install --no-install-recommends -y libzbd-dev
+        rustup component add llvm-tools-preview
+    - name: cargo build --features zone
+      run: cargo build --features zone
+    - name: cargo clippy --features zone
+      run: cargo clippy --all-targets --features zone -- -D warnings
+    - name: create an emulated zoned device
+      run: |
+        uname -r
+        # The runner ships a trimmed module set, so install the rest before
+        # either emulator can be loaded.
+        sudo apt-get update -y
+        sudo apt-get install --no-install-recommends -y \
+          linux-modules-extra-$(uname -r)
+        dev=""
+        # null_blk: a host-managed device of 4 zones of 16 MiB.
+        sudo modprobe null_blk nr_devices=1 zoned=1 zone_size=16 size=64 \
+          memory_backed=1 || true
+        if [ -b /dev/nullb0 ]; then dev=/dev/nullb0; fi
+        if [ -z "$dev" ]; then
+          # zloop: the same device, backed by regular files. It has to be told
+          # to create no conventional zone, which `open` rejects.
+          sudo modprobe zloop || true
+          if [ -c /dev/zloop-control ]; then
+            sudo mkdir -p /var/local/zloop/0
+            echo "add capacity_mb=64,zone_size_mb=16,conv_zones=0" \
+              | sudo tee /dev/zloop-control
+            if [ -b /dev/zloop0 ]; then dev=/dev/zloop0; fi
+          fi
+        fi
+        ls -l /dev/nullb0 /dev/zloop0 2>&1 || true
+        test -n "$dev"
+        sudo chmod 666 "$dev"
+        blkzone report "$dev" | head -6
+        echo "FTL_ZONE_DEVICE=$dev" >> "$GITHUB_ENV"
+    - name: make zone-smoke
+      run: make zone-smoke
+    - name: cargo test --features zone
+      run: cargo test --features zone
+    - name: install cargo-llvm-cov
+      run: cargo install cargo-llvm-cov --locked
+    - name: coverage of the zoned backend
+      run: |
+        cargo llvm-cov --no-report --all-targets --features zone
+        cargo llvm-cov --no-report --all-targets --features zone -- --ignored
+        cargo llvm-cov report --lcov --output-path coverage-rust.lcov
+        cargo llvm-cov report --summary-only
+    - uses: actions/upload-artifact@v4
+      with:
+        name: coverage-rust-lcov
+        path: coverage-rust.lcov
