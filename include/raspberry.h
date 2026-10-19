@@ -17,7 +17,15 @@
  * `src/device/raspberry.rs` keeps its own state, which no C source ever read,
  * and the init and exit routines below are what the device module installs.
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int ffi_raspberry_device_init(struct device *, uint64_t flags);
 int ffi_raspberry_device_exit(struct device *);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

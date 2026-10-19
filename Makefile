@@ -1,28 +1,11 @@
-VPATH = device device/zone device/bluedbm device/raspberry
-# You can generate the compile_commands.json file by using
-# `make clean -j$(nproc)`
-# `bear make all -j$(nproc)`
-# `compdb -p ./ list > ../compile_commands.json`
-# `cp ../compile_commands.json ./
-# or
-# `make compiledb`
-#
-# You can get `bear` from [link](https://github.com/rizsotto/Bear)
-# You can get `compdb` from [link](https://github.com/Sarcasm/compdb)
-
-# `-fsanitize=address` and `-lasan` for memory leakage checking
-# `-g` and `-pg` for tracing the program
-# So, you must delete all when you release the program
-
-.SUFFIXES : .c .cpp .o
-CC = gcc
-AR = ar
-CXX = g++
+# Nothing here compiles C any more: every implementation is Rust and the C left
+# is the ABI headers in `include/`. `make` builds the cargo archive and the two
+# cargo bins, `make check` / `flow` / `format` read the headers, and
+# `make consumer-check` compiles a C consumer against the installed archive,
+# which is what used to keep the headers compiling.
 INTEGRATION_TEST_TARGET = integration-test.out
 BENCHMARK_TARGET = benchmark.out
-LIBRARY_TARGET = libftl.a
 
-DEVICE_INCLUDES = 
 DOCKER_TAG_ROOT = ftl
 
 # Device Module Setting
@@ -36,29 +19,20 @@ USE_LOG_SILENT = 0
 USE_LEGACY_RANDOM = 0
 
 ifeq ($(USE_DEBUG), 1)
-DEBUG_FLAGS = -g -pg \
-              -DCONFIG_ENABLE_MSG \
-              -DCONFIG_ENABLE_DEBUG
-MACROS = -DUSE_GC_MESSAGE -DDEBUG
-MEMORY_CHECK_LIBS = -lasan
-MEMORY_CHECK_CFLAGS = 
-MEMORY_CHECK_LIBS += -fsanitize=address
+CARGO_PROFILE_FLAG =
 else
-DEBUG_FLAGS =
-MACROS = -DUSE_GC_MESSAGE
-MEMORY_CHECK_LIBS =
-MEMORY_CHECK_CFLAGS = 
-endif
-
-ifeq ($(USE_LOG_SILENT), 1)
-DEBUG_FLAGS += -DENABLE_LOG_SILENT
-endif
-
-ifeq ($(USE_LEGACY_RANDOM), 1)
-MACROS += -DUSE_LEGACY_RANDOM
+CARGO_PROFILE_FLAG = --release
 endif
 
 DEVICE_LIBS =
+
+# The geometry the installed headers' inline accessors describe. Nothing
+# compiles C with it any more: the Rust backend selects the same numbers behind
+# its cargo feature. `make consumer-check` passes these to the consumer it
+# compiles, because `include/device.h`'s defaults are the bluedbm ones and a
+# consumer of a zoned, bluedbm or raspberry build has to agree with the archive
+# it links.
+DEVICE_INFO =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 # Zoned Device's Setting
@@ -67,23 +41,16 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
                -DDEVICE_NR_PAGES_BITS=5 \
                -DDEVICE_NR_BLOCKS_BITS=21
 
+# The library the `zone` feature's hand-written binding leaves undefined.
 DEVICE_LIBS += -lzbd
 else ifeq ($(USE_BLUEDBM_DEVICE), 1)
 # BlueDBM Device's Setting
 DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
                -DDEVICE_NR_CHIPS_BITS=3 \
                -DDEVICE_NR_PAGES_BITS=7 \
-               -DDEVICE_NR_BLOCKS_BITS=19 \
-               -DUSER_MODE \
-               -DUSE_PMU \
-               -DUSE_KTIMER \
-               -DUSE_NEW_RMW \
-               -D_LARGEFILE64_SOURCE \
-               -D_GNU_SOURCE \
-               -DNOHOST
+               -DDEVICE_NR_BLOCKS_BITS=19
 
 DEVICE_LIBS += -lmemio
-DEVICE_INCLUDES += -I/usr/local/include/memio
 else ifeq ($(USE_RASPBERRY_DEVICE), 1)
 # Configuration for RaspberryPi Device
 # https://www.waveshare.com/wiki/File:K9F1G08U0D.pdf
@@ -102,8 +69,7 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=1 \
                -DDEVICE_NR_PAGES_BITS=4 \
                -DDEVICE_NR_BLOCKS_BITS=24 \
                -DDEVICE_PAGE_SIZE=2048
-DEVICE_LIBS += -lnand -lwiringPi 
-DEVICE_INCLUDES += -I/usr/local/include/nand
+DEVICE_LIBS += -lnand -lwiringPi
 else
 # Ramdisk Setting (1GiB)
 DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
@@ -112,53 +78,22 @@ DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
                -DDEVICE_NR_BLOCKS_BITS=19
 endif
 
-ifeq ($(USE_ZONE_DEVICE), 1)
-DEVICE_INFO += -DDEVICE_USE_ZONED
-endif
-
-ifeq ($(USE_BLUEDBM_DEVICE), 1)
-DEVICE_INFO += -DDEVICE_USE_BLUEDBM
-endif
-
-ifeq ($(USE_RASPBERRY_DEVICE), 1)
-DEVICE_INFO += -DDEVICE_USE_RASPBERRY
-endif
-
-ARFLAGS := rcs
-CFLAGS := -Wall \
-          -Wextra \
-          -Wpointer-arith \
-          -Wcast-align \
-          -Wwrite-strings \
-          -Wswitch-default \
-          -Wunreachable-code \
-          -Winit-self \
-          -Wmissing-field-initializers \
-          -Wno-unknown-pragmas \
-          -Wundef \
-          -Wconversion \
-          -Werror \
-          $(DEVICE_INFO) \
-          $(DEBUG_FLAGS) \
-          $(MEMORY_CHECK_CFLAGS) \
-          -O3
-
-CXXFLAGS := $(CFLAGS) \
-            -std=c++11
-
-INCLUDES := -I./include $(DEVICE_INCLUDES)
 RUST_LIB_DIR := target/$(if $(filter 1,$(USE_DEBUG)),debug,release)
 RUST_LIB := $(RUST_LIB_DIR)/libftl_rust.a
-# `$(DEVICE_LIBS)` comes after `-lftl_rust`: since #108 the zoned backend lives
-# in the Rust archive, so the linker only sees its `zbd_*` references once it
-# reaches that archive, and a `-lzbd` ahead of it is dropped as unneeded. The
-# C `libftl.a` comes first for the same reason.
-LIBS := -lm -lpthread $(MEMORY_CHECK_LIBS) -L$(RUST_LIB_DIR) -lftl_rust $(DEVICE_LIBS)
+HEADERS := include/*.h
+# `make consumer-check` is the only C compilation left, so it is the only
+# user of the compiler.
+CC = gcc
+# What a C consumer of the installed archive adds to the link line: the C
+# runtime, the pthread the device layer uses, and the library a feature-gated
+# Rust backend binds (`zbd_*`, `memio_*`, `nand_*` / `wiringPi`, see
+# `DEVICE_LIBS`). The staticlib carries the Rust objects only, so the final link
+# supplies these, after `-lftl_rust`.
+CONSUMER_LIBS := -lm -lpthread $(DEVICE_LIBS)
 
-# Cargo features mirroring the C build switches, so the Rust staticlib and the
-# C objects agree on which backend list and log level are compiled in. Each
-# backend feature mirrors the USE_*_DEVICE switch that installs the same backend
-# in C. Missing these makes the Rust backend table silently disagree with C's.
+# Cargo features mirroring the make switches. Each backend feature mirrors the
+# USE_*_DEVICE switch that also names the library the backend binds, and the
+# feature is what selects the backend into the Rust device table.
 RUST_FEATURES :=
 ifeq ($(USE_LOG_SILENT), 1)
 RUST_FEATURES += silent
@@ -179,35 +114,6 @@ RUST_FEATURES += raspberry
 endif
 RUST_FEATURE_FLAG := $(if $(strip $(RUST_FEATURES)),--features '$(strip $(RUST_FEATURES))')
 
-# Task 16: the FTL (`ftl/page/`), the generic helpers (`util/`), the ramdisk
-# backend (`device/ramdisk/`) and the module and flash interfaces
-# (`interface/`) are Rust only, so their C sources are gone. The C left is the
-# device module and its optional backends, which is what `libftl.a` holds.
-ZONED_SRCS =
-BLUEDBM_SRCS =
-RASPBERRY_SRCS =
-
-ifeq ($(USE_ZONE_DEVICE), 1)
-ZONED_SRCS += device/zone/*.c
-endif
-
-ifeq ($(USE_BLUEDBM_DEVICE), 1)
-BLUEDBM_SRCS += device/bluedbm/*.c
-endif
-
-ifeq ($(USE_RASPBERRY_DEVICE), 1)
-RASPBERRY_SRCS += device/raspberry/*.c
-endif
-
-DEVICE_SRCS := $(BLUEDBM_SRCS) \
-               $(ZONED_SRCS) \
-               $(RASPBERRY_SRCS) \
-               device/*.c
-
-SRCS := $(DEVICE_SRCS)
-
-OBJS := $(patsubst %.c,%.o,$(sort $(wildcard $(SRCS))))
-
 ifeq ($(PREFIX),)
 PREFIX := /usr/local
 endif
@@ -221,14 +127,15 @@ test: cargo-test
 integration-test: $(INTEGRATION_TEST_TARGET)
 	./$(INTEGRATION_TEST_TARGET)
 
-install: $(LIBRARY_TARGET) $(RUST_LIB)
+# One archive, because no C object is left to archive: the headers are the C
+# surface and the consumer check below is what proves they still compile and
+# link.
+install: $(RUST_LIB)
 	install -d $(DESTDIR)$(PREFIX)/lib/
-	install -m 644 $(LIBRARY_TARGET) $(DESTDIR)$(PREFIX)/lib
 	install -m 644 $(RUST_LIB) $(DESTDIR)$(PREFIX)/lib
 	install -d $(DESTDIR)$(PREFIX)/include/ftl
-	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
-	@echo "installed $(LIBRARY_TARGET) and $(RUST_LIB): link with -lftl -lftl_rust"
-	@echo "since the Task 14 cutover, libftl.a calls the Rust C ABI it does not define"
+	install -m 644 $(HEADERS) $(DESTDIR)$(PREFIX)/include/ftl
+	@echo "installed $(RUST_LIB) and the headers: link with -lftl_rust $(strip $(CONSUMER_LIBS))"
 
 # The zoned backend's end-to-end check against an emulated zoned block device.
 # Two emulators can make a host-managed device out of nothing and the target
@@ -279,12 +186,10 @@ zone-smoke:
 	echo "zone-smoke: using $$dev"; \
 	FTL_ZONE_DEVICE="$$dev" cargo test --features zone -- --ignored --nocapture emulator_writes_reads_and_resets_a_zone
 
-# The end-to-end program is the `integration-test` cargo bin. `$(LIBRARY_TARGET)`
-# stays a dependency so `make` keeps building the C archive for the device
-# backends it still holds. `integration-test.out` is the artifact the
-# `integration-test` target runs and `make clean` removes.
-$(INTEGRATION_TEST_TARGET): integration-test.rs $(LIBRARY_TARGET) $(RUST_LIB)
-	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release) $(RUST_FEATURE_FLAG) --bin integration-test
+# The end-to-end program is the `integration-test` cargo bin. `integration-test.out`
+# is the artifact the `integration-test` target runs and `make clean` removes.
+$(INTEGRATION_TEST_TARGET): integration-test.rs $(RUST_LIB)
+	cargo build $(CARGO_PROFILE_FLAG) $(RUST_FEATURE_FLAG) --bin integration-test
 	cp $(RUST_LIB_DIR)/integration-test $@
 
 # Task 16: the benchmark is a cargo bin (`benchmark.rs`, declared in
@@ -292,14 +197,8 @@ $(INTEGRATION_TEST_TARGET): integration-test.rs $(LIBRARY_TARGET) $(RUST_LIB)
 # name the README uses. It links no C object: the page FTL, the ramdisk and the
 # module and flash interfaces are the crate.
 $(BENCHMARK_TARGET): benchmark.rs $(RUST_LIB)
-	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release) $(RUST_FEATURE_FLAG) --bin benchmark
+	cargo build $(CARGO_PROFILE_FLAG) $(RUST_FEATURE_FLAG) --bin benchmark
 	cp $(RUST_LIB_DIR)/benchmark $@
-
-$(LIBRARY_TARGET): $(OBJS)
-	$(AR) $(ARFLAGS) $@ $^
-
-%.o: %.c
-	$(CC) $(MACROS) $(CFLAGS) -c $< -o $@ $(INCLUDES)
 
 
 docker-builder:
@@ -317,34 +216,82 @@ docker-console:
 		-v ${HOME}/.vimrc:/root/.vimrc \
 		$(DOCKER_TAG_ROOT)/ftl-builder /bin/bash
 
+# The three analysis tools read the ABI headers, which are all the C left. Each
+# keeps the input it had before the last C source went: cppcheck, flawfinder and
+# lizard over the headers, cflow over the static inline helpers in them.
 check:
 	@echo "[[ CPPCHECK ROUTINE ]]"
-	cppcheck --quiet --error-exitcode=0 --enable=all --inconclusive --suppress=unusedStructMember --suppress=missingIncludeSystem -I include/ $(SRCS) *.c
+	cppcheck --quiet --error-exitcode=0 --enable=all --inconclusive --suppress=unusedStructMember --suppress=missingIncludeSystem -I include/ $(HEADERS)
 	@echo "[[ FLAWFINDER ROUTINE ]]"
-	flawfinder $(SRCS) include/*.h
+	flawfinder $(HEADERS)
 	@echo "[[ STATIC ANALYSIS ROUTINE ]]"
-	lizard $(SRCS) include/*.h
+	lizard $(HEADERS)
 
 documents:
 	doxygen -s Doxyfile
 
 flow:
-	find . -type f -name '*.[ch]' | xargs -i cflow {}
+	cflow $(HEADERS)
 
 format:
-	find . -type f -name '*.[ch]' | xargs -i clang-format -i {}
+	clang-format -i $(HEADERS)
 
-compiledb:
-	bear -- $(MAKE) all
-	compdb -p ./ list > ../compile_commands.json
-	mv ../compile_commands.json ./
+# The check the `example/rw_example.c` used to provide: a C consumer of the
+# installed headers and the installed archive. It writes the consumer to a
+# temporary file, installs into a staging prefix, compiles with `-Werror` so a
+# header that no longer compiles fails here, links the one archive and runs the
+# program against the ramdisk. Nothing is added to the repository.
+consumer-check: $(RUST_LIB)
+	@set -e; \
+	stage=$$(mktemp -d); \
+	trap 'rm -rf "$$stage"' EXIT; \
+	consumer="$$stage/consumer.c"; \
+	printf '%s\n' \
+		'#include <assert.h>' \
+		'#include <fcntl.h>' \
+		'#include <string.h>' \
+		'#include "module.h"' \
+		'#include "flash.h"' \
+		'#include "device.h"' \
+		'#include "page.h"' \
+		'#include "log.h"' \
+		'' \
+		'#define BUFFER_SIZE (4096)' \
+		'' \
+		'int main(void)' \
+		'{' \
+		'	struct flash_device *flash = NULL;' \
+		'	char buffer[BUFFER_SIZE];' \
+		'	int value = 42;' \
+		'	assert(0 == ffi_module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE));' \
+		'	assert(NULL != flash);' \
+		'	assert(0 == flash->f_op->open(flash, NULL, O_CREAT | O_RDWR));' \
+		'	memset(buffer, 0, sizeof(buffer));' \
+		'	memcpy(buffer, &value, sizeof(value));' \
+		'	assert(flash->f_op->write(flash, buffer, sizeof(buffer), 0)' \
+		'	       == (ssize_t)sizeof(buffer));' \
+		'	memset(buffer, 0, sizeof(buffer));' \
+		'	assert(flash->f_op->read(flash, buffer, sizeof(buffer), 0)' \
+		'	       == (ssize_t)sizeof(buffer));' \
+		'	assert(0 == memcmp(buffer, &value, sizeof(value)));' \
+		'	assert(0 == flash->f_op->close(flash));' \
+		'	assert(0 == ffi_module_exit(flash));' \
+		'	pr_info("consumer ran against the installed archive\n");' \
+		'	return 0;' \
+		'}' > "$$consumer"; \
+	$(MAKE) install DESTDIR="$$stage" PREFIX=$(PREFIX); \
+	$(CC) -Wall -Wextra -Werror $(DEVICE_INFO) \
+		-I"$$stage$(PREFIX)/include/ftl" "$$consumer" \
+		-o "$$stage/consumer" \
+		-L"$$stage$(PREFIX)/lib" -lftl_rust $(CONSUMER_LIBS); \
+	"$$stage/consumer"
 
 clean:
-	find . -name '*.o' -exec rm -f {} +
-	rm -f $(TARGET) $(INTEGRATION_TEST_TARGET) $(LIBRARY_TARGET) $(BENCHMARK_TARGET)
+	rm -f $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 	cargo clean
 
-.PHONY: build_rust cargo-test cargo-clippy cargo-coverage test FORCE
+.PHONY: build_rust cargo-test cargo-clippy cargo-coverage test consumer-check FORCE
+
 build_rust: $(RUST_LIB)
 
 # Run the Rust test suite. Requires no extra toolchain components.
@@ -372,6 +319,6 @@ cargo-coverage:
 # see what the archive is built from.
 RUST_SRCS := $(shell find src -name '*.rs') Cargo.toml $(wildcard Cargo.lock)
 $(RUST_LIB): $(RUST_SRCS) FORCE
-	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release) $(RUST_FEATURE_FLAG)
+	cargo build $(CARGO_PROFILE_FLAG) $(RUST_FEATURE_FLAG)
 
 FORCE:

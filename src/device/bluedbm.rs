@@ -5,7 +5,7 @@
 //! buffer ownership and free ordering, and the same return values and error
 //! codes. The C ABI layer keeps the C entry points with the `ffi_` prefix
 //! (`ffi_bluedbm_device_init` / `ffi_bluedbm_device_exit` /
-//! `ffi_bluedbm_close`). `device/device.c` installs the backend through the
+//! `ffi_bluedbm_close`). `src/device/mod.rs` installs the backend through the
 //! init and exit pair, and `ffi_bluedbm_close` is the C close entry, reachable
 //! as before and dispatched through `dev->d_op` like the ramdisk's.
 //! `device/bluedbm/bluedbm.c` is gone.

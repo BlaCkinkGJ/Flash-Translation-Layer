@@ -1,5 +1,5 @@
 # The example is an in-crate cargo target now, so it needs neither the
-# installed headers nor the installed archives. `cargo build` names the
+# installed headers nor the installed archive. `cargo build` names the
 # manifest because this directory is not the crate root.
 TARGET = rw_example
 MANIFEST = ../Cargo.toml

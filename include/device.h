@@ -323,24 +323,25 @@ DEVICE_STATIC_ASSERT(sizeof(struct device_operations) == 5 * sizeof(void *),
  * FTL, which was their last caller. `ffi_device_alloc_request` and
  * `ffi_device_free_request` below are the live pair.
  *
- * `device_module_init` and `device_module_exit` stay: the table in
- * `device/device.c` is still the only installer for the zone, bluedbm and
- * raspberry backends, whose Rust ports are `-ENOSYS` stubs.
+ * `device_module_init` and `device_module_exit` went with `device/device.c`,
+ * the last C source in the repository: `src/device/mod.rs` holds the same
+ * dispatch and the same backend table, and these are the entry points every
+ * caller uses.
  */
-int device_module_init(const uint64_t modnum, struct device **, uint64_t flags);
-int device_module_exit(struct device *);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-/*
- * `src/device/mod.rs` and `src/device/ramdisk.rs` are the live implementations,
- * and these are the entry points the callers use. `device/device.c` still
- * compiles, and its table installs the same backends for the C pair above.
- */
 struct device_request *ffi_device_alloc_request(uint64_t flags);
 void ffi_device_free_request(struct device_request *request);
 
 int ffi_device_module_init(const uint64_t modnum, struct device **,
 			   uint64_t flags);
 int ffi_device_module_exit(struct device *);
+
+#ifdef __cplusplus
+}
+#endif
 
 /**
  * @brief get the number of segments in a flash board
