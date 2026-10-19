@@ -35,6 +35,14 @@ jobs:
       run: make clean && make benchmark.out
     - name: make benchmark.out with legacy random
       run: make clean && make benchmark.out USE_LEGACY_RANDOM=1
+    # The two steps above only prove the bin links. Run it once so a panic, an
+    # abort or a hang in the benchmark fails the job. `timeout` is what turns a
+    # hang into a failure, and the block count keeps the run to a few seconds.
+    - name: run the benchmark
+      run: |
+        make clean && make benchmark.out
+        timeout 120 ./benchmark.out -m pgftl -d ramdisk -t write -j 2 \
+          -b 1048576 -n 8
     # The C consumer check: installs into a staging prefix, compiles a C
     # consumer against the installed headers and the one archive, links it and
     # runs it over the ramdisk. It replaces the check the Rust example cannot
