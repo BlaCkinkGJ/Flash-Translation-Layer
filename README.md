@@ -132,9 +132,9 @@ make -j$(nproc)
 sudo make install
 ```
 
-`make install` depends on the archive, so it runs cargo, which means root
-needs the toolchain on its `PATH`. Without root, `make install DESTDIR=<dir>`
-writes the same tree under `<dir>`.
+`make install` depends on the archive, so it runs cargo. Run it as root only
+where root's `PATH` and rustup environment reach the toolchain, or use
+`make install DESTDIR=<dir>` to stage the same tree without root.
 
 ## For building in the macOS
 
