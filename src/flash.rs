@@ -51,7 +51,7 @@ pub struct flash_device {
 /// [`flash_device::f_op`].
 ///
 /// `open` / `write` / `read` / `close` are the byte oriented interface the
-/// examples and `integration-test.c` drive. The C header declares `ioctl`
+/// examples and `integration-test.rs` drive. The C header declares `ioctl`
 /// variadic (`include/flash.h:59-60`) and the page FTL implements it for
 /// `PAGE_FTL_IOCTL_TRIM`, but no call site in this repository ever passes a
 /// variadic argument: `integration-test.rs:322` and `example/rw_example.rs:97`

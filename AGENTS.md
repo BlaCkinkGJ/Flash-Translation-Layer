@@ -25,7 +25,7 @@ src/               Rust sources (cargo staticlib → libftl_rust.a), FTL under
 tests/             Rust integration test (integration.rs)
 example/           Rust example program (rw_example), a cargo example
 benchmark.c        Performance benchmark → benchmark.out
-integration-test.c End-to-end test → integration-test.out
+integration-test.rs End-to-end test → integration-test.out
 ```
 
 ## Setup And Build
@@ -53,8 +53,9 @@ make cargo-clippy   # = cargo clippy --all-targets -- -D warnings
 make cargo-coverage # cargo llvm-cov --lcov (llvm-tools + cargo-llvm-cov)
 ```
 
-`libftl.a` calls into the Rust archive: `integration-test.out` and
-`benchmark.out` link `-L. -lftl` and `-lftl_rust`. The `USE_*` switches
+`libftl.a` calls into the Rust archive, so a C consumer links `-L. -lftl`
+and `-lftl_rust`. `integration-test.out` is the crate's `integration-test`
+cargo bin and links the Rust archive itself. The `USE_*` switches
 live in the `Makefile`, which is authoritative. Each `USE_*_DEVICE` also
 enables the cargo feature of the same name (`zone`, `bluedbm`, `raspberry`), so
 the Rust device table and the C source list agree. The rest: `USE_DEBUG=1` adds

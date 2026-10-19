@@ -476,7 +476,7 @@ mod tests {
     use crate::module::{ffi_module_exit, ffi_module_init, PAGE_FTL_MODULE};
     use core::sync::atomic::Ordering;
 
-    /// The flag pair C's callers pass (`integration-test.c:192`).
+    /// The flag pair C's callers pass (`integration-test.rs:341`).
     const FLAGS: c_int = libc::O_CREAT | libc::O_RDWR;
 
     /// Four segments of four pages: small enough that a multi page transfer

@@ -72,15 +72,15 @@ switches derive, so `USE_LOG_SILENT=1` selects the `silent` feature.
 ### Execution
 
 Suppose you want to build and run the end-to-end test in the
-`integration-test.c`, then you must execute the below commands.
+`integration-test.rs`, then you must execute the below commands.
 
 ```bash
 make clean && make -j$(nproc) integration-test
 ```
 
-That target builds `integration-test.out` out of `integration-test.c` and
-runs it over the ramdisk backend, so a single command builds the C side, the
-Rust library and the test.
+That target builds `integration-test.out` out of the `integration-test` cargo
+bin and runs it over the ramdisk backend, so a single command builds the Rust
+library, the program and the test.
 
 ### Installation
 

@@ -15,6 +15,14 @@ crate-type = ["staticlib", "rlib"]
 name = "rw_example"
 path = "example/rw_example.rs"
 
+[[bin]]
+# The end to end test of the C ABI. `make integration-test` builds it and runs
+# it over the ramdisk, the way the C `integration-test.c` did. It declares an
+# explicit path because the file sits at the crate root next to the deleted C
+# program, not under `src/bin/`.
+name = "integration-test"
+path = "integration-test.rs"
+
 [features]
 # When enabled, pr_info / pr_warn / pr_err expand to no-ops.
 # Mirrors C `-DENABLE_LOG_SILENT` (Makefile `USE_LOG_SILENT=1`).

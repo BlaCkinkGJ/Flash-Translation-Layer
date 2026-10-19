@@ -221,9 +221,13 @@ install: $(LIBRARY_TARGET) $(RUST_LIB)
 	@echo "installed $(LIBRARY_TARGET) and $(RUST_LIB): link with -lftl -lftl_rust"
 	@echo "since the Task 14 cutover, libftl.a calls the Rust C ABI it does not define"
 
-$(INTEGRATION_TEST_TARGET): integration-test.c $(LIBRARY_TARGET) $(RUST_LIB)
-	$(CC) $(MACROS) $(CFLAGS) -c integration-test.c $(INCLUDES)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ integration-test.o -L. -lftl -lpthread $(LIBS) $(INCLUDES)
+# The end-to-end program is the `integration-test` cargo bin. `$(LIBRARY_TARGET)`
+# stays a dependency so `make` keeps building the C archive for the device
+# backends it still holds. `integration-test.out` is the artifact the
+# `integration-test` target runs and `make clean` removes.
+$(INTEGRATION_TEST_TARGET): integration-test.rs $(LIBRARY_TARGET) $(RUST_LIB)
+	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release) $(RUST_FEATURE_FLAG) --bin integration-test
+	cp $(RUST_LIB_DIR)/integration-test $@
 
 $(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) $(RUST_LIB)
 	$(CC) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES)
