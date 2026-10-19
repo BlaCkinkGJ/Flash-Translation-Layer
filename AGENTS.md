@@ -70,8 +70,8 @@ live in the `Makefile`, which is authoritative.
   needs to read it, and a declaration goes in the same change that deletes its
   implementation.
 - Every `.h` carries the doxygen `@file @brief @author @version @date` block, a
-  `#ifndef FOO_H` guard, and `extern "C"` around public declarations for C++
-  callers. No C++ in the repository: `g++` is not needed at all.
+  `#ifndef FOO_H` guard, and `extern "C"` around public declarations, so a C++
+  consumer links them. No C++ source lives here, so the build needs no `g++`.
 - Every exported symbol carries the `ffi_` prefix. `crc32` (`src/crc32.rs`,
   `include/crc32.h`) predates the migration and keeps its plain name.
 - A struct both sides see stays `#[repr(C)]` with its offsets asserted on both
@@ -126,9 +126,9 @@ Rust owning the FTL state and the device IO.
 
 New Rust modules go in `src/`, re-exported from `src/lib.rs`. A C caller
 reaches them through `extern "C"` declarations in a header under `include/`,
-which stays the ABI contract: Rust owns the logic and the IO. A struct both
-sides see stays `#[repr(C)]` with its offsets asserted on both sides, and a
-Rust-only type carries no repr at all.
+which stays the ABI contract: Rust owns the logic and the IO. That header
+follows the rules above, the `ffi_` prefix, the wrapper and the layout
+assertions both sides, and a Rust-only type carries no repr at all.
 
 ## Permissions
 
