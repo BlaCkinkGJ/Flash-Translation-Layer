@@ -9,6 +9,12 @@ edition = "2021"
 # every integration test fails to resolve the crate (E0432).
 crate-type = ["staticlib", "rlib"]
 
+[[example]]
+# The reader-facing example lives in `example/` (singular), not cargo's default
+# `examples/`, so the path is explicit. `example/Makefile` drives this target.
+name = "rw_example"
+path = "example/rw_example.rs"
+
 [features]
 # When enabled, pr_info / pr_warn / pr_err expand to no-ops.
 # Mirrors C `-DENABLE_LOG_SILENT` (Makefile `USE_LOG_SILENT=1`).

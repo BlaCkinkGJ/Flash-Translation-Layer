@@ -24,7 +24,7 @@ src/               Rust sources (cargo staticlib → libftl_rust.a), FTL under
                    src/ftl/
 tests/             Rust integration test (integration.rs)
 test/              Unity-based C unit tests (*-test.c), framework in unity/
-example/           Example program using the installed static lib
+example/           Rust example program (rw_example), a cargo example
 benchmark.c        Performance benchmark → benchmark.out
 integration-test.c End-to-end test → integration-test.out
 ```

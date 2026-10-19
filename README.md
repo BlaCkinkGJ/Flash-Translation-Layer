@@ -112,7 +112,9 @@ make docker-make-flow
 
 ## Example
 
-After installing our shared library on your system, you can make your own program. You can refer to making your program from the `example` directory.
+You can refer to making your own program from the `example` directory. It is a
+cargo example of this crate, so it builds against the sources instead of an
+installed library.
 
 You can run this example as follows:
 

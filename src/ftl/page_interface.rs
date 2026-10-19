@@ -279,7 +279,7 @@ unsafe extern "C" fn page_ftl_close_interface(flash: *mut flash_device) -> c_int
 ///
 /// C declares this operation variadic (`include/flash.h:59-60`) and never reads
 /// a variadic argument. The two in-tree callers pass only the request
-/// (`integration-test.c:162`, `example/rw_example.c:32`), so the Rust slot is
+/// (`integration-test.rs:322`, `example/rw_example.rs:97`), so the Rust slot is
 /// narrowed to that shape and the command reaches the operation type safely.
 /// See the deviations in [`crate::ftl`].
 ///
