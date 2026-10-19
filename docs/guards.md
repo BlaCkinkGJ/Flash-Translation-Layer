@@ -70,7 +70,7 @@ the unmangled name the archive exports.
 
 A struct both sides read by offset is pinned by `_Static_assert` in the header
 and by a `layout_matches_c` test in Rust, so a drift fails a build rather than
-corrupting memory.
+corrupting memory. The list file names its test `node_layout_matches_c`.
 
 | Assertions | Header | Rust test |
 | --- | --- | --- |
@@ -79,6 +79,9 @@ corrupting memory.
 | `LIST_STATIC_ASSERT` | `include/list.h:40` | `src/list.rs:208` |
 | `LRU_STATIC_ASSERT` | `include/lru.h:67` | `src/lru.rs:355` |
 | zbd sizes | `src/device/zone.rs:185` | `cargo test --features zone` |
+
+The zbd sizes are pinned by `const _: () = assert!(...)` rather than by a
+named test, which is why that row names the build instead.
 
 Verified by `make test` for the Rust half and `make consumer-check` for the C
 half, which compiles the assertions against the consumer compiler's own
@@ -179,12 +182,14 @@ real dependency cannot run on every machine.
 | `Fixture` | `src/ftl/test_support.rs:39` | a small ramdisk geometry |
 
 The dispatch functions take their table as a parameter, so the shipped table
-and a mock table run the same code. That is how `src/module.rs:163` and
-`src/device/mod.rs:852` drive the error paths, such as an out-of-range
-`modnum` and a failing submodule init, without a device. `NandApi` is a struct
-of function pointers filled from the real symbols in `NandApi::system` and
-from fakes in `fake_api` (`src/device/raspberry.rs:202,700`), which is what
-lets the raspberry backend have tests at all on a machine without libnand.
+and a mock table run the same code. That is how
+`init_rejects_an_out_of_range_module_number` (`src/module.rs:246`) and
+`module_init_error_paths` (`src/device/mod.rs:1219`) drive the error paths,
+an out-of-range `modnum` and a failing submodule init, without a device.
+`NandApi` is a struct of function pointers filled from the real symbols in
+`NandApi::system` and from fakes in `fake_api`
+(`src/device/raspberry.rs:202,700`), which is what lets the raspberry backend
+have tests at all on a machine without libnand.
 `Fixture` wraps a real ramdisk backend narrowed to a four-segment geometry.
 
 These compile only with `cargo test`, and the `#[cfg(test)]` attribute is what

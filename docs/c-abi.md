@@ -14,9 +14,10 @@ in a header is a property of the declaration, not of any definition, so it
 survives the migration unchanged.
 
 For C it is a no-op. For C++ it is what stops the compiler from mangling the
-declaration, which is the only reason it is there. The proof is mechanical. A
-translation unit that declares and calls `ffi_module_init` through
-`include/module.h` compiles to an undefined symbol with the plain name:
+declaration, which is the only reason it is there. The check is mechanical. A
+throwaway translation unit that declares and calls `ffi_module_init` through
+`include/module.h` compiles to an undefined symbol with the plain name. The
+unit is not in the tree, it is the check run against it:
 
 ```text
 $ g++ -std=c++17 -Iinclude -c probe.cpp -o probe.o
@@ -78,16 +79,21 @@ It is declared the same way in `include/crc32.h:29`. Renaming it would break
 every existing consumer for no gain, so the exception is recorded in
 `AGENTS.md:75` rather than quietly patched.
 
-Nothing forces the two sets to be equal, and they are not. The headers also
-declare six symbols the default archive does not carry, because the zoned,
-bluedbm and raspberry backends compile only behind their cargo features. The
-count is:
+Nothing forces the two sets to be equal, and they are not. The counts, all
+from the same tree:
 
 - 47 `#[no_mangle]` functions in `src/`
-- 39 of them exported by a default `cargo build --release` archive
+- 39 of them exported by a default `cargo build --release` archive, the
+  other 8 being the bluedbm, raspberry and zone symbols
 - 34 distinct symbols declared across the thirteen headers
-- 11 exported symbols with no declaration, the Rust-facing entry points such
-  as `ffi_flash_read` and `ffi_page_ftl_read`
+- 28 declared and exported, 11 exported with no declaration, and 6 declared
+  but absent from the default archive
+- the remaining 2, `ffi_bluedbm_close` and `ffi_raspberry_close`, are in no
+  header and in no default archive, only in a feature build
+
+The 11 exported without a declaration are the Rust-facing entry points, such
+as `ffi_flash_read` and `ffi_page_ftl_read`. The 6 declared but absent are
+the three feature-gated backend init and exit pairs.
 
 The mismatch is deliberate. A header declares what a C consumer calls. A
 Rust-only caller, the benchmark or the integration test, links the same
@@ -102,39 +108,39 @@ at runtime (`AGENTS.md:77-80`). The mirrors are:
 
 | Type | Header | Rust |
 | --- | --- | --- |
-| `device` | `include/device.h:186` | `src/device/mod.rs:395` |
-| `device_request` | `include/device.h:132` | `src/device/mod.rs:303` |
-| `device_address` | `include/device.h:103` | `src/device/mod.rs:204` |
-| `device_page` | `include/device.h:154` | `src/device/mod.rs:360` |
-| `device_block` | `include/device.h:161` | `src/device/mod.rs:367` |
-| `device_package` | `include/device.h:169` | `src/device/mod.rs:375` |
-| `device_info` | `include/device.h:177` | `src/device/mod.rs:383` |
-| `device_operations` | `include/device.h:198` | `src/device/mod.rs:441` |
-| `DeviceModule` | `include/device.h:48` | `src/device/mod.rs:134` |
-| `DeviceDirection` | `include/device.h:39` | `src/device/mod.rs:162` |
-| `flash_device` | `include/flash.h:38` | `src/flash.rs:43` |
-| `flash_operations` | `include/flash.h:52` | `src/flash.rs:63` |
-| `list_node_t` | `include/list.h:18` | `src/list.rs:29` |
-| `lru_node` | `include/lru.h:33` | `src/lru.rs:55` |
-| `lru_cache` | `include/lru.h:43` | `src/lru.rs:72` |
+| `device` | `include/device.h:186` | `src/device/mod.rs:396` |
+| `device_request` | `include/device.h:132` | `src/device/mod.rs:304` |
+| `device_address` | `include/device.h:103` | `src/device/mod.rs:206` |
+| `device_page` | `include/device.h:154` | `src/device/mod.rs:362` |
+| `device_block` | `include/device.h:161` | `src/device/mod.rs:369` |
+| `device_package` | `include/device.h:169` | `src/device/mod.rs:377` |
+| `device_info` | `include/device.h:177` | `src/device/mod.rs:385` |
+| `device_operations` | `include/device.h:198` | `src/device/mod.rs:442` |
+| `DeviceModule` | `include/device.h:48` | `src/device/mod.rs:136` |
+| `DeviceDirection` | `include/device.h:39` | `src/device/mod.rs:164` |
+| `flash_device` | `include/flash.h:38` | `src/flash.rs:44` |
+| `flash_operations` | `include/flash.h:52` | `src/flash.rs:64` |
+| `list_node_t` | `include/list.h:18` | `src/list.rs:30` |
+| `lru_node` | `include/lru.h:33` | `src/lru.rs:56` |
+| `lru_cache` | `include/lru.h:43` | `src/lru.rs:73` |
 
 The layout assertions are the `DEVICE_STATIC_ASSERT` block
 (`include/device.h:224-315`), the `FLASH_STATIC_ASSERT` block
 (`include/flash.h:78-102`), `LIST_STATIC_ASSERT` (`include/list.h:40-47`) and
 `LRU_STATIC_ASSERT` (`include/lru.h:67-91`). Their Rust halves are the
-`layout_matches_c` tests in `src/device/mod.rs:953`, `src/flash.rs:173`,
-`src/lru.rs:355` and `src/list.rs:208`, which assert the same formulas with
-`offset_of!` and `size_of!`.
+`layout_matches_c` tests in `src/device/mod.rs:953`, `src/flash.rs:173` and
+`src/lru.rs:355`, plus `node_layout_matches_c` in `src/list.rs:208`, which
+assert the same formulas with `offset_of!` and `size_of!`.
 
 Third party types are mirrored the same way where the backend reads their
-fields. `src/device/zone.rs:148,168` mirrors `struct zbd_info` and
+fields. `src/device/zone.rs:150,170` mirrors `struct zbd_info` and
 `struct zbd_zone` and pins their sizes with `const _: () = assert!(...)` at
-`src/device/zone.rs:185-186`. `src/device/bluedbm.rs:130,150` mirrors
+`src/device/zone.rs:185-186`. `src/device/bluedbm.rs:131,151` mirrors
 `bluedbm_dma_t` and `async_bdbm_req`, with `memio_t` at
-`src/device/bluedbm.rs:121` kept as an opaque zero-sized type because only a
+`src/device/bluedbm.rs:122` kept as an opaque zero-sized type because only a
 pointer to it ever crosses.
 
-Other types are deliberately opaque. `PageFtl` and `PageFtlSegment`
+Other types are deliberately opaque. `PageFtlSegment` and `PageFtl`
 (`src/ftl/mod.rs:398,451`) are plain Rust types with no `repr` at all: C
 reaches the FTL through `flash_operations` and `flash->f_private`, never by
 offset, which `include/page.h:22-35` records. The same holds for the backend
@@ -167,7 +173,7 @@ halves are declared next to each other.
   free.
 - A list is released by `ffi_list_free` (`include/list.h:60`). The node's
   `data` pointer is the caller's, and the module never reads or frees it
-  (`src/list.rs:24-26,100`).
+  (`src/list.rs:31-32,43`).
 - An LRU cache is created by `ffi_lru_init` and released by `ffi_lru_free`
   (`include/lru.h:100,104`).
 
