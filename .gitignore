@@ -32,7 +32,6 @@ modules.builtin
 *.xz
 *.lzo
 *.patch
-*.gcno
 
 #
 # Top-level generic files
@@ -88,8 +87,6 @@ doxygen/
 compile_commands.json
 
 # coverage results
-*.gcov
-*.gcda
 *.lcov
 
 

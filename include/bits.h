@@ -18,9 +18,9 @@
  * implementation since the cutover.
  * They are header-only in C, so there is no C symbol to drop and no call site
  * to rename: the helpers below are one-line forwards to the `ffi_` entry
- * points. The names stay because `test/bits-test.c` calls them, as do
- * `device/bluedbm/bluedbm.c` and `device/raspberry/raspberry.c`, whose
- * backends are still the C implementations.
+ * points. The names stay because `device/bluedbm/bluedbm.c` and
+ * `device/raspberry/raspberry.c` call them, and those backends are still the C
+ * implementations.
  */
 #ifdef __cplusplus
 extern "C" {

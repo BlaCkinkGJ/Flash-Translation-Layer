@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-      with:
-        submodules: recursive
     - name: prepare environment
       run: |
         sudo apt-get update -y && sudo apt-get clean
-        sudo apt-get install --no-install-recommends -y git make gcc g++ libglib2.0-dev libiberty-dev
+        sudo apt-get install --no-install-recommends -y git make gcc g++
+        # libglib2.0-dev and libiberty-dev dropped: no source, Makefile or
+        # workflow has a glib or iberty include or link left.
         sudo apt-get install --no-install-recommends -y cppcheck flawfinder cflow
         sudo apt-get install --no-install-recommends -y python3-pip
         sudo pip3 install lizard==1.17.0
@@ -26,8 +26,6 @@ jobs:
       run: make flow
     - name: make
       run: make
-    - name: make test
-      run: make clean && make test USE_LOG_SILENT=1
     - name: make integration-test
       run: make clean && make integration-test
     - name: make benchmark.out
@@ -35,12 +33,12 @@ jobs:
     - name: make benchmark.out with legacy random
       run: make clean && make benchmark.out USE_LEGACY_RANDOM=1
     # Rust gates. Run after the C ones because `make clean` runs `cargo clean`.
-    # `make cargo-test` and `make cargo-clippy` are the Makefile wrappers AGENTS.md
-    # documents, so CI runs the same commands with the same feature flags a
-    # developer runs locally. The `silent` build is the Rust side of
-    # `USE_LOG_SILENT=1` and issue #75 asks for it as its own step.
-    - name: make cargo-test
-      run: make cargo-test
+    # `make test` is the Rust suite (`cargo test --all-targets` with the feature
+    # flags the Makefile derives), so it covers the separate `make cargo-test`
+    # step the C tests used to need. The `silent` feature is the Rust side of
+    # `USE_LOG_SILENT=1` and issue #75 asks for it.
+    - name: make test
+      run: make clean && make test USE_LOG_SILENT=1
     - name: make cargo-clippy
       run: make cargo-clippy
     - name: cargo build --features silent

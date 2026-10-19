@@ -25,8 +25,7 @@
 //!
 //! Symbols carry the `ffi_` prefix because they are the C ABI this module
 //! exports. `device/device.c` is still compiled: its table installs the same
-//! Rust backends for the C pair (`device_module_init` / `device_module_exit`),
-//! which `test/zone-test.c` calls.
+//! Rust backends for the C pair (`device_module_init` / `device_module_exit`).
 //!
 //! Deliberate deviations from the C original:
 //!
@@ -590,8 +589,8 @@ const RASPBERRY_INIT: Option<SubmoduleInitFn> = None;
 ///
 /// Task 6 wired the ramdisk entry and Task 7 wires the bluedbm / zone /
 /// raspberry stub slots, each enabled by its Cargo feature. C's
-/// `device/device.c` keeps its own table for `test/zone-test.c`, so the C entry
-/// point does not wait on this one.
+/// `device/device.c` keeps its own table, so the C entry point does not wait on
+/// this one.
 static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] = [
     Some(ramdisk::ffi_ramdisk_device_init),
     BLUEDBM_INIT,
