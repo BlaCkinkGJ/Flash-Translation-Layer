@@ -50,6 +50,7 @@ modules.builtin
 #
 !.gitignore
 !.mailmap
+!.codacy.yml
 
 #
 # Generated include files

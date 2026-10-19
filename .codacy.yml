@@ -1,0 +1,9 @@
+---
+# Codacy's markdownlint engine runs MD043 (Enforce Required Heading Structure)
+# with its default empty heading list, so it reports the first heading of every
+# Markdown file as "Expected: [None]; Actual: # ...". That already shows on
+# README.md and AGENTS.md as baseline noise. The docs tree is excluded here and
+# linted by the "lint the markdown" step in .github/workflows/build.yml
+# instead, which is deterministic and runs on every pull request.
+exclude_paths:
+  - "docs/**"
