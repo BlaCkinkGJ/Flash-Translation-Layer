@@ -62,6 +62,13 @@ jobs:
     - name: cargo build --features silent
       run: cargo build --features silent
 
+    # Codacy's markdownlint engine runs MD043 with an empty heading list, which
+    # flags the first heading of every file, so `.codacy.yml` excludes `docs/**`
+    # and this step is what keeps those files honest. README.md and AGENTS.md
+    # stay in the Codacy run and are linted here too.
+    - name: lint the markdown
+      run: npx -y markdownlint-cli2 "docs/**/*.md" README.md AGENTS.md
+
   # The zoned backend (#108) needs libzbd and a zoned block device, and the job
   # above has neither. A GitHub runner has sudo and the `null_blk` driver can
   # emulate a zoned device, so the emulator routine runs here. This job also
