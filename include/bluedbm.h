@@ -18,7 +18,15 @@
  * what `src/device/mod.rs` installs, and the backend reaches libmemio through
  * the hand-written binding in that module.
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int ffi_bluedbm_device_init(struct device *, uint64_t flags);
 int ffi_bluedbm_device_exit(struct device *);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

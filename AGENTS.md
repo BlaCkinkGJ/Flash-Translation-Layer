@@ -8,11 +8,10 @@ files (nearest file wins).
 
 - **Domain**: NAND Flash Translation Layer (page-mapping FTL), Linux userspace.
 - **Language**: Rust only. The FTL, the helpers, the device dispatch, the
-  interfaces, the four device backends, the example, the end to end program and
+  interfaces, the four device backends (ramdisk by default, zoned, bluedbm and
+  raspberrypi behind a cargo feature), the example, the end to end program and
   the benchmark are all Rust. The C surface is the headers in `include/`, which
   declare the C ABI `libftl_rust.a` exports. macOS is Docker only.
-- **Backends**: ramdisk (default), zoned block device, bluedbm and raspberrypi,
-  all Rust, the three hardware ones behind a cargo feature.
 
 ## Repository Layout
 
@@ -28,8 +27,8 @@ integration-test.rs End-to-end test → integration-test.out
 
 ## Setup And Build
 
-Linux (Ubuntu >= 16.04) needs `git make gcc` and the Rust toolchain (`cargo`).
-`gcc` is only used by `make consumer-check`, the one C compilation left.
+Linux (Ubuntu >= 16.04) needs `git make gcc` and the Rust toolchain (`cargo`),
+where `gcc` is only used by `make consumer-check`, the one C compile left.
 Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
 [libzbd](https://github.com/westerndigitalcorporation/libzbd),
 `USE_BLUEDBM_DEVICE=1` needs
@@ -55,11 +54,10 @@ make cargo-coverage # cargo llvm-cov --lcov (llvm-tools + cargo-llvm-cov)
 
 Each `USE_*_DEVICE` switch enables the cargo feature of the same name (`zone`,
 `bluedbm`, `raspberry`), which selects that backend into the Rust device table,
-and names the library the switch needs in `DEVICE_LIBS`. `USE_DEBUG=1` builds
-the debug cargo profile instead of release. The rest: `USE_LOG_SILENT=1`
-silences the info logs (`silent`) and `USE_LEGACY_RANDOM=1` falls back to the
-legacy generator (`legacy-random`). The switches live in the `Makefile`, which
-is authoritative.
+and names the library it needs in `DEVICE_LIBS`. `USE_DEBUG=1` builds the debug
+cargo profile. `USE_LOG_SILENT=1` silences the info logs (`silent`) and
+`USE_LEGACY_RANDOM=1` takes the legacy generator (`legacy-random`). The switches
+live in the `Makefile`, which is authoritative.
 
 ## Code Style
 
@@ -82,6 +80,9 @@ is authoritative.
   `src/lru.rs`. Drift breaks a build, not memory at runtime.
 - Logging: one JSON object per line from the Rust side (`src/log.rs`), silenced
   by `USE_LOG_SILENT=1`. `include/log.h` is what a C consumer uses.
+- Concurrency and warnings: `struct device` and `struct device_request` embed
+  `pthread_mutex_t` / `pthread_cond_t` that Rust locks behind, and a header
+  line has to keep `make consumer-check`'s `-Wall -Wextra -Werror` clean.
 
 ### Rust
 
@@ -126,7 +127,7 @@ Rust owning the FTL state and the device IO.
 New Rust modules go in `src/`, re-exported from `src/lib.rs`. A C caller
 reaches them through `extern "C"` declarations in a header under `include/`,
 which stays the ABI contract: Rust owns the logic and the IO. A struct both
-sides see stays `#[repr(C)]` with its offsets asserted on one side, and a
+sides see stays `#[repr(C)]` with its offsets asserted on both sides, and a
 Rust-only type carries no repr at all.
 
 ## Permissions
@@ -158,9 +159,8 @@ flawfinder, lizard) is the first line of review.
 - This file is living documentation. Update it in the same PR that changes a
   build flag, target, test, or convention.
 - Keep under ~200 lines. If it grows, split it into per-directory `AGENTS.md`
-  files (e.g. `src/device/AGENTS.md` for backend specifics).
-- Test the file: ask an AI assistant to do a common task using only it, and fix
-  anything it gets wrong.
+  files (e.g. `src/device/AGENTS.md` for backend specifics). Test the file: ask
+  an AI assistant to do a common task using only it, and fix what it gets wrong.
 
 ## AI work instructions (orchestrator only)
 

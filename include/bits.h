@@ -18,8 +18,7 @@
  * implementation since the cutover.
  * They are header-only in C, so there is no C symbol to drop and no call site
  * to rename: the helpers below are one-line forwards to the `ffi_` entry
- * points. The names stay because a C consumer of the installed headers calls
- * them.
+ * points, and they keep the published names this header has always declared.
  */
 #ifdef __cplusplus
 extern "C" {

@@ -34,7 +34,15 @@ enum {
  * `flash->f_submodule_exit`.
  * `interface/module.c`, the C table that used to name them, is gone (Task 16).
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int ffi_page_ftl_module_init(struct flash_device *, uint64_t flags);
 int ffi_page_ftl_module_exit(struct flash_device *);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -328,12 +328,20 @@ DEVICE_STATIC_ASSERT(sizeof(struct device_operations) == 5 * sizeof(void *),
  * dispatch and the same backend table, and these are the entry points every
  * caller uses.
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct device_request *ffi_device_alloc_request(uint64_t flags);
 void ffi_device_free_request(struct device_request *request);
 
 int ffi_device_module_init(const uint64_t modnum, struct device **,
 			   uint64_t flags);
 int ffi_device_module_exit(struct device *);
+
+#ifdef __cplusplus
+}
+#endif
 
 /**
  * @brief get the number of segments in a flash board
