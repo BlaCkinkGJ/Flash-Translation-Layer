@@ -9,17 +9,17 @@ files (nearest file wins).
 - **Domain**: NAND Flash Translation Layer (page-mapping FTL), Linux userspace.
 - **Language**: Rust for the page FTL, the helpers, the device dispatch, the
   module and flash interfaces and the default ramdisk backend, C for the
-  optional device backends (zoned, bluedbm, raspberrypi). The migration is
+  optional device backends (zoned, bluedbm). The migration is
   finished: no module has a C implementation left beside its Rust one. macOS is
   Docker only.
-- **Backends**: ramdisk (default, Rust), zoned block device, bluedbm and
-  raspberrypi (C, with cargo-gated Rust stubs).
+- **Backends**: ramdisk (default, Rust), raspberrypi (Rust), zoned block device
+  and bluedbm (C, with cargo-gated Rust stubs).
 
 ## Repository Layout
 
 ```text
 include/           Public C headers (installed to $(PREFIX)/include/ftl)
-device/            C device backends (device.c, zone/, bluedbm/, raspberry/)
+device/            C device backends (device.c, zone/, bluedbm/)
 src/               Rust sources (cargo staticlib → libftl_rust.a), FTL under
                    src/ftl/
 tests/             Rust integration test (integration.rs)

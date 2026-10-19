@@ -1236,16 +1236,18 @@ mod tests {
                     continue;
                 }
 
-                // The wired slot holds the Task 7 stub, whose vtable C would
-                // call answers -ENOSYS instead of touching hardware.
+                // The wired slot holds that backend, whose vtable C would
+                // call.
                 assert_eq!(
                     ffi_device_module_init(module as u64, &mut dev, 0),
                     0,
-                    "{module:?} should install its stub"
+                    "{module:?} should install its backend"
                 );
                 assert!(!dev.is_null());
-                let open = (*(*dev).d_op).open.unwrap();
-                assert_eq!(open(dev, ptr::null(), 0), -libc::ENOSYS);
+                // The operations are not driven here, each backend's own
+                // module covers them. Driving `open` would touch hardware for
+                // a ported backend and the stub would answer -ENOSYS.
+                assert!((*(*dev).d_op).open.is_some());
                 assert_eq!(ffi_device_module_exit(dev), 0);
             }
 
