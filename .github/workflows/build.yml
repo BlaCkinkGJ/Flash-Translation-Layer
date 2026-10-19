@@ -89,24 +89,33 @@ jobs:
         sudo apt-get install --no-install-recommends -y \
           linux-modules-extra-$(uname -r)
         dev=""
-        # null_blk: a host-managed device of 4 zones of 16 MiB.
-        sudo modprobe null_blk nr_devices=1 zoned=1 zone_size=16 size=64 \
-          memory_backed=1 || true
-        if [ -b /dev/nullb0 ]; then dev=/dev/nullb0; fi
-        if [ -z "$dev" ]; then
-          # zloop: the same device, backed by regular files. It has to be told
-          # to create no conventional zone, which `open` rejects.
-          sudo modprobe zloop || true
-          if [ -c /dev/zloop-control ]; then
-            sudo mkdir -p /var/local/zloop/0
-            echo "add capacity_mb=64,zone_size_mb=16,conv_zones=0" \
-              | sudo tee /dev/zloop-control
-            if [ -b /dev/zloop0 ]; then dev=/dev/zloop0; fi
-          fi
+        # zloop first: a host-managed device of 4 zones of 16 MiB, backed by
+        # regular files. It has to be told to create no conventional zone,
+        # which `open` rejects. Its modprobe output is captured rather than
+        # printed, so a job that never needs the fallback has a clean log.
+        zloop_log=$(sudo modprobe zloop 2>&1) || true
+        if [ -c /dev/zloop-control ]; then
+          sudo mkdir -p /var/local/zloop/0
+          echo 'add capacity_mb=64,zone_size_mb=16,conv_zones=0' \
+            | sudo tee /dev/zloop-control || true
+          if [ -b /dev/zloop0 ]; then dev=/dev/zloop0; fi
         fi
-        ls -l /dev/nullb0 /dev/zloop0 2>&1 || true
+        if [ -z "$dev" ]; then
+          # null_blk is the fallback, not the first choice: the runner kernel
+          # ships without CONFIG_BLK_DEV_NULL_BLK, so it fails on every run
+          # and this path is the uncommon one. Report the zloop failure only
+          # now, so it stays out of the log of a green job.
+          echo "zloop unusable: ${zloop_log:-no zloop0 from zloop-control}"
+          sudo modprobe null_blk nr_devices=1 zoned=1 zone_size=16 size=64 \
+            memory_backed=1 || true
+          if [ -b /dev/nullb0 ]; then dev=/dev/nullb0; fi
+        fi
         test -n "$dev"
+        # udev applies the node's mode in a separate process, so wait for it
+        # before the chmod, which the later rule would otherwise overwrite.
+        sudo udevadm settle || true
         sudo chmod 666 "$dev"
+        ls -l "$dev"
         blkzone report "$dev" | head -6
         echo "FTL_ZONE_DEVICE=$dev" >> "$GITHUB_ENV"
     - name: make zone-smoke
