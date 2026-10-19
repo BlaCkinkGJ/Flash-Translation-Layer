@@ -321,7 +321,7 @@ impl Bluedbm {
         // C's `addr.format.block = segnum` with the BlueDBM bit counts, so the
         // segment sits at bit 13.
         for segnum in 0..(*dev).nr_segments() {
-            let lpn = (segnum as u32 & BLUEDBM_BLOCK_MASK) << BLUEDBM_BLOCK_SHIFT;
+            let lpn = (segnum as u32) << BLUEDBM_BLOCK_SHIFT;
             memio_trim(mio, lpn, erase_size as u64, erase_end_request);
         }
         0
