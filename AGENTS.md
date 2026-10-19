@@ -8,7 +8,7 @@ files (nearest file wins).
 
 - **Domain**: NAND Flash Translation Layer (page-mapping FTL), Linux userspace.
 - **Language**: Rust only. Every implementation is Rust, including the four
-  device backends (ramdisk by default, zoned, bluedbm and raspberrypi behind
+  device backends (ramdisk by default, zoned, bluedbm and raspberry behind
   cargo features), the example, the end to end program and the benchmark. The C
   surface is the headers in `include/`, which declare the C ABI `libftl_rust.a`
   exports. macOS builds with cargo, and Docker covers the Linux-only parts.
