@@ -149,7 +149,11 @@ CXXFLAGS := $(CFLAGS) \
 INCLUDES := -I./include $(DEVICE_INCLUDES)
 RUST_LIB_DIR := target/$(if $(filter 1,$(USE_DEBUG)),debug,release)
 RUST_LIB := $(RUST_LIB_DIR)/libftl_rust.a
-LIBS := -lm -lpthread $(DEVICE_LIBS) $(MEMORY_CHECK_LIBS) -L$(RUST_LIB_DIR) -lftl_rust
+# `$(DEVICE_LIBS)` comes after `-lftl_rust`: since #108 the zoned backend lives
+# in the Rust archive, so the linker only sees its `zbd_*` references once it
+# reaches that archive, and a `-lzbd` ahead of it is dropped as unneeded. The
+# C `libftl.a` comes first for the same reason.
+LIBS := -lm -lpthread $(MEMORY_CHECK_LIBS) -L$(RUST_LIB_DIR) -lftl_rust $(DEVICE_LIBS)
 
 # Cargo features mirroring the C build switches, so the Rust staticlib and the
 # C objects agree on which backend list and log level are compiled in. Each
@@ -220,6 +224,55 @@ install: $(LIBRARY_TARGET) $(RUST_LIB)
 	install -m 644 include/*.h $(DESTDIR)$(PREFIX)/include/ftl
 	@echo "installed $(LIBRARY_TARGET) and $(RUST_LIB): link with -lftl -lftl_rust"
 	@echo "since the Task 14 cutover, libftl.a calls the Rust C ABI it does not define"
+
+# The zoned backend's end-to-end check against an emulated zoned block device.
+# Two emulators can make a host-managed device out of nothing and the target
+# tries both: `null_blk`
+# (https://zonedstorage.io/docs/getting-started/zbd-emulation) and the `zloop`
+# driver (`Documentation/admin-guide/blockdev/zoned_loop`). It needs root to
+# load a module, libzbd to link and the cargo `zone` feature, so it is its own
+# target rather than part of `test` or `make cargo-test`. When no emulator can
+# be created it prints why and exits 0, which is what happens on macOS, where
+# the Docker builder has no module tree.
+#
+# The device it asks for is 4 zones of 16MiB with no conventional zone. A zone
+# has to hold exactly one segment of the zoned build (2^5 pages * 2^3 bus * 2^3
+# chips * 8192 bytes), because the backend compares the zone's byte offset
+# against the address the FTL computes, and every zone has to be
+# sequential-write-required, because `open` rejects a device that has a
+# conventional zone. See `src/device/zone.rs`.
+ZONE_DEVICE ?= $(or $(FTL_ZONE_DEVICE),/dev/nullb0)
+ZONE_MODULE_ARGS ?= nr_devices=1 zoned=1 zone_size=16 size=64 memory_backed=1
+ZLOOP_ARGS ?= capacity_mb=64,zone_size_mb=16,conv_zones=0
+
+.PHONY: zone-smoke
+zone-smoke:
+	@dev="$(ZONE_DEVICE)"; \
+	if [ ! -b "$$dev" ]; then \
+		if ! command -v modprobe >/dev/null 2>&1; then \
+			echo "zone-smoke: SKIP, modprobe is missing, so no emulator can be created here"; \
+			exit 0; \
+		fi; \
+		echo "zone-smoke: loading null_blk ($(ZONE_MODULE_ARGS))"; \
+		sudo modprobe null_blk $(ZONE_MODULE_ARGS) >/dev/null 2>&1 || true; \
+		if [ -b /dev/nullb0 ]; then dev=/dev/nullb0; fi; \
+		if [ ! -b "$$dev" ]; then \
+			echo "zone-smoke: loading zloop ($(ZLOOP_ARGS))"; \
+			sudo modprobe zloop >/dev/null 2>&1 || true; \
+			if [ -c /dev/zloop-control ]; then \
+				sudo mkdir -p /var/local/zloop/0; \
+				echo "add $(ZLOOP_ARGS)" | sudo tee /dev/zloop-control >/dev/null; \
+				if [ -b /dev/zloop0 ]; then dev=/dev/zloop0; fi; \
+			fi; \
+		fi; \
+		if [ -b "$$dev" ]; then sudo chmod 666 "$$dev"; fi; \
+	fi; \
+	if [ ! -b "$$dev" ]; then \
+		echo "zone-smoke: SKIP, no zoned device. Create one with 'sudo modprobe null_blk $(ZONE_MODULE_ARGS)' or with the zloop driver, then set ZONE_DEVICE"; \
+		exit 0; \
+	fi; \
+	echo "zone-smoke: using $$dev"; \
+	FTL_ZONE_DEVICE="$$dev" cargo test --features zone -- --ignored --nocapture emulator_writes_reads_and_resets_a_zone
 
 # The end-to-end program is the `integration-test` cargo bin. `$(LIBRARY_TARGET)`
 # stays a dependency so `make` keeps building the C archive for the device

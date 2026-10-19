@@ -7,11 +7,11 @@
 
 This repository contains the simple Flash Translation Layers made on the Linux Environments. Furthermore, this repository works on the Ramdisk and various devices(e.g., Zoned Block Device, bluedbm, etc.).
 
-The page FTL, the utilities, the device dispatch and the default ramdisk
-backend are Rust, and the Rust library is `libftl_rust.a`. The optional
-zoned and bluedbm backends stay C and are archived into
-`libftl.a`, which calls into the Rust library, so a consumer of the
-installed library links both (see the Installation section below).
+The page FTL, the utilities, the device dispatch and the ramdisk, zoned and
+raspberrypi backends are Rust, and the Rust library is `libftl_rust.a`. The
+optional bluedbm backend stays C and is archived into `libftl.a`, which calls
+into the Rust library, so a consumer of the installed library links both (see
+the Installation section below).
 
 If you have any questions about this project, don't hesitate to contact the maintainer (ss5kijun@gmail.com).
 
@@ -50,6 +50,12 @@ Additionally, you must install a valid library for each module. Each module's re
 > Moreover, before you run the Zoned Block Device-based program,
 > You must check that you give the super-user privileges to run
 > the Zoned Block Device-based programs.
+
+Without a zoned device, the `null_blk` driver can emulate one and
+`make zone-smoke` runs the zoned backend against it (see
+<https://zonedstorage.io/docs/getting-started/zbd-emulation>). The target loads
+the module with `sudo`, needs libzbd, and prints why it skipped when the
+emulator, the module or the privileges are missing.
 
 ### Test
 

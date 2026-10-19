@@ -44,20 +44,21 @@
 //! - Geometry lives on [`device`] as safe methods instead of the header's
 //!   `static inline`s. The C inlines in `include/device.h` stay, so no C-ABI
 //!   symbol is exported for them.
-//! - The bit counts and `DEVICE_PAGE_SIZE` are the default (ramdisk)
-//!   `DEVICE_INFO` from the Makefile. The non-default backends compile C with
-//!   different `-DDEVICE_NR_*_BITS` (zoned `3/3/5/21`, raspberry `1/1/4/24`
-//!   with a 2048 byte page). The Task 7 stubs deliberately set no geometry
-//!   because every operation returns `-ENOSYS`, and the hardware ports bring
-//!   the matching bit counts when they replace the stubs.
+//! - The bit counts and `DEVICE_PAGE_SIZE` mirror the Makefile's
+//!   `DEVICE_INFO`. The non-default backends compile C with different
+//!   `-DDEVICE_NR_*_BITS`, and the backend that has landed selects the same
+//!   counts behind its cargo feature: the zoned build's `3/3/5/21` behind
+//!   `zone`. The raspberry build's `1/1/4/24` with a 2048 byte page lands with
+//!   its hardware port, and the bluedbm build's `3/3/7/19` with its own.
 //! - C's `raspberry` address view is not ported: it only means something under
 //!   the raspberry build's bit counts, and the Pi NAND path is out of scope, so
 //!   it lands with the raspberry hardware port instead of carrying a constant
 //!   that is wrong for its own target. See [`device_address`].
 //! - `ffi_device_module_init` dispatches through a backend table where the
-//!   ramdisk entry is wired (Task 6) and the three stub slots are wired behind
-//!   their Cargo features (Task 7). C's `device/device.c` keeps its own table
-//!   for the C entry points, so both dispatchers stand on their own.
+//!   ramdisk entry is wired (Task 6), the zone entry carries the ported zoned
+//!   backend (#108) and the two remaining slots are wired behind their Cargo
+//!   features (Task 7). C's `device/device.c` keeps its own table for the C
+//!   entry points, so both dispatchers stand on their own.
 
 pub mod ramdisk;
 
@@ -80,13 +81,40 @@ pub const PADDR_EMPTY: u32 = u32::MAX;
 /// C's `DEVICE_DEFAULT_REQUEST`: the only request allocation flag defined.
 pub const DEVICE_DEFAULT_REQUEST: u64 = 0;
 
-/// Default (ramdisk) geometry, mirroring the Makefile's `DEVICE_INFO`.
+/// `DEVICE_NR_BUS_BITS` / `DEVICE_NR_CHIPS_BITS` / `DEVICE_NR_PAGES_BITS` /
+/// `DEVICE_NR_BLOCKS_BITS`, mirroring the Makefile's `DEVICE_INFO`.
+///
+/// The zoned build compiles C with `-DDEVICE_NR_*_BITS=3/3/5/21`, and
+/// `USE_ZONE_DEVICE=1` also turns on the `zone` cargo feature, so the same
+/// feature selects those counts here and both sides decode a
+/// [`device_address`] the same way. `DEVICE_PAGE_SIZE` is the same in both
+/// builds. The zoned and the default counts put the block field at bit 11 and
+/// give a segment 2048 pages, so only the split of the low 11 bits differs.
+#[cfg(feature = "zone")]
+pub const DEVICE_NR_BUS_BITS: u32 = 3;
+#[cfg(not(feature = "zone"))]
 pub const DEVICE_NR_BUS_BITS: u32 = 2;
+
+/// See [`DEVICE_NR_BUS_BITS`].
+#[cfg(feature = "zone")]
+pub const DEVICE_NR_CHIPS_BITS: u32 = 3;
+#[cfg(not(feature = "zone"))]
 pub const DEVICE_NR_CHIPS_BITS: u32 = 2;
+
+/// See [`DEVICE_NR_BUS_BITS`].
+#[cfg(feature = "zone")]
+pub const DEVICE_NR_PAGES_BITS: u32 = 5;
+#[cfg(not(feature = "zone"))]
 pub const DEVICE_NR_PAGES_BITS: u32 = 7;
+
+/// See [`DEVICE_NR_BUS_BITS`].
+#[cfg(feature = "zone")]
+pub const DEVICE_NR_BLOCKS_BITS: u32 = 21;
+#[cfg(not(feature = "zone"))]
 pub const DEVICE_NR_BLOCKS_BITS: u32 = 19;
 
-/// C's `DEVICE_PAGE_SIZE`, the NAND page size of the default build.
+/// C's `DEVICE_PAGE_SIZE`, the NAND page size of the default build and of the
+/// zoned build, which does not override it.
 pub const DEVICE_PAGE_SIZE: usize = 8192;
 
 const BUS_SHIFT: u32 = 0;
@@ -587,10 +615,10 @@ const RASPBERRY_INIT: Option<SubmoduleInitFn> = None;
 
 /// C's `submodule_init[]`, indexed by [`DeviceModule`].
 ///
-/// Task 6 wired the ramdisk entry and Task 7 wires the bluedbm / zone /
-/// raspberry stub slots, each enabled by its Cargo feature. C's
-/// `device/device.c` keeps its own table, so the C entry point does not wait on
-/// this one.
+/// Task 6 wired the ramdisk entry, #108 replaced the zone stub with the ported
+/// zoned backend, and Task 7 wired the bluedbm and raspberry stub slots. Each
+/// non-default entry is enabled by its Cargo feature. C's `device/device.c`
+/// keeps its own table, so the C entry point does not wait on this one.
 static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] = [
     Some(ramdisk::ffi_ramdisk_device_init),
     BLUEDBM_INIT,
@@ -836,10 +864,19 @@ mod tests {
 
     #[test]
     fn address_packing_matches_c_bitfields() {
-        // bus 2 bits, chip 2 bits, page 7 bits, block 19 bits.
+        // The default build is bus 2 bits, chip 2 bits, page 7 bits, block 19
+        // bits, and the zoned build is 3/3/5/21. Both put the block at bit 11.
         let addr = device_address::new(1, 2, 3, 4);
-        assert_eq!(addr.lpn, 1 | (2 << 2) | (4 << 4) | (3 << 11));
+        assert_eq!(
+            addr.lpn,
+            1 | (2 << DEVICE_NR_BUS_BITS)
+                | (4 << (DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS))
+                | (3 << BLOCK_SHIFT)
+        );
+        #[cfg(not(feature = "zone"))]
         assert_eq!(addr.lpn, 6217);
+        #[cfg(feature = "zone")]
+        assert_eq!(addr.lpn, 6417);
         assert_eq!(addr.bus(), 1);
         assert_eq!(addr.chip(), 2);
         assert_eq!(addr.page(), 4);
@@ -848,12 +885,22 @@ mod tests {
         // Every bit of the packed word is addressable, and the fields truncate
         // to their declared width like C's bitfields do.
         let full = device_address::new(BUS_MASK, CHIP_MASK, BLOCK_MASK, PAGE_MASK);
-        assert_eq!(full.lpn, (1u32 << 30) - 1);
         assert_eq!(full.block(), BLOCK_MASK);
 
-        // The "empty" sentinel is not a packable address: the default geometry
-        // uses 30 of the 32 bits.
-        assert_ne!(PADDR_EMPTY, full.lpn);
+        // The default geometry packs 30 of the 32 bits, so the "empty"
+        // sentinel is not a packable address. The zoned geometry packs all 32,
+        // so there the sentinel is a reachable address, which is C's behaviour
+        // under `-DDEVICE_NR_*_BITS=3/3/5/21` too.
+        #[cfg(not(feature = "zone"))]
+        {
+            assert_eq!(full.lpn, (1u32 << 30) - 1);
+            assert_ne!(PADDR_EMPTY, full.lpn);
+        }
+        #[cfg(feature = "zone")]
+        {
+            assert_eq!(full.lpn, u32::MAX);
+            assert_eq!(full.lpn, PADDR_EMPTY);
+        }
         assert_eq!(device_address { lpn: PADDR_EMPTY }.lpn, u32::MAX);
 
         assert_eq!(device_address::default().lpn, 0);
@@ -884,10 +931,16 @@ mod tests {
         dev.info.package.block.page.size = DEVICE_PAGE_SIZE;
 
         assert_eq!(dev.nr_segments(), 64);
-        assert_eq!(dev.blocks_per_segment(), 16);
-        assert_eq!(dev.pages_per_segment(), 16 * 128);
+        assert_eq!(
+            dev.blocks_per_segment(),
+            1 << (DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS)
+        );
+        // Both geometries give a segment 2^11 pages: 4 * 4 * 128 in the default
+        // build, 8 * 8 * 32 in the zoned one.
+        assert_eq!(dev.pages_per_segment(), 1 << 11);
         assert_eq!(dev.page_size(), DEVICE_PAGE_SIZE);
-        // The Makefile's default build is the 1GiB ramdisk.
+        // The Makefile's default build is the 1GiB ramdisk, and the zoned build
+        // reaches the same 1GiB with 64 segments of 2048 pages.
         assert_eq!(dev.total_size(), 1 << 30);
         assert_eq!(dev.total_pages(), (1 << 30) / DEVICE_PAGE_SIZE);
     }
@@ -1033,7 +1086,10 @@ mod tests {
         let addr = device_address::new(1, 2, 3, 4);
         assert_eq!(u32::from(addr), addr.lpn);
         assert_eq!(device_address::from(addr.lpn), addr);
+        #[cfg(not(feature = "zone"))]
         assert_eq!(addr.to_string(), "bus 1 chip 2 block 3 page 4 (lpn 0x1849)");
+        #[cfg(feature = "zone")]
+        assert_eq!(addr.to_string(), "bus 1 chip 2 block 3 page 4 (lpn 0x1911)");
 
         assert_eq!(DeviceDirection::from_flag(0), Some(DeviceDirection::Write));
         assert_eq!(DeviceDirection::from_flag(2), Some(DeviceDirection::Erase));
@@ -1208,8 +1264,9 @@ mod tests {
     }
 
     #[test]
-    fn exported_module_init_reports_unported_backends() {
-        // Task 6 wired the ramdisk entry and Task 7 wires the stub slots behind
+    fn exported_module_init_reports_each_backend() {
+        // Task 6 wired the ramdisk entry, #108 wired the zoned entry to the
+        // ported backend, and Task 7 wires the remaining stub slots behind
         // their Cargo features, so only the slots still empty report -ENODEV.
         unsafe {
             let mut dev: *mut device = ptr::null_mut();
