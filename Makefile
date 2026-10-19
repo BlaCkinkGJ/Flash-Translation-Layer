@@ -163,6 +163,11 @@ RUST_FEATURES :=
 ifeq ($(USE_LOG_SILENT), 1)
 RUST_FEATURES += silent
 endif
+# The benchmark's stream seed. No C source reads `-DUSE_LEGACY_RANDOM` any
+# more, so the cargo feature is what the switch drives.
+ifeq ($(USE_LEGACY_RANDOM), 1)
+RUST_FEATURES += legacy-random
+endif
 ifeq ($(USE_BLUEDBM_DEVICE), 1)
 RUST_FEATURES += bluedbm
 endif
@@ -282,9 +287,13 @@ $(INTEGRATION_TEST_TARGET): integration-test.rs $(LIBRARY_TARGET) $(RUST_LIB)
 	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release) $(RUST_FEATURE_FLAG) --bin integration-test
 	cp $(RUST_LIB_DIR)/integration-test $@
 
-$(BENCHMARK_TARGET): benchmark.c $(LIBRARY_TARGET) $(RUST_LIB)
-	$(CC) $(MACROS) $(CFLAGS) -c benchmark.c $(INCLUDES)
-	$(CXX) $(MACROS) $(CXXFLAGS) -o $@ benchmark.o -L. -lftl -lpthread $(INCLUDES) $(LIBS)
+# Task 16: the benchmark is a cargo bin (`benchmark.rs`, declared in
+# `Cargo.toml`), so cargo links it and the rule only renames the artifact to the
+# name the README uses. It links no C object: the page FTL, the ramdisk and the
+# module and flash interfaces are the crate.
+$(BENCHMARK_TARGET): benchmark.rs $(RUST_LIB)
+	cargo build $(if $(filter 1,$(USE_DEBUG)),,--release) $(RUST_FEATURE_FLAG) --bin benchmark
+	cp $(RUST_LIB_DIR)/benchmark $@
 
 $(LIBRARY_TARGET): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $^
