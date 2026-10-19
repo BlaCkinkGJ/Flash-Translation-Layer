@@ -73,8 +73,9 @@
 //!   globals and leaks the old buffers. The port releases them first, the way
 //!   [`Bluedbm::close`] does, so the two paths cannot disagree.
 //! - When `memio_write` / `memio_read` returns a negative value, C returns it
-//!   and leaks the DMA and request structures. The port releases both before
-//!   returning, because the structures are `Box`es it still owns there.
+//!   and leaks the DMA and request structures. The port does the same: libmemio
+//!   may have run `end_rw_request` before returning, so freeing them here could
+//!   double free.
 //! - [`Bluedbm::erase`] calls `request->end_rq` before the trim, as C does,
 //!   and C's `(uint32_t)` cast of `device_get_pages_per_segment` is kept for
 //!   the `erase_size` product.
@@ -343,7 +344,13 @@ impl DeviceOperations for Bluedbm {
             return ret;
         }
 
-        self.open_storage(dev, mio, flags)
+        let ret = self.open_storage(dev, mio, flags);
+        if ret < 0 {
+            // C reaches `bluedbm_close` through its `exception` label on every
+            // allocation failure in the open sequence.
+            let _ = self.close(dev);
+        }
+        ret
     }
 
     /// Write one page, mirroring C's `bluedbm_write`.
@@ -416,11 +423,9 @@ impl DeviceOperations for Bluedbm {
             write_rq as *mut c_void,
             (*dma).tag as c_int,
         );
-        if ret < 0 {
-            // C leaks both here. The port still owns them, so release them.
-            drop(Box::from_raw(write_rq));
-            drop(Box::from_raw(dma));
-        }
+        // C returns the value and leaks both structures. libmemio may have run
+        // `end_rw_request` before returning a negative value, so freeing them
+        // here could double free.
         ret as isize
     }
 
@@ -453,10 +458,12 @@ impl DeviceOperations for Bluedbm {
         }
         let page_size = (*dev).page_size();
         if (*request).data_len != page_size {
+            // C passes `(request->data_len, page_size)` here too, so the two
+            // print under the wrong labels, as in `write`.
             pr_err!(
                 "data read size is must be {} (current: {})",
-                page_size,
-                (*request).data_len
+                (*request).data_len,
+                page_size
             );
             return -(libc::EINVAL as isize);
         }
@@ -486,11 +493,9 @@ impl DeviceOperations for Bluedbm {
             read_rq as *mut c_void,
             (*dma).tag as c_int,
         );
-        if ret < 0 {
-            // C leaks both here. The port still owns them, so release them.
-            drop(Box::from_raw(read_rq));
-            drop(Box::from_raw(dma));
-        }
+        // C returns the value and leaks both structures. libmemio may have run
+        // `end_rw_request` before returning a negative value, so freeing them
+        // here could double free.
         ret as isize
     }
 
