@@ -33,9 +33,9 @@ Three things follow from that, and they explain most of the code:
 
 Two layers plus helpers implement this. The device layer owns the backend
 vtable and the geometry. The FTL layer owns the mapping, the allocator, the
-collector and the C-facing bridge. `bits`, `crc32` and `log` are the helpers
-both layers call, `list` and `lru` are exported for C alone, and the `ffi_`
-functions are the C ABI boundary.
+collector and the C-facing bridge. `bits` and `log` are the helpers both
+layers call, `crc32` serves the checkpoint, `list` and `lru` are exported for
+C alone, and the `ffi_` functions are the C ABI boundary.
 
 ## 2. Module map
 
