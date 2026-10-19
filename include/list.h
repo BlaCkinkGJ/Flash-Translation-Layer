@@ -1,3 +1,10 @@
+/**
+ * @file list.h
+ * @brief the doubly-linked list
+ * @author Gijun Oh
+ * @version 0.1
+ * @date 2026-05-02
+ */
 #ifndef LIST_H
 #define LIST_H
 

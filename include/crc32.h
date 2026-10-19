@@ -1,3 +1,10 @@
+/**
+ * @file crc32.h
+ * @brief the CRC32 checksum
+ * @author Gijun Oh
+ * @version 0.1
+ * @date 2026-05-02
+ */
 #ifndef CRC32_H
 #define CRC32_H
 
