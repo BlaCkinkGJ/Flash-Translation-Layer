@@ -5,8 +5,10 @@
 //! buffer ownership and free ordering, and the same return values and error
 //! codes. The C ABI layer keeps the C entry points with the `ffi_` prefix
 //! (`ffi_bluedbm_device_init` / `ffi_bluedbm_device_exit` /
-//! `ffi_bluedbm_close`), because the C program `device/device.c` installs the
-//! backend through them. `device/bluedbm/bluedbm.c` is gone.
+//! `ffi_bluedbm_close`). `device/device.c` installs the backend through the
+//! init and exit pair, and `ffi_bluedbm_close` is the C close entry, reachable
+//! as before and dispatched through `dev->d_op` like the ramdisk's.
+//! `device/bluedbm/bluedbm.c` is gone.
 //!
 //! libmemio is bound by hand below with `extern "C"` plus
 //! `#[link(name = "memio")]`, as the issue asks. The library is not installed
@@ -120,7 +122,7 @@ const DMA_READ_BUF: c_int = 2;
 /// (the header defines it in C++ terms with a `std::queue` member), and so does
 /// the port. Its layout is never read, so an opaque zero-sized type is enough.
 #[repr(C)]
-pub struct memio_t {
+struct memio_t {
     _private: [u8; 0],
 }
 
@@ -129,10 +131,10 @@ pub struct memio_t {
 /// `data` is the DMA buffer `memio_alloc_dma` hands back, `tag` its tag for
 /// `memio_free_dma`, and `d_private` the user `device_request`.
 #[repr(C)]
-pub struct BluedbmDma {
-    pub tag: u32,
-    pub data: *mut c_char,
-    pub d_private: *mut c_void,
+struct BluedbmDma {
+    tag: u32,
+    data: *mut c_char,
+    d_private: *mut c_void,
 }
 
 /// Signature of `memio_trim`'s `end_req` callback, C's
@@ -149,10 +151,10 @@ type RwEndReqFn = unsafe extern "C" fn(rw_req: *mut AsyncBdbmReq);
 /// `type`, `end_req`, `private_data`. `type` is renamed `type_` because `type`
 /// is a Rust keyword. The names are not part of the ABI, only the order is.
 #[repr(C)]
-pub struct AsyncBdbmReq {
-    pub type_: u32,
-    pub end_req: Option<RwEndReqFn>,
-    pub private_data: *mut c_void,
+struct AsyncBdbmReq {
+    type_: u32,
+    end_req: Option<RwEndReqFn>,
+    private_data: *mut c_void,
 }
 
 // libmemio, bound by hand. The C ABI names are the ones `bluedbm.c` calls.
@@ -526,7 +528,7 @@ impl DeviceOperations for Bluedbm {
             end_rq(request);
         }
         let erase_size = pages_per_segment as usize * page_size;
-        let lpn = (segnum & BLUEDBM_BLOCK_MASK) << BLUEDBM_BLOCK_SHIFT;
+        let lpn = segnum << BLUEDBM_BLOCK_SHIFT;
         memio_trim(mio, lpn, erase_size as u64, erase_end_request);
         wait_erase_finish(dev, segnum as usize, 1);
         0
@@ -788,7 +790,7 @@ mod tests {
         let backend = backend_with_handle();
         let page_size = dev.page_size();
         let mut request = Request::new().expect("allocate a request");
-        let mut page = vec![0u8; page_size];
+        let mut page = [0u8; 1];
 
         unsafe {
             // NULL data pointer.
@@ -841,7 +843,7 @@ mod tests {
         let backend = backend_with_handle();
         let page_size = dev.page_size();
         let mut request = Request::new().expect("allocate a request");
-        let mut page = vec![0u8; page_size];
+        let mut page = [0u8; 1];
 
         unsafe {
             request.data = ptr::null_mut();
