@@ -44,7 +44,7 @@
 static int (*submodule_init[])(struct device *, uint64_t) = {
 	/* [RAMDISK_MODULE] = */ ffi_ramdisk_device_init,
 #ifdef DEVICE_USE_BLUEDBM
-	/* [BULEDBM_MODULE] = */ bluedbm_device_init,
+	/* [BULEDBM_MODULE] = */ ffi_bluedbm_device_init,
 #else
 	/* [BULEDBM_MODULE] = */ NULL,
 #endif
