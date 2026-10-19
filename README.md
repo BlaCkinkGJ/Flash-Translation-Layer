@@ -120,11 +120,12 @@ sudo make install
 
 ## For building in the macOS
 
-The macOS is not supported natively, but the Rust build and the test suite
-run on it with cargo, so `make test` and the benchmark work without Docker.
-Docker provides the reproducible Linux build: the builder image carries the
-Linux toolchain and `libzbd`, so it builds the crate and runs the test suite
-and `make consumer-check` on Linux, including the `zone` feature.
+The project targets Linux and does not support the macOS natively. The Rust
+build and the test suite nevertheless run with cargo, so `make test` and the
+benchmark work without Docker. Docker provides the reproducible Linux build:
+the builder image carries the Linux toolchain and `libzbd`, so it builds the
+crate and runs the test suite and `make consumer-check` on Linux, including
+the `zone` feature.
 
 First, you need to create the builder image for building this project.
 
