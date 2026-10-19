@@ -7,18 +7,17 @@ files (nearest file wins).
 ## Project Snapshot
 
 - **Domain**: NAND Flash Translation Layer (page-mapping FTL), Linux userspace.
-- **Language**: Rust only. The FTL, the helpers, the device dispatch, the
-  interfaces, the four device backends (ramdisk by default, zoned, bluedbm and
-  raspberrypi behind a cargo feature), the example, the end to end program and
-  the benchmark are all Rust. The C surface is the headers in `include/`, which
-  declare the C ABI `libftl_rust.a` exports. macOS is Docker only.
+- **Language**: Rust only. Every implementation is Rust, including the four
+  device backends (ramdisk by default, zoned, bluedbm and raspberrypi behind
+  cargo features), the example, the end to end program and the benchmark. The C
+  surface is the headers in `include/`, which declare the C ABI `libftl_rust.a`
+  exports. macOS builds with cargo, and Docker covers the Linux-only parts.
 
 ## Repository Layout
 
 ```text
 include/           Public C headers (installed to $(PREFIX)/include/ftl)
-src/               Rust sources (cargo staticlib → libftl_rust.a), FTL under
-                   src/ftl/
+src/               Rust sources (cargo staticlib → libftl_rust.a), src/ftl/
 tests/             Rust integration test (integration.rs)
 example/           Rust example program (rw_example), a cargo example
 benchmark.rs        Performance benchmark → benchmark.out
@@ -36,8 +35,9 @@ Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
 `USE_RASPBERRY_DEVICE=1` needs `libnand` and `wiringPi`. The backends bind
 those libraries by hand, so a consumer of that build links them too.
 `make check` needs `cppcheck`, `flawfinder` and `lizard==1.17.0`,
-`make flow` needs `cflow`, and `make documents` needs `doxygen`. macOS has no
-native build: use Docker (`make docker-builder`, then `make docker-make-test`).
+`make flow` needs `cflow`, and `make documents` needs `doxygen`. The ramdisk
+backend builds and tests with cargo on the macOS, while Docker
+(`make docker-builder`, `make docker-make-test`) covers the Linux-only parts.
 
 ```bash
 make clean && make -j$(nproc)   # archive, integration-test.out, benchmark.out
