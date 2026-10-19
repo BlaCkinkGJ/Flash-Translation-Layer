@@ -100,15 +100,11 @@ const BLUEDBM_NR_BLOCKS: usize = 4096;
 const BLUEDBM_NR_BUS_BITS: u32 = 3;
 const BLUEDBM_NR_CHIPS_BITS: u32 = 3;
 const BLUEDBM_NR_PAGES_BITS: u32 = 7;
-const BLUEDBM_NR_BLOCKS_BITS: u32 = 19;
 
 /// Width of the bus/chip/page run below the segment field (C's
 /// `DEVICE_NR_PAGES_BITS + DEVICE_NR_CHIPS_BITS + DEVICE_NR_BUS_BITS`).
 const BLUEDBM_BLOCK_SHIFT: u32 =
     BLUEDBM_NR_BUS_BITS + BLUEDBM_NR_CHIPS_BITS + BLUEDBM_NR_PAGES_BITS;
-
-/// Mask of the segment field in a `device_address`.
-const BLUEDBM_BLOCK_MASK: u32 = (1u32 << BLUEDBM_NR_BLOCKS_BITS) - 1;
 
 /// C's `REQTYPE_IO_READ` / `REQTYPE_IO_WRITE` from `bdbm_drv.h`, the value
 /// `async_bdbm_req.type` carries.
@@ -527,7 +523,7 @@ impl DeviceOperations for Bluedbm {
         // C's `(uint32_t)device_get_pages_per_segment`.
         let pages_per_segment = (*dev).pages_per_segment() as u32;
         // C's `segnum = addr.format.block` with the BlueDBM bit counts.
-        let segnum = ((*request).paddr.lpn >> BLUEDBM_BLOCK_SHIFT) & BLUEDBM_BLOCK_MASK;
+        let segnum = (*request).paddr.lpn >> BLUEDBM_BLOCK_SHIFT;
 
         if let Some(end_rq) = (*request).end_rq {
             end_rq(request);
@@ -779,13 +775,8 @@ mod tests {
 
         // The segment field sits at bit 13, the BlueDBM bus/chip/page run.
         assert_eq!(BLUEDBM_BLOCK_SHIFT, 13);
-        let address = device_address::from(
-            (2u32 & BLUEDBM_BLOCK_MASK) << BLUEDBM_BLOCK_SHIFT,
-        );
-        assert_eq!(
-            (address.lpn >> BLUEDBM_BLOCK_SHIFT) & BLUEDBM_BLOCK_MASK,
-            2
-        );
+        let address = device_address::from(2u32 << BLUEDBM_BLOCK_SHIFT);
+        assert_eq!(address.lpn >> BLUEDBM_BLOCK_SHIFT, 2);
     }
 
     #[test]
