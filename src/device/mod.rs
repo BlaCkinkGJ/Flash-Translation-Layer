@@ -24,10 +24,13 @@
 //! atomics.
 //!
 //! Symbols carry the `ffi_` prefix because they are the C ABI this module
-//! exports. `device/device.c` is still compiled: its table installs the same
-//! Rust backends for the C pair (`device_module_init` / `device_module_exit`).
+//! exports. The C original (`device/device.c`) went with the last C source in
+//! the cutover, so this module is the only implementation: `SUBMODULE_INIT`
+//! installs every backend, and `ffi_device_module_init` /
+//! `ffi_device_module_exit` are the live pair every caller uses.
 //!
-//! Deliberate deviations from the C original:
+//! Deliberate deviations from the C original, which is deleted, so the bullets
+//! below describe what it did:
 //!
 //! - `ffi_device_module_init` rejects an out-of-range `modnum` with `-EINVAL`
 //!   and a module with no backend with `-ENODEV`. C indexes
@@ -57,8 +60,8 @@
 //! - `ffi_device_module_init` dispatches through a backend table where the
 //!   ramdisk entry is wired (Task 6), the zone entry carries the ported zoned
 //!   backend (#108) and the two remaining slots are wired behind their Cargo
-//!   features (Task 7). C's `device/device.c` keeps its own table for the C
-//!   entry points, so both dispatchers stand on their own.
+//!   features (Task 7). C's table indexed the backend pointers unchecked, and
+//!   the C entry points that read it are deleted.
 
 pub mod ramdisk;
 
@@ -617,8 +620,8 @@ const RASPBERRY_INIT: Option<SubmoduleInitFn> = None;
 ///
 /// Task 6 wired the ramdisk entry, #108 replaced the zone stub with the ported
 /// zoned backend, and Task 7 wired the bluedbm and raspberry stub slots. Each
-/// non-default entry is enabled by its Cargo feature. C's `device/device.c`
-/// keeps its own table, so the C entry point does not wait on this one.
+/// non-default entry is enabled by its Cargo feature. It is the only backend
+/// table now that the C one is deleted.
 static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] = [
     Some(ramdisk::ffi_ramdisk_device_init),
     BLUEDBM_INIT,

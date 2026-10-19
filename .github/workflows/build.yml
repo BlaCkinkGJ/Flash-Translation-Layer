@@ -14,9 +14,12 @@ jobs:
     - name: prepare environment
       run: |
         sudo apt-get update -y && sudo apt-get clean
-        sudo apt-get install --no-install-recommends -y git make gcc g++
+        # gcc is the one compiler left, for `make consumer-check`, which is the
+        # only C compilation in the tree. g++ went with the C++ link step.
+        sudo apt-get install --no-install-recommends -y git make gcc
         # libglib2.0-dev and libiberty-dev dropped: no source, Makefile or
-        # workflow has a glib or iberty include or link left.
+        # workflow has a glib or iberty include or link left. cppcheck,
+        # flawfinder and cflow still read the ABI headers in `include/`.
         sudo apt-get install --no-install-recommends -y cppcheck flawfinder cflow
         sudo apt-get install --no-install-recommends -y python3-pip
         sudo pip3 install lizard==1.17.0
@@ -32,7 +35,14 @@ jobs:
       run: make clean && make benchmark.out
     - name: make benchmark.out with legacy random
       run: make clean && make benchmark.out USE_LEGACY_RANDOM=1
-    # Rust gates. Run after the C ones because `make clean` runs `cargo clean`.
+    # The C consumer check: installs into a staging prefix, compiles a C
+    # consumer against the installed headers and the one archive, links it and
+    # runs it over the ramdisk. It replaces the check the Rust example cannot
+    # provide any more, and it is the only step that compiles C.
+    - name: make consumer-check
+      run: make clean && make consumer-check
+    # Rust gates. `make clean` runs `cargo clean`, so the steps that need the
+    # archive rebuild it.
     # `make test` is the Rust suite (`cargo test --all-targets` with the feature
     # flags the Makefile derives), so it covers the separate `make cargo-test`
     # step the C tests used to need. The `silent` feature is the Rust side of

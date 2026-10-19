@@ -7,19 +7,17 @@ files (nearest file wins).
 ## Project Snapshot
 
 - **Domain**: NAND Flash Translation Layer (page-mapping FTL), Linux userspace.
-- **Language**: Rust for the page FTL, the helpers, the device dispatch, the
-  module and flash interfaces and the ramdisk, zoned and raspberrypi backends,
-  C for the remaining optional device backend (bluedbm). The migration is
-  finished: no module has a C implementation left beside its Rust one. macOS is
-  Docker only.
-- **Backends**: ramdisk (default), zoned block device and raspberrypi are Rust,
-  bluedbm is C with a cargo-gated Rust stub.
+- **Language**: Rust only. The FTL, the helpers, the device dispatch, the
+  interfaces, the four device backends, the example, the end to end program and
+  the benchmark are all Rust. The C surface is the headers in `include/`, which
+  declare the C ABI `libftl_rust.a` exports. macOS is Docker only.
+- **Backends**: ramdisk (default), zoned block device, bluedbm and raspberrypi,
+  all Rust, the three hardware ones behind a cargo feature.
 
 ## Repository Layout
 
 ```text
 include/           Public C headers (installed to $(PREFIX)/include/ftl)
-device/            C device backends (device.c, bluedbm/)
 src/               Rust sources (cargo staticlib → libftl_rust.a), FTL under
                    src/ftl/
 tests/             Rust integration test (integration.rs)
@@ -30,72 +28,70 @@ integration-test.rs End-to-end test → integration-test.out
 
 ## Setup And Build
 
-Linux (Ubuntu >= 16.04) needs `git make gcc g++` and the Rust toolchain
-(`cargo`).
+Linux (Ubuntu >= 16.04) needs `git make gcc` and the Rust toolchain (`cargo`).
+`gcc` is only used by `make consumer-check`, the one C compilation left.
 Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
-[libzbd](https://github.com/westerndigitalcorporation/libzbd) (the zoned backend
-binds it in Rust, so the C build only has to link it),
+[libzbd](https://github.com/westerndigitalcorporation/libzbd),
 `USE_BLUEDBM_DEVICE=1` needs
 [libmemio](https://github.com/pnuoslab/Flash-Board-Tester),
-`USE_RASPBERRY_DEVICE=1` needs `libnand` and `wiringPi`. `make check` needs
-`cppcheck`, `flawfinder` and `lizard==1.17.0`, `make flow` needs `cflow`, and
-`make documents` needs `doxygen`. macOS has no native build: use Docker
-(`make docker-builder`, then `make docker-make-test`).
+`USE_RASPBERRY_DEVICE=1` needs `libnand` and `wiringPi`. The backends bind
+those libraries by hand, so a consumer of that build links them too.
+`make check` needs `cppcheck`, `flawfinder` and `lizard==1.17.0`,
+`make flow` needs `cflow`, and `make documents` needs `doxygen`. macOS has no
+native build: use Docker (`make docker-builder`, then `make docker-make-test`).
 
 ```bash
-# The Makefile Rust wrappers are the preferred path (consistent flags).
-make clean && make -j$(nproc)   # archives, integration-test.out, benchmark.out
+make clean && make -j$(nproc)   # archive, integration-test.out, benchmark.out
 make clean && make test USE_LOG_SILENT=1  # Rust tests
 make integration-test                     # end-to-end, takes minutes
 make zone-smoke                           # zoned backend vs the null_blk emulator
 make clean && make benchmark.out          # USE_LEGACY_RANDOM=1 on random errors
-sudo make install                         # libraries + headers under /usr/local
+make consumer-check                       # C consumer vs a staging install
+sudo make install                         # archive + headers under /usr/local
 make documents | make flow | make check   # docs, call graph, static analysis
 make cargo-clippy   # = cargo clippy --all-targets -- -D warnings
 make cargo-coverage # cargo llvm-cov --lcov (llvm-tools + cargo-llvm-cov)
 ```
 
-`libftl.a` calls into the Rust archive, so a C consumer links `-L. -lftl`
-and `-lftl_rust`. `integration-test.out` and `benchmark.out` are the crate's
-`integration-test` and `benchmark` cargo bins, which link the Rust archive
-itself. The `USE_*` switches live in the `Makefile`, which is authoritative.
-Each `USE_*_DEVICE` also
-enables the cargo feature of the same name (`zone`, `bluedbm`, `raspberry`), so
-the Rust device table and the C source list agree. The rest: `USE_DEBUG=1` adds
-`-g -pg` and `-lasan`, `USE_LOG_SILENT=1` silences the info logs on both sides
-(`silent`), and `USE_LEGACY_RANDOM=1` falls back to the legacy generator
-(`legacy-random`).
+Each `USE_*_DEVICE` switch enables the cargo feature of the same name (`zone`,
+`bluedbm`, `raspberry`), which selects that backend into the Rust device table,
+and names the library the switch needs in `DEVICE_LIBS`. `USE_DEBUG=1` builds
+the debug cargo profile instead of release. The rest: `USE_LOG_SILENT=1`
+silences the info logs (`silent`) and `USE_LEGACY_RANDOM=1` falls back to the
+legacy generator (`legacy-random`). The switches live in the `Makefile`, which
+is authoritative.
 
 ## Code Style
 
-### C (Linux-kernel style, see `.clang-format`)
+### C headers (`include/*.h`, Linux-kernel style, see `.clang-format`)
 
 - Tabs, width 8, column limit 80. Allman braces for functions, K&R-like for
   control flow. Pointer alignment right (`int *p`). `make format` runs
-  clang-format against `.clang-format`.
-- `-Wall -Wextra -Wpointer-arith -Wcast-align -Wwrite-strings
-  -Wswitch-default -Wunreachable-code -Winit-self -Wmissing-field-initializers
-  -Wundef -Wconversion -Werror`. Treat new warnings as bugs.
-- Every `.c`/`.h` carries the doxygen `@file @brief @author @version @date`
-  block, a `#ifndef FOO_H` guard, and `extern "C"` around public declarations
-  for C++ callers. No C++ in the core: `g++` only links.
-- Concurrency: the C left is the device backends, which use
-  `pthread_mutex_t` / `pthread_cond_t`. The FTL and the dispatch are Rust, so
-  shared state there is a Rust lock, not a pthread one.
-- Logging: `pr_info` / `pr_debug` / `pr_err` through `log.h`, one JSON object
-  per line from the Rust side (`src/log.rs`), silenced on both sides by
-  `USE_LOG_SILENT=1`.
+  clang-format against `.clang-format` over `include/*.h`.
+- A header declares only what `libftl_rust.a` exports or what a C consumer
+  needs to read it, and a declaration goes in the same change that deletes its
+  implementation.
+- Every `.h` carries the doxygen `@file @brief @author @version @date` block, a
+  `#ifndef FOO_H` guard, and `extern "C"` around public declarations for C++
+  callers. No C++ in the repository: `g++` is not needed at all.
+- Every exported symbol carries the `ffi_` prefix. `crc32` (`src/crc32.rs`,
+  `include/crc32.h`) predates the migration and keeps its plain name.
+- A struct both sides see stays `#[repr(C)]` with its offsets asserted on both
+  sides: `include/device.h`, `include/flash.h`, `include/list.h` and
+  `include/lru.h` against `src/device/mod.rs`, `src/flash.rs`, `src/list.rs` and
+  `src/lru.rs`. Drift breaks a build, not memory at runtime.
+- Logging: one JSON object per line from the Rust side (`src/log.rs`), silenced
+  by `USE_LOG_SILENT=1`. `include/log.h` is what a C consumer uses.
 
 ### Rust
 
 - `src/lib.rs` is the crate root, built as `staticlib` (what C links) and
   `rlib` (what `tests/` link). Edition 2021. Dependencies: `log`, `env_logger`
   (wrapped by `src/log.rs`) and `libc` for the C ABI types. `RUST_LOG` filters.
-- `cargo clippy --all-targets -- -D warnings` is a build blocker, mirroring
-  the C `-Werror` policy. Every C-visible symbol the migration introduced
-  carries the `ffi_` prefix, sits in an `extern "C"` function beside the native
-  code it wraps, and documents its safety contract. `crc32` (`src/crc32.rs`,
-  `include/crc32.h`) predates the migration and keeps its plain name.
+- `cargo clippy --all-targets -- -D warnings` is a build blocker and is the
+  `-Werror` policy now that no C source is compiled here.
+- Every C-visible symbol sits in an `extern "C"` function beside the native code
+  it wraps, and documents its safety contract.
 - Never run `cargo fmt`: the tree is hand wrapped to 80 columns.
 
 ## Testing
@@ -103,37 +99,42 @@ the Rust device table and the C source list agree. The rest: `USE_DEBUG=1` adds
 Rust tests are unit tests beside the code plus `tests/integration.rs`, run by
 `make test` (`cargo test --all-targets` with the derived feature flags). They
 cover success and error paths, and mock nothing device specific: use the
-ramdisk backend.
+ramdisk backend. `make consumer-check` is the C ABI gate: it installs into a
+staging prefix, compiles a consumer against the installed headers with
+`-Wall -Wextra -Werror`, links the archive and runs it over the ramdisk.
 
 ## Project Conventions
 
 ### Adding a new device backend
 
-Create `device/<name>/<name>.c` and `.h`, add a `USE_<NAME>_DEVICE` switch, a
-`DEVICE_INFO` block and a cargo feature mirroring the existing ones, add the
-source glob to `DEVICE_SRCS`, and add a Rust test beside the backend.
+Implement it in `src/device/<name>.rs`, add a `USE_<NAME>_DEVICE` switch, a
+`DEVICE_INFO` block (the geometry the headers' inline accessors describe), a
+`DEVICE_LIBS` entry (the library the backend binds) and a cargo feature
+mirroring the existing ones, wire the entry into the table in
+`src/device/mod.rs`, declare its `ffi_` pair in a header under `include/`, and
+add a Rust test beside the backend.
 
 ### Adding a new FTL policy
 
 New module under `src/ftl/`, declared in `src/ftl/mod.rs`. Register its C ABI
 entry point in `src/ftl/page_interface.rs` and declare it in `include/page.h`
 when C calls it. Keep allocation, GC ownership and locking in one place, with
-Rust owning the FTL state and C owning the device IO.
+Rust owning the FTL state and the device IO.
 
 ### Mixing Rust
 
-New Rust modules go in `src/`, re-exported from `src/lib.rs`, and C consumes
-them through `extern "C"` declarations in a header under `include/`: Rust owns
-the logic, C owns the IO. A struct both sides see stays `#[repr(C)]` with its
-offsets asserted on one side (`include/flash.h` against `src/flash.rs`), and a
+New Rust modules go in `src/`, re-exported from `src/lib.rs`. A C caller
+reaches them through `extern "C"` declarations in a header under `include/`,
+which stays the ABI contract: Rust owns the logic and the IO. A struct both
+sides see stays `#[repr(C)]` with its offsets asserted on one side, and a
 Rust-only type carries no repr at all.
 
 ## Permissions
 
-Allowed without prompting: reading any file, compiling one C or Rust source
-with the project flags, `cargo build` / `check` / `test`, editing sources,
-headers, manifests and tests, and `clang-format -i` on
-touched files.
+Allowed without prompting: reading any file, compiling one Rust source with the
+project flags, `cargo build` / `check` / `test`, editing sources, headers,
+manifests and tests, `make check` / `flow` over the headers, `make
+consumer-check`, and `clang-format -i` on touched files.
 
 Ask before: `make install` (writes to `/usr/local`), a full `make clean && make
 test` / `integration-test` / `benchmark.out` (slow), `git commit`, `git push`,
@@ -143,8 +144,9 @@ deleting files or directories, and anything that touches the real hardware
 backends (zoned / bluedbm / raspberry).
 
 Never: commit secrets or user-specific paths, commit build artifacts (`*.o`,
-`*.out`, `*.a`, `target/`, `doxygen/`), bypass `-Werror`, or hand-edit
-generated files. One focused, formatted change per pull request.
+`*.out`, `*.a`, `target/`, `doxygen/`), bypass `-Werror` (clippy
+`-D warnings` or the consumer check's flags), or hand-edit generated files. One
+focused, formatted change per pull request.
 
 This is a local userspace library with no credentials and no network IO. Never
 commit device paths from the maintainer's environment: backend configuration is
@@ -156,7 +158,7 @@ flawfinder, lizard) is the first line of review.
 - This file is living documentation. Update it in the same PR that changes a
   build flag, target, test, or convention.
 - Keep under ~200 lines. If it grows, split it into per-directory `AGENTS.md`
-  files (e.g. `device/zone/AGENTS.md` for zoned-block specifics).
+  files (e.g. `src/device/AGENTS.md` for backend specifics).
 - Test the file: ask an AI assistant to do a common task using only it, and fix
   anything it gets wrong.
 
@@ -190,8 +192,8 @@ checks are green, the findings are settled and the coverage gate holds.
 
 **Standing rules.**
 
-- The cutover is done: Rust owns the live page FTL, the helpers, the dispatch
-  and the interfaces, and C is the optional device backends and their headers.
-  New C ABI symbols carry the `ffi_` prefix, dead C sources are deleted.
+- The cutover is done: every implementation is Rust, and the C surface is the
+  exported ABI headers in `include/`. New C ABI symbols carry the `ffi_` prefix,
+  dead C sources and the declarations of deleted symbols are deleted with them.
 - No semicolons and no em dashes in prose, comments, or commit messages.
 - Never force-push `main`, and never merge a pull request whose checks are red.

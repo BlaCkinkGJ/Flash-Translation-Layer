@@ -7,11 +7,10 @@
 
 This repository contains the simple Flash Translation Layers made on the Linux Environments. Furthermore, this repository works on the Ramdisk and various devices(e.g., Zoned Block Device, bluedbm, etc.).
 
-The page FTL, the utilities, the device dispatch and the ramdisk, zoned and
-raspberrypi backends are Rust, and the Rust library is `libftl_rust.a`. The
-optional bluedbm backend stays C and is archived into `libftl.a`, which calls
-into the Rust library, so a consumer of the installed library links both (see
-the Installation section below).
+Every implementation is Rust, and the library is `libftl_rust.a`. The optional
+bluedbm backend is Rust as well, behind its cargo feature. The C surface is the
+headers in `include/`, so a consumer of the installed library links the one
+archive (see the Installation section below).
 
 If you have any questions about this project, don't hesitate to contact the maintainer (ss5kijun@gmail.com).
 
@@ -25,7 +24,7 @@ Before you build this repository, you must install some packages from the packag
 
 ```bash
 sudo apt update -y
-sudo apt install -y git make gcc g++
+sudo apt install -y git make gcc
 ```
 
 The Rust toolchain is required as well: install it from
@@ -90,11 +89,13 @@ library, the program and the test.
 
 ### Installation
 
-This project also supports generating the static libraries for using the
-external project. `make install` puts `libftl.a`, `libftl_rust.a` and the
-headers from `include/` under `/usr/local`, and a consumer links with
-`-lftl -lftl_rust` because the C archive calls the Rust one. If you want to
-use it, please follow the below commands.
+This project also supports generating the static library for using the
+external project. `make install` puts `libftl_rust.a` and the headers from
+`include/` under `/usr/local`, and a consumer links with `-lftl_rust -lm
+-lpthread`, plus the library a device switch needs (`-lzbd`, `-lmemio` or
+`-lnand -lwiringPi`). `make consumer-check` compiles and runs such a consumer
+against a staging install. If you want to use it, please follow the below
+commands.
 
 ```bash
 make clean
