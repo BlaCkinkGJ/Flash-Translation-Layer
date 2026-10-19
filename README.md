@@ -9,7 +9,7 @@ This repository contains the simple Flash Translation Layers made on the Linux E
 
 The page FTL, the utilities, the device dispatch and the default ramdisk
 backend are Rust, and the Rust library is `libftl_rust.a`. The optional
-zoned, bluedbm and raspberrypi backends stay C and are archived into
+zoned and bluedbm backends stay C and are archived into
 `libftl.a`, which calls into the Rust library, so a consumer of the
 installed library links both (see the Installation section below).
 
