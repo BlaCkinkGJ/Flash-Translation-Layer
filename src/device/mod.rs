@@ -852,6 +852,7 @@ pub unsafe extern "C" fn ffi_device_module_exit(dev: *mut device) -> c_int {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::cell::Cell;
     use core::mem::{align_of, offset_of, size_of};
 
     /// Width of a pointer, spelled once for the layout assertions.
@@ -1100,15 +1101,31 @@ mod tests {
         assert_eq!(c_uint::from(DeviceDirection::Read), 1);
     }
 
-    /// Backend used to drive the trait, the vtable bridge and the dispatch.
-    struct MockBackend;
+    /// The calls a mock backend received, in a slot the test owns.
+    ///
+    /// [`mock_init`] finds the slot through the init word, which
+    /// [`module_init_with`] hands to the backend untouched. A process-wide
+    /// counter here let two tests interleave and broke the deltas (#124).
+    #[derive(Default)]
+    struct MockCalls {
+        opens: Cell<c_int>,
+        exits: Cell<c_int>,
+    }
 
-    static MOCK_OPENS: AtomicI32 = AtomicI32::new(0);
-    static MOCK_EXITS: AtomicI32 = AtomicI32::new(0);
+    /// The init word that carries a [`MockCalls`] slot into [`mock_init`].
+    fn mock_flags(calls: &MockCalls) -> u64 {
+        calls as *const MockCalls as u64
+    }
+
+    /// Backend used to drive the trait, the vtable bridge and the dispatch.
+    struct MockBackend {
+        calls: *const MockCalls,
+    }
 
     impl DeviceOperations for MockBackend {
         unsafe fn open(&self, _dev: *mut device, _name: *const c_char, _flags: c_int) -> c_int {
-            MOCK_OPENS.fetch_add(1, Ordering::SeqCst);
+            let calls = &*self.calls;
+            calls.opens.set(calls.opens.get() + 1);
             0
         }
 
@@ -1132,25 +1149,42 @@ mod tests {
         }
     }
 
-    unsafe extern "C" fn mock_init(dev: *mut device, _flags: u64) -> c_int {
-        (*dev).install_backend(MockBackend);
+    unsafe extern "C" fn mock_init(dev: *mut device, flags: u64) -> c_int {
+        // The test that builds the table is the only writer of the word.
+        let calls = flags as *const MockCalls;
+        assert!(
+            !calls.is_null(),
+            "mock_init takes the test's MockCalls slot through the init word"
+        );
+        (*dev).install_backend(MockBackend { calls });
         (*dev).d_submodule_exit = Some(mock_exit);
         0
     }
 
     unsafe extern "C" fn mock_exit(dev: *mut device) -> c_int {
-        MOCK_EXITS.fetch_add(1, Ordering::SeqCst);
+        // `destroy_device` runs this hook while the device and the test's slot
+        // are both live, and clears `d_submodule_exit` after the call, so an
+        // uninstalled backend here means the hook ran twice.
+        assert!(
+            !(*dev).d_private.is_null(),
+            "mock exit reached a device with no backend installed"
+        );
+        let slot = &*((*dev).d_private as *const BackendSlot<MockBackend>);
+        let calls = &*slot.backend.calls;
+        calls.exits.set(calls.exits.get() + 1);
         (*dev).uninstall_backend::<MockBackend>();
         0
     }
 
     #[test]
     fn module_init_dispatches_through_the_trait() {
+        let calls = MockCalls::default();
         unsafe {
             let table = [Some(mock_init as SubmoduleInitFn), None, None, None];
+            let flags = mock_flags(&calls);
             let mut dev: *mut device = ptr::null_mut();
             assert_eq!(
-                module_init_with(&table, DeviceModule::Ramdisk as u64, &mut dev, 0),
+                module_init_with(&table, DeviceModule::Ramdisk as u64, &mut dev, flags),
                 0
             );
             assert!(!dev.is_null());
@@ -1159,9 +1193,8 @@ mod tests {
 
             // C reaches the Rust implementation through the vtable.
             let ops = &*(*dev).d_op;
-            let opens = MOCK_OPENS.load(Ordering::SeqCst);
             assert_eq!((ops.open.unwrap())(dev, ptr::null(), 0), 0);
-            assert_eq!(MOCK_OPENS.load(Ordering::SeqCst), opens + 1);
+            assert_eq!(calls.opens.get(), 1);
 
             let mut request = zeroed_request();
             request.flag = DeviceDirection::Write as c_uint;
@@ -1177,9 +1210,8 @@ mod tests {
             assert_eq!((ops.erase.unwrap())(dev, &mut request), 0);
             assert_eq!((ops.close.unwrap())(dev), 0);
 
-            let exits = MOCK_EXITS.load(Ordering::SeqCst);
             assert_eq!(ffi_device_module_exit(dev), 0);
-            assert_eq!(MOCK_EXITS.load(Ordering::SeqCst), exits + 1);
+            assert_eq!(calls.exits.get(), 1);
         }
     }
 
@@ -1218,9 +1250,10 @@ mod tests {
 
     #[test]
     fn install_and_uninstall_backend_keep_the_vtable_and_the_slot_in_step() {
+        let calls = MockCalls::default();
         unsafe {
             let mut dev = zeroed_device();
-            dev.install_backend(MockBackend);
+            dev.install_backend(MockBackend { calls: &calls });
             assert!(!dev.d_op.is_null());
             assert!(!dev.d_private.is_null());
 
@@ -1228,9 +1261,8 @@ mod tests {
             // pointer C calls through and the type the shim recovers cannot
             // disagree.
             let ops = &*dev.d_op;
-            let opens = MOCK_OPENS.load(Ordering::SeqCst);
             assert_eq!((ops.open.unwrap())(&mut dev, ptr::null(), 0), 0);
-            assert_eq!(MOCK_OPENS.load(Ordering::SeqCst), opens + 1);
+            assert_eq!(calls.opens.get(), 1);
 
             dev.uninstall_backend::<MockBackend>();
             assert!(dev.d_private.is_null());
@@ -1243,19 +1275,22 @@ mod tests {
 
     #[test]
     fn module_init_rejects_a_table_that_is_too_short() {
+        let calls = MockCalls::default();
         unsafe {
             // Tasks 6/7 grow the backend list one entry at a time, so a list
             // shorter than the module list must report -ENODEV instead of
             // indexing past its end.
             let table = [Some(mock_init as SubmoduleInitFn)];
 
+            let flags = mock_flags(&calls);
             let mut dev: *mut device = ptr::null_mut();
             assert_eq!(
-                module_init_with(&table, DeviceModule::Ramdisk as u64, &mut dev, 0),
+                module_init_with(&table, DeviceModule::Ramdisk as u64, &mut dev, flags),
                 0
             );
             assert!(!dev.is_null());
             assert_eq!(ffi_device_module_exit(dev), 0);
+            assert_eq!(calls.exits.get(), 1);
 
             let mut dev: *mut device = ptr::null_mut();
             assert_eq!(
