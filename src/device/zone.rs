@@ -1263,6 +1263,14 @@ mod tests {
         END_RQ_CALLS.fetch_add(1, Ordering::SeqCst);
     }
 
+    /// The emulator's own calls, apart from the counter the unit test reads, so
+    /// a run that includes the ignored test cannot mix the two (#124).
+    static EMULATOR_END_RQ_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "C" fn count_emulator_end_rq(_request: *mut device_request) {
+        EMULATOR_END_RQ_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// The emulated-device routine the issue asks for. It is ignored by
     /// default because it needs a zoned block device: `make zone-smoke` loads
     /// the `null_blk` emulator and runs this test. Without the emulator it
@@ -1396,11 +1404,11 @@ mod tests {
         let pages_per_zone = info.zone_size as usize / PAGE;
         let mut request = Request::new().expect("allocate a request");
         let mut page = vec![0u8; PAGE];
-        END_RQ_CALLS.store(0, Ordering::SeqCst);
+        EMULATOR_END_RQ_CALLS.store(0, Ordering::SeqCst);
         request.flag = DeviceDirection::Write.into();
         request.data_len = PAGE;
         request.data = page.as_mut_ptr() as *mut c_void;
-        request.end_rq = Some(count_end_rq);
+        request.end_rq = Some(count_emulator_end_rq);
 
         // Fill zone 0, which drives the write pointer to the end of the zone
         // and makes the port finish it.
@@ -1462,7 +1470,7 @@ mod tests {
         assert_eq!((ops.erase.unwrap())(dev, request.as_ptr()), 0);
 
         request.flag = DeviceDirection::Write.into();
-        request.end_rq = Some(count_end_rq);
+        request.end_rq = Some(count_emulator_end_rq);
         page[..4].copy_from_slice(&0xabcd_u32.to_ne_bytes());
         request.paddr = device_address::from(0u32);
         assert_eq!((ops.write.unwrap())(dev, request.as_ptr()), PAGE as isize);
@@ -1488,7 +1496,7 @@ mod tests {
         zbd_close(probe);
         println!(
             "end_rq callbacks: {}",
-            END_RQ_CALLS.load(Ordering::SeqCst)
+            EMULATOR_END_RQ_CALLS.load(Ordering::SeqCst)
         );
 
         assert_eq!((ops.close.unwrap())(dev), 0);
