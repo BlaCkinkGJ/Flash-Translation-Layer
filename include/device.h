@@ -323,9 +323,9 @@ DEVICE_STATIC_ASSERT(sizeof(struct device_operations) == 5 * sizeof(void *),
  * FTL, which was their last caller. `ffi_device_alloc_request` and
  * `ffi_device_free_request` below are the live pair.
  *
- * `device_module_init` and `device_module_exit` stay: `test/zone-test.c` calls
- * them, and the table in `device/device.c` is still the only installer for the
- * zone, bluedbm and raspberry backends, whose Rust ports are `-ENOSYS` stubs.
+ * `device_module_init` and `device_module_exit` stay: the table in
+ * `device/device.c` is still the only installer for the zone, bluedbm and
+ * raspberry backends, whose Rust ports are `-ENOSYS` stubs.
  */
 int device_module_init(const uint64_t modnum, struct device **, uint64_t flags);
 int device_module_exit(struct device *);

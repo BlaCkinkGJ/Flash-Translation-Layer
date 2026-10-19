@@ -3,9 +3,9 @@
 //!
 //! The C ABI is preserved verbatim: `list_node_t` is `#[repr(C)]` with the
 //! same three pointers, nodes are heap-allocated by `ffi_list_prepend`, and
-//! released only by `ffi_list_remove` / `ffi_list_free`. `test/list-test.c`
-//! walks `->next` and reads `->data` directly, so the node layout is part of
-//! the contract.
+//! released only by `ffi_list_remove` / `ffi_list_free`. The tests below walk
+//! `->next` and read `->data` directly, so the node layout is part of the
+//! contract.
 //!
 //! Symbols carry the `ffi_` prefix because they are the C ABI this module
 //! exports. `include/list.h` keeps the struct, its layout assertions and these
@@ -180,7 +180,7 @@ mod tests {
     }
 
     /// Prepends `values` in reverse so the head is `values[0]`, matching the
-    /// `make_int_list` helper in `test/list-test.c`.
+    /// `make_int_list` helper below.
     unsafe fn make_int_list(values: &mut [i32]) -> *mut list_node_t {
         let mut list = std::ptr::null_mut();
         for v in values.iter_mut().rev() {

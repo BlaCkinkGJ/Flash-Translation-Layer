@@ -51,8 +51,8 @@ struct lru_cache {
 /*
  * Guard the shared layout: `src/lru.rs` declares both structs as
  * `#[repr(C)]` and asserts these numbers in its `layout_matches_c` test.
- * `lru_get_evict_size` below and `test/lru-test.c` read `capacity` / `size`
- * straight out of the struct, so the offsets are part of the ABI.
+ * `lru_get_evict_size` below reads `capacity` / `size` straight out of the
+ * struct, so the offsets are part of the ABI.
  *
  * The Rust `lru_cache` carries a Rust-only field after `nil`, so its size is
  * larger than this one: never `sizeof(struct lru_cache)` for allocation, only

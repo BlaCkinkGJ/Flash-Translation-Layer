@@ -4,9 +4,8 @@
 //! of the C structs, the `nil` sentinel is embedded in the cache exactly as
 //! in C (so `head` points *inside* the cache allocation), and C reads
 //! `cache->capacity` / `cache->size` directly (`lru_get_evict_size` inline in
-//! the header, `test/lru-test.c`), and those offsets are the contract, pinned on
-//! both sides by `layout_matches_c` here and the `LRU_STATIC_ASSERT`s in
-//! `include/lru.h`.
+//! the header), and those offsets are the contract, pinned on both sides by
+//! `layout_matches_c` here and the `LRU_STATIC_ASSERT`s in `include/lru.h`.
 //!
 //! Symbols carry the `ffi_` prefix because they are the C ABI this module
 //! exports. `util/lru.c` is gone (Task 16a), and `include/lru.h` keeps the

@@ -49,7 +49,6 @@ make integration-test                     # end-to-end, takes minutes
 make clean && make benchmark.out          # USE_LEGACY_RANDOM=1 on random errors
 sudo make install                         # libraries + headers under /usr/local
 make documents | make flow | make check   # docs, call graph, static analysis
-make cargo-test     # = cargo test --all-targets
 make cargo-clippy   # = cargo clippy --all-targets -- -D warnings
 make cargo-coverage # cargo llvm-cov --lcov (llvm-tools + cargo-llvm-cov)
 ```
