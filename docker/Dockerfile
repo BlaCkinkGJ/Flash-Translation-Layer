@@ -1,6 +1,6 @@
 FROM ubuntu:22.04
 
-RUN apt-get update && apt-get clean
+RUN apt-get update
 # The Linux toolchain: `gcc` plus `libc6-dev` for the linker the Rust build and
 # `make consumer-check` need, `curl` and `ca-certificates` for rustup below,
 # and `libzbd-dev` for the `zone` feature's hand-written binding.

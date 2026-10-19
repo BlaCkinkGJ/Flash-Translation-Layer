@@ -71,7 +71,7 @@ the emulator, the module or the privileges are missing.
 
 ### Test
 
-Before you check the source code status, you must install the below tools.
+Before you run `make check`, you must install the below tools.
 
 - [flawfinder](https://dwheeler.com/flawfinder/)
 - [cppcheck](https://cppcheck.sourceforge.io/)
