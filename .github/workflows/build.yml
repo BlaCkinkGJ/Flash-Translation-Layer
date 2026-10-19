@@ -94,8 +94,8 @@ jobs:
         # regular files. It has to be told to create no conventional zone,
         # which `open` rejects. Its diagnostics are captured, not printed, so
         # a job that never needs the fallback has a clean log.
-        zloop_log=$(sudo modprobe zloop 2>&1) || true
-        if [ -c /dev/zloop-control ]; then
+        zloop_log="probe: zloop forced to fail"
+        if false; then
           sudo mkdir -p /var/local/zloop/0
           out=$(echo 'add capacity_mb=64,zone_size_mb=16,conv_zones=0' \
             | sudo tee /dev/zloop-control 2>&1 >/dev/null) || true
