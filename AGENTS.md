@@ -24,7 +24,7 @@ src/               Rust sources (cargo staticlib → libftl_rust.a), FTL under
                    src/ftl/
 tests/             Rust integration test (integration.rs)
 example/           Rust example program (rw_example), a cargo example
-benchmark.c        Performance benchmark → benchmark.out
+benchmark.rs        Performance benchmark → benchmark.out
 integration-test.rs End-to-end test → integration-test.out
 ```
 
@@ -56,13 +56,15 @@ make cargo-coverage # cargo llvm-cov --lcov (llvm-tools + cargo-llvm-cov)
 ```
 
 `libftl.a` calls into the Rust archive, so a C consumer links `-L. -lftl`
-and `-lftl_rust`. `integration-test.out` is the crate's `integration-test`
-cargo bin and links the Rust archive itself. The `USE_*` switches
-live in the `Makefile`, which is authoritative. Each `USE_*_DEVICE` also
+and `-lftl_rust`. `integration-test.out` and `benchmark.out` are the crate's
+`integration-test` and `benchmark` cargo bins, which link the Rust archive
+itself. The `USE_*` switches live in the `Makefile`, which is authoritative.
+Each `USE_*_DEVICE` also
 enables the cargo feature of the same name (`zone`, `bluedbm`, `raspberry`), so
 the Rust device table and the C source list agree. The rest: `USE_DEBUG=1` adds
 `-g -pg` and `-lasan`, `USE_LOG_SILENT=1` silences the info logs on both sides
-(`silent`), and `USE_LEGACY_RANDOM=1` falls back to the legacy generator.
+(`silent`), and `USE_LEGACY_RANDOM=1` falls back to the legacy generator
+(`legacy-random`).
 
 ## Code Style
 
