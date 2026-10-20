@@ -19,6 +19,8 @@ files (nearest file wins).
 include/           Public C headers (installed to $(PREFIX)/include/ftl)
 src/               Rust sources (cargo staticlib → libftl_rust.a), src/ftl/
 tests/             Rust integration test (integration.rs)
+tools/             gen_config.py and its tests
+ftl.yaml           Source of truth for the GC tuning and device geometry
 example/           Rust example program (rw_example), a cargo example
 benchmark.rs        Performance benchmark → benchmark.out
 integration-test.rs End-to-end test → integration-test.out
@@ -41,6 +43,8 @@ backend builds and tests with cargo on the macOS, while Docker
 
 ```bash
 make clean && make -j$(nproc)   # archive, integration-test.out, benchmark.out
+make config                       # regenerate the two files from ftl.yaml
+make check-config                 # drift gate plus the generator's tests
 make clean && make test USE_LOG_SILENT=1  # Rust tests
 make integration-test                     # end-to-end, takes minutes
 make zone-smoke                           # zoned backend vs the null_blk emulator
@@ -58,6 +62,16 @@ and names the library it needs in `DEVICE_LIBS`. `USE_DEBUG=1` builds the debug
 cargo profile. `USE_LOG_SILENT=1` silences the info logs (`silent`) and
 `USE_LEGACY_RANDOM=1` takes the legacy generator (`legacy-random`). The switches
 live in the `Makefile`, which is authoritative.
+
+`ftl.yaml` holds the page FTL's three GC tuning values and one geometry
+section per backend (`ramdisk`, `zone`, `bluedbm`, `raspberry`, `default`).
+`make config` regenerates `src/ftl_config.rs` and `include/ftl-config.h`, both
+committed so `cargo build` needs no Python. `make check-config` fails with a
+diff when either is stale and runs the generator's tests. A `USE_*_DEVICE`
+switch selects a section along with its cargo feature. For a C consumer the
+Makefile passes one `-DFTL_BACKEND_<NAME>`, and an explicit `-DDEVICE_NR_*`
+still wins. `PAGE_FTL_CACHE_SIZE` and `PAGE_FTL_USE_GLOBAL_RWLOCK` are gone
+with the port and are not keys.
 
 ## Code Style
 
@@ -109,11 +123,10 @@ staging prefix, compiles a consumer against the installed headers with
 ### Adding a new device backend
 
 Implement it in `src/device/<name>.rs`, add a `USE_<NAME>_DEVICE` switch, a
-`DEVICE_INFO` block (the geometry the headers' inline accessors describe), a
-`DEVICE_LIBS` entry (the library the backend binds) and a cargo feature
-mirroring the existing ones, wire the entry into the table in
-`src/device/mod.rs`, declare its `ffi_` pair in a header under `include/`, and
-add a Rust test beside the backend.
+geometry section in `ftl.yaml` (then run `make config`), a `DEVICE_LIBS` entry
+(the library the backend binds) and a cargo feature mirroring the existing
+ones, wire the entry into the table in `src/device/mod.rs`, declare its `ffi_`
+pair in a header under `include/`, and add a Rust test beside the backend.
 
 ### Adding a new FTL policy
 

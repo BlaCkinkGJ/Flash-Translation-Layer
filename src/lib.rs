@@ -3,6 +3,7 @@ pub mod crc32;
 pub mod device;
 pub mod flash;
 pub mod ftl;
+pub mod ftl_config;
 pub mod list;
 pub mod log;
 pub mod lru;

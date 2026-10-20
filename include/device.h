@@ -16,15 +16,12 @@
 #include <stddef.h>
 
 #include "log.h" /**< to use the TOSTRING */
+#include "ftl-config.h" /**< the generated device geometry */
 
 #define PADDR_EMPTY ((uint32_t)UINT32_MAX)
 
 struct device_request;
 struct device_operations;
-
-#ifndef DEVICE_PAGE_SIZE
-#define DEVICE_PAGE_SIZE (8192)
-#endif
 
 /**
  * @brief request allocation flags
@@ -55,27 +52,16 @@ enum {
 /**
  * @brief device address information
  *
+ * The `DEVICE_*_BITS` and `DEVICE_PAGE_SIZE` geometry comes from the generated
+ * `ftl-config.h`, which reads `ftl.yaml`. A consumer picks a section with
+ * `-DFTL_BACKEND_<NAME>`, and an explicit `-DDEVICE_NR_*` still wins over the
+ * header because every macro keeps its `#ifndef` guard.
+ *
  * @note
  * If you want to use the ZONE_MODULE, you must change the
  * DEVICE_NR_PAGES_BITS and DEVICE_NR_BLOCKS_BITS based on the zone's
  * size.
  */
-#ifndef DEVICE_NR_BUS_BITS
-#define DEVICE_NR_BUS_BITS (3)
-#endif
-
-#ifndef DEVICE_NR_CHIPS_BITS
-#define DEVICE_NR_CHIPS_BITS (3)
-#endif
-
-#ifndef DEVICE_NR_PAGES_BITS
-#define DEVICE_NR_PAGES_BITS (7)
-#endif
-
-#ifndef DEVICE_NR_BLOCKS_BITS
-#define DEVICE_NR_BLOCKS_BITS (19)
-#endif
-
 #if 0
 #pragma message("DEVICE_NR_BUS_BITS = " TOSTRING(DEVICE_NR_BUS_BITS))
 #pragma message("DEVICE_NR_CHIPS_BITS = " TOSTRING(DEVICE_NR_CHIPS_BITS))

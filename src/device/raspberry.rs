@@ -7,10 +7,10 @@
 //! to libnand and never allocates, copies or frees it. The one allocation the
 //! backend owns is `dev->badseg_bitmap`, released by `close` like C's.
 //!
-//! Geometry is the raspberry build's `DEVICE_INFO` from the Makefile's
-//! `USE_RASPBERRY_DEVICE=1` block: bus 1 bit, chip 1 bit, page 4 bits, block
-//! 24 bits, 2048 byte pages, and C's `package->nr_blocks = 1024`. That is 1024
-//! segments of 4 blocks of 16 pages, 128 MiB in total.
+//! Geometry is the raspberry section of `ftl.yaml`, generated into
+//! `src/ftl_config.rs` and `include/ftl-config.h`: bus 1 bit, chip 1 bit, page
+//! 4 bits, block 24 bits, 2048 byte pages, and C's `package->nr_blocks = 1024`.
+//! That is 1024 segments of 4 blocks of 16 pages, 128 MiB in total.
 //!
 //! C's `struct raspberry` is not mirrored field for field. `size` is written
 //! twice and read only by the `pr_info` in `raspberry_open`, `o_flags` is
@@ -94,26 +94,17 @@ use std::borrow::Cow;
 use std::sync::Mutex;
 
 use crate::bits::{set_bit, BITS_PER_UINT64};
+// The geometry is the shared, generated `ftl.yaml` raspberry section, not a
+// private copy, so this backend and the rest of the crate pack the same
+// address.
 use crate::device::{
-    device, device_request, DeviceDirection, DeviceOperations, PADDR_EMPTY,
+    device, device_request, DeviceDirection, DeviceOperations,
+    DEVICE_NR_BLOCKS_BITS as NR_BLOCKS_BITS, DEVICE_NR_BUS_BITS as NR_BUS_BITS,
+    DEVICE_NR_CHIPS_BITS as NR_CHIPS_BITS,
+    DEVICE_NR_PAGES_BITS as NR_PAGES_BITS, DEVICE_PAGE_SIZE as PAGE_SIZE,
+    PADDR_EMPTY,
 };
 use crate::{pr_err, pr_info, pr_warn};
-
-/// The raspberry build's `DEVICE_NR_BUS_BITS`, from the Makefile's
-/// `USE_RASPBERRY_DEVICE=1` block.
-const NR_BUS_BITS: u32 = 1;
-
-/// The raspberry build's `DEVICE_NR_CHIPS_BITS`.
-const NR_CHIPS_BITS: u32 = 1;
-
-/// The raspberry build's `DEVICE_NR_PAGES_BITS`.
-const NR_PAGES_BITS: u32 = 4;
-
-/// The raspberry build's `DEVICE_PAGE_SIZE`.
-const PAGE_SIZE: usize = 2048;
-
-/// The raspberry build's `DEVICE_NR_BLOCKS_BITS`.
-const NR_BLOCKS_BITS: u32 = 24;
 
 /// C's `package->nr_blocks = 1024` in `raspberry_open`, the one geometry field
 /// the backend sets outright instead of deriving it from a bit count.

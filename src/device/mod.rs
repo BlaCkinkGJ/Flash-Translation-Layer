@@ -47,12 +47,13 @@
 //! - Geometry lives on [`device`] as safe methods instead of the header's
 //!   `static inline`s. The C inlines in `include/device.h` stay, so no C-ABI
 //!   symbol is exported for them.
-//! - The bit counts and `DEVICE_PAGE_SIZE` mirror the Makefile's
-//!   `DEVICE_INFO`. The non-default backends compile C with different
-//!   `-DDEVICE_NR_*_BITS`, and the backend that has landed selects the same
-//!   counts behind its cargo feature: the zoned build's `3/3/5/21` behind
-//!   `zone`. The raspberry build's `1/1/4/24` with a 2048 byte page lands with
-//!   its hardware port, and the bluedbm build's `3/3/7/19` with its own.
+//! - The bit counts and `DEVICE_PAGE_SIZE` come from `ftl.yaml` through
+//!   [`crate::ftl_config`], so the Rust build and the Makefile's
+//!   `DEVICE_INFO` cannot disagree: a zoned build is `3/3/5/21`, bluedbm is
+//!   `3/3/7/19`, raspberry is `1/1/4/24` with a 2048 byte page and the build
+//!   with no backend feature is the ramdisk `2/2/7/19`. The bluedbm and
+//!   raspberry backends still need their hardware, but their geometry no
+//!   longer waits for it.
 //! - C's `raspberry` address view is not ported: it only means something under
 //!   the raspberry build's bit counts, and the Pi NAND path is out of scope, so
 //!   it lands with the raspberry hardware port instead of carrying a constant
@@ -85,40 +86,22 @@ pub const PADDR_EMPTY: u32 = u32::MAX;
 pub const DEVICE_DEFAULT_REQUEST: u64 = 0;
 
 /// `DEVICE_NR_BUS_BITS` / `DEVICE_NR_CHIPS_BITS` / `DEVICE_NR_PAGES_BITS` /
-/// `DEVICE_NR_BLOCKS_BITS`, mirroring the Makefile's `DEVICE_INFO`.
+/// `DEVICE_NR_BLOCKS_BITS` and `DEVICE_PAGE_SIZE`, generated from `ftl.yaml`
+/// by `tools/gen_config.py`.
 ///
-/// The zoned build compiles C with `-DDEVICE_NR_*_BITS=3/3/5/21`, and
-/// `USE_ZONE_DEVICE=1` also turns on the `zone` cargo feature, so the same
-/// feature selects those counts here and both sides decode a
-/// [`device_address`] the same way. `DEVICE_PAGE_SIZE` is the same in both
-/// builds. The zoned and the default counts put the block field at bit 11 and
-/// give a segment 2048 pages, so only the split of the low 11 bits differs.
-#[cfg(feature = "zone")]
-pub const DEVICE_NR_BUS_BITS: u32 = 3;
-#[cfg(not(feature = "zone"))]
-pub const DEVICE_NR_BUS_BITS: u32 = 2;
-
-/// See [`DEVICE_NR_BUS_BITS`].
-#[cfg(feature = "zone")]
-pub const DEVICE_NR_CHIPS_BITS: u32 = 3;
-#[cfg(not(feature = "zone"))]
-pub const DEVICE_NR_CHIPS_BITS: u32 = 2;
-
-/// See [`DEVICE_NR_BUS_BITS`].
-#[cfg(feature = "zone")]
-pub const DEVICE_NR_PAGES_BITS: u32 = 5;
-#[cfg(not(feature = "zone"))]
-pub const DEVICE_NR_PAGES_BITS: u32 = 7;
-
-/// See [`DEVICE_NR_BUS_BITS`].
-#[cfg(feature = "zone")]
-pub const DEVICE_NR_BLOCKS_BITS: u32 = 21;
-#[cfg(not(feature = "zone"))]
-pub const DEVICE_NR_BLOCKS_BITS: u32 = 19;
-
-/// C's `DEVICE_PAGE_SIZE`, the NAND page size of the default build and of the
-/// zoned build, which does not override it.
-pub const DEVICE_PAGE_SIZE: usize = 8192;
+/// The geometry has to stay compile-time: the address shifts and masks below,
+/// `pages_per_segment` and the `#[repr(C)]` layout all derive from it, and C
+/// sees the same numbers through `include/ftl-config.h`. The cargo feature
+/// matches the `USE_*_DEVICE` switch: `zone` is 3/3/5/21, `bluedbm` is
+/// 3/3/7/19 and `raspberry` is 1/1/4/24 with a 2048 byte page. The build with
+/// no backend feature is the ramdisk set, 2/2/7/19.
+///
+/// `make config` regenerates the values and `make check-config` fails when
+/// they are stale.
+pub use crate::ftl_config::{
+    DEVICE_NR_BLOCKS_BITS, DEVICE_NR_BUS_BITS, DEVICE_NR_CHIPS_BITS,
+    DEVICE_NR_PAGES_BITS, DEVICE_PAGE_SIZE,
+};
 
 const BUS_SHIFT: u32 = 0;
 const CHIP_SHIFT: u32 = DEVICE_NR_BUS_BITS;

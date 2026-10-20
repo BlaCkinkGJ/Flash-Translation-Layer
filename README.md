@@ -65,6 +65,29 @@ and `USE_RASPBERRY_DEVICE=1` pick the matching device backend,
 > If you want to use a module like the Zoned Block Device module, you must
 > set the value of the `USE_ZONE_DEVICE` variable to 1 in the `Makefile`.
 
+### Tuning and geometry
+
+`ftl.yaml` at the repository root is the source of truth for the page FTL's
+three GC tuning values (`gc_ratio`, `gc_all`, `gc_threshold`) and for the
+geometry of each backend (`ramdisk`, `zone`, `bluedbm`, `raspberry` and
+`default`). A geometry section holds `bus_bits`, `chip_bits`, `page_bits`,
+`block_bits` and `page_size`.
+
+`make config` regenerates `src/ftl_config.rs` and `include/ftl-config.h`, and
+writes nothing when they are already current. Both files are committed, so
+`make` and a plain `cargo build` need no Python. `make check-config` is the
+drift gate: it exits non-zero with a diff when either generated file differs
+from the YAML, and it runs the generator's tests.
+
+A `USE_*_DEVICE` switch selects the matching geometry section together with the
+cargo feature. For a C consumer the Makefile passes one `-DFTL_BACKEND_<NAME>`
+(`RAMDISK`, `ZONE`, `BLUEDBM` or `RASPBERRY`) to select the section in
+`include/ftl-config.h`, and an explicit `-DDEVICE_NR_*` on the consumer's own
+compile line still wins. With no `-DFTL_BACKEND_*` the header keeps its
+historical default, the bluedbm set. `PAGE_FTL_CACHE_SIZE` and
+`PAGE_FTL_USE_GLOBAL_RWLOCK` are gone with the C port, so they are not keys in
+`ftl.yaml`.
+
 Additionally, you must install a valid library for each module. Each module's
 requirements are as follows.
 

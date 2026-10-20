@@ -371,8 +371,12 @@ Five features gate optional code, and each maps to a `Makefile` switch:
 | `bluedbm` | bluedbm backend | `USE_BLUEDBM_DEVICE=1` |
 | `raspberry` | raspberry backend | `USE_RASPBERRY_DEVICE=1` |
 
+The geometry each feature selects is generated from `ftl.yaml` into
+`src/ftl_config.rs` and `include/ftl-config.h` (`make config`, gated by
+`make check-config`).
+
 The `zone` feature changes the address bit split, not just the backend table
-entry (`src/device/mod.rs:96`), so a zoned build decodes a `device_address`
+entry (`src/ftl_config.rs`), so a zoned build decodes a `device_address`
 differently from the default build. The C headers in `include/` are the ABI
 contract for consumers: 46 `ffi_`-prefixed entry points across the crate, plus
 the pre-existing `crc32` (`src/crc32.rs:68`), for 47 `#[no_mangle]` symbols
