@@ -1,0 +1,60 @@
+# Source of truth for the page FTL's tuning values and the device geometry.
+#
+# `make` regenerates `src/ftl_config.rs` and `include/ftl-config.h` from this
+# file. `make check-config` fails when either generated file is stale. The
+# generated files are committed, so a plain `cargo build` needs no Python.
+#
+# Grammar: two-space indentation, `key: value`, `#` comments, integers and
+# plain decimals. `tools/gen_config.py` rejects anything else rather than
+# guessing.
+
+tuning:
+  # Maximum fraction of the segments one GC pass collects.
+  gc_ratio: 0.1
+  # Collect every dirty segment.
+  gc_all: 1.0
+  # GC triggers once the free-page fraction drops below this.
+  gc_threshold: 0.2
+
+geometry:
+  # The default build's ramdisk geometry (1GiB).
+  ramdisk:
+    bus_bits: 2
+    chip_bits: 2
+    page_bits: 7
+    block_bits: 19
+    page_size: 8192
+
+  # The zoned build. A segment is 2^5 pages * 2^3 bus * 2^3 chips.
+  zone:
+    bus_bits: 3
+    chip_bits: 3
+    page_bits: 5
+    block_bits: 21
+    page_size: 8192
+
+  # The bluedbm build.
+  bluedbm:
+    bus_bits: 3
+    chip_bits: 3
+    page_bits: 7
+    block_bits: 19
+    page_size: 8192
+
+  # The raspberry build, one bus, one chip and a 2048 byte page.
+  raspberry:
+    bus_bits: 1
+    chip_bits: 1
+    page_bits: 4
+    block_bits: 24
+    page_size: 2048
+
+  # What `include/device.h` hands a consumer that defines no FTL_BACKEND_*.
+  # This is the bluedbm set because the header has always defaulted to it, not
+  # the ramdisk set. Do not "fix" it to match the ramdisk section.
+  default:
+    bus_bits: 3
+    chip_bits: 3
+    page_bits: 7
+    block_bits: 19
+    page_size: 8192

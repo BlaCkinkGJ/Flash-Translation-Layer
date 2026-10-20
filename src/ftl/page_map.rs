@@ -164,7 +164,10 @@ pub unsafe extern "C" fn ffi_page_ftl_update_map(
 mod tests {
     use super::*;
     use crate::bits::set_bit;
-    use crate::device::{device, DEVICE_PAGE_SIZE};
+    use crate::device::{
+        device, DEVICE_NR_BUS_BITS, DEVICE_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS,
+        DEVICE_PAGE_SIZE,
+    };
     use crate::ftl::PageFtlSegment;
     use core::mem::MaybeUninit;
 
@@ -231,7 +234,12 @@ mod tests {
 
         let second = get_free_page(&mut f.pgftl).expect("segment 1 has one free page");
         assert_eq!(second.block(), 1);
-        assert_eq!(second.lpn, 1 << 11);
+        assert_eq!(
+            second.lpn,
+            1 << (DEVICE_NR_BUS_BITS
+                + DEVICE_NR_CHIPS_BITS
+                + DEVICE_NR_PAGES_BITS)
+        );
         assert_eq!(f.pgftl.alloc_segnum, 1);
 
         let third = get_free_page(&mut f.pgftl).expect("segment 2 has one free page");

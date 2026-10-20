@@ -26,29 +26,23 @@ endif
 
 DEVICE_LIBS =
 
-# The geometry the installed headers' inline accessors describe. Nothing
-# compiles C with it any more: the Rust backend selects the same numbers behind
-# its cargo feature. `make consumer-check` passes these to the consumer it
-# compiles, because `include/device.h`'s defaults are the bluedbm ones and a
-# consumer of a zoned, bluedbm or raspberry build has to agree with the archive
-# it links.
+# The geometry a C consumer compiles against. `include/ftl-config.h` is
+# generated from `ftl.yaml`, and each backend section is selected by one
+# `-DFTL_BACKEND_<NAME>` macro. The Rust build reads the same `ftl.yaml`
+# sections through the matching cargo feature, so the two cannot disagree. An
+# explicit `-DDEVICE_NR_*` on a consumer's own compile line still wins, because
+# every macro in the generated header keeps its `#ifndef` guard.
 DEVICE_INFO =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
 # Zoned Device's Setting
-DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
-               -DDEVICE_NR_CHIPS_BITS=3 \
-               -DDEVICE_NR_PAGES_BITS=5 \
-               -DDEVICE_NR_BLOCKS_BITS=21
+DEVICE_INFO := -DFTL_BACKEND_ZONE
 
 # The library the `zone` feature's hand-written binding leaves undefined.
 DEVICE_LIBS += -lzbd
 else ifeq ($(USE_BLUEDBM_DEVICE), 1)
 # BlueDBM Device's Setting
-DEVICE_INFO := -DDEVICE_NR_BUS_BITS=3 \
-               -DDEVICE_NR_CHIPS_BITS=3 \
-               -DDEVICE_NR_PAGES_BITS=7 \
-               -DDEVICE_NR_BLOCKS_BITS=19
+DEVICE_INFO := -DFTL_BACKEND_BLUEDBM
 
 DEVICE_LIBS += -lmemio
 else ifeq ($(USE_RASPBERRY_DEVICE), 1)
@@ -64,18 +58,11 @@ else ifeq ($(USE_RASPBERRY_DEVICE), 1)
 #               +----------------+-------------------------------------------+
 # Actual     => | Block(24 bits) |                Page(6 bits)               |
 #               +----------------+-------------------------------------------+
-DEVICE_INFO := -DDEVICE_NR_BUS_BITS=1 \
-               -DDEVICE_NR_CHIPS_BITS=1 \
-               -DDEVICE_NR_PAGES_BITS=4 \
-               -DDEVICE_NR_BLOCKS_BITS=24 \
-               -DDEVICE_PAGE_SIZE=2048
+DEVICE_INFO := -DFTL_BACKEND_RASPBERRY
 DEVICE_LIBS += -lnand -lwiringPi
 else
 # Ramdisk Setting (1GiB)
-DEVICE_INFO := -DDEVICE_NR_BUS_BITS=2 \
-               -DDEVICE_NR_CHIPS_BITS=2 \
-               -DDEVICE_NR_PAGES_BITS=7 \
-               -DDEVICE_NR_BLOCKS_BITS=19
+DEVICE_INFO := -DFTL_BACKEND_RAMDISK
 endif
 
 RUST_LIB_DIR := target/$(if $(filter 1,$(USE_DEBUG)),debug,release)
@@ -119,6 +106,20 @@ PREFIX := /usr/local
 endif
 
 all: build_rust $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
+
+# `ftl.yaml` is the source of truth for the tuning values and the geometry.
+# The two generated files are committed, so `make`, `cargo build` and
+# `make consumer-check` never run Python. `config` rewrites them and writes
+# nothing when they are already current. `check-config` is the drift gate and
+# runs the generator's own tests. No target depends on `config`: that would
+# make a cargo build shell out to Python for a file that is already in the
+# tree.
+config:
+	python3 tools/gen_config.py
+
+check-config:
+	python3 -B tools/gen_config.py --check
+	python3 -B -m unittest discover -s tools -p 'gen_config_test.py' -q
 
 # `make test` is the Rust suite: the C tests are gone, so this is a thin alias
 # for `cargo-test`, which derives the feature flags from the USE_* switches.
@@ -290,7 +291,8 @@ clean:
 	rm -f $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 	cargo clean
 
-.PHONY: build_rust cargo-test cargo-clippy cargo-coverage test consumer-check FORCE
+.PHONY: build_rust cargo-test cargo-clippy cargo-coverage test consumer-check \
+	config check-config FORCE
 
 build_rust: $(RUST_LIB)
 

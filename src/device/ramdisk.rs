@@ -400,11 +400,22 @@ mod tests {
             assert!(!(*dev).d_op.is_null());
             open(dev);
 
-            // The default geometry from the Makefile's DEVICE_INFO.
+            // The geometry from `ftl.yaml`'s ramdisk section, with the
+            // backend's own 64 segments.
             assert_eq!((*dev).page_size(), DEVICE_PAGE_SIZE);
             assert_eq!((*dev).nr_segments(), RAMDISK_NR_BLOCKS);
-            assert_eq!((*dev).pages_per_segment(), 16 * 128);
-            assert_eq!((*dev).total_size(), 1 << 30);
+            assert_eq!(
+                (*dev).pages_per_segment(),
+                1 << (DEVICE_NR_BUS_BITS
+                    + DEVICE_NR_CHIPS_BITS
+                    + DEVICE_NR_PAGES_BITS)
+            );
+            assert_eq!(
+                (*dev).total_size(),
+                RAMDISK_NR_BLOCKS
+                    * (*dev).pages_per_segment()
+                    * DEVICE_PAGE_SIZE
+            );
             assert!(!(*dev).badseg_bitmap.is_null());
 
             assert_eq!(ffi_ramdisk_close(dev), 0);

@@ -365,16 +365,12 @@ pub mod page_write;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-/// Maximum fraction of the segments one GC pass collects, C's
-/// `PAGE_FTL_GC_RATIO`.
-pub const PAGE_FTL_GC_RATIO: f64 = 10.0 / 100.0;
-
-/// Collect every dirty segment, C's `PAGE_FTL_GC_ALL`.
-pub const PAGE_FTL_GC_ALL: f64 = 1.0;
-
-/// GC triggers once the free-page fraction drops below this, C's
-/// `PAGE_FTL_GC_THRESHOLD`.
-pub const PAGE_FTL_GC_THRESHOLD: f64 = 20.0 / 100.0;
+/// The page FTL's GC tuning values, generated from `ftl.yaml` by
+/// `tools/gen_config.py`. `make config` regenerates them and
+/// `make check-config` fails when they are stale.
+pub use crate::ftl_config::{
+    PAGE_FTL_GC_ALL, PAGE_FTL_GC_RATIO, PAGE_FTL_GC_THRESHOLD,
+};
 
 /// C's `enum { PAGE_FTL_IOCTL_TRIM = 0 }`, the ioctl C still issues.
 pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;

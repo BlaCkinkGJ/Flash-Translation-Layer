@@ -309,7 +309,7 @@ mod tests {
     /// physical page in the L2P table through `page_map`.
     fn program(f: &mut Fixture, lpn: usize) {
         unsafe {
-            let ppn = 4096 + lpn as u32;
+            let ppn = 1024 + lpn as u32;
             let mut page: Vec<u8> = (0..DEVICE_PAGE_SIZE)
                 .map(|offset| pattern_byte(lpn, offset))
                 .collect();

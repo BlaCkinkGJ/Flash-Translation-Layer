@@ -27,6 +27,12 @@ jobs:
       run: make check
     - name: make flow
       run: make flow
+    # `src/ftl_config.rs` and `include/ftl-config.h` are generated from
+    # `ftl.yaml` and committed, so `cargo build` needs no Python. This step is
+    # the drift gate: it fails when either file no longer matches the YAML, and
+    # it runs the generator's own tests.
+    - name: make check-config
+      run: make check-config
     - name: make
       run: make
     - name: make integration-test
@@ -59,6 +65,13 @@ jobs:
       run: make clean && make test USE_LOG_SILENT=1
     - name: make cargo-clippy
       run: make cargo-clippy
+    # The bluedbm and raspberry geometry arms in `src/ftl_config.rs` are
+    # compiled nowhere else, and a lib build needs the feature but not the
+    # hardware library.
+    - name: cargo build --lib --features bluedbm
+      run: cargo build --lib --features bluedbm
+    - name: cargo build --lib --features raspberry
+      run: cargo build --lib --features raspberry
     - name: cargo build --features silent
       run: cargo build --features silent
 
