@@ -63,9 +63,11 @@ def load(text):
 
 
 def error(text):
-    with unittest.TestCase().assertRaises(gen_config.ConfigError) as caught:
+    try:
         load(text)
-    return str(caught.exception)
+    except gen_config.ConfigError as caught:
+        return str(caught)
+    raise AssertionError("expected a ConfigError")
 
 
 class GrammarTests(unittest.TestCase):
@@ -95,12 +97,18 @@ class GrammarTests(unittest.TestCase):
         self.assertIn("ftl.yaml:", message)
 
     def test_unknown_key_is_rejected(self):
-        message = error(VALID.replace("  gc_all: 1.0\n", "  gc_all: 1.0\n  gc_extra: 0.5\n"))
+        altered = VALID.replace(
+            "  gc_all: 1.0\n", "  gc_all: 1.0\n  gc_extra: 0.5\n"
+        )
+        message = error(altered)
         self.assertIn("ftl.yaml:5:", message)
         self.assertIn("unknown key 'gc_extra'", message)
 
     def test_duplicate_key_is_rejected(self):
-        message = error(VALID.replace("  gc_all: 1.0\n", "  gc_all: 1.0\n  gc_all: 0.5\n"))
+        altered = VALID.replace(
+            "  gc_all: 1.0\n", "  gc_all: 1.0\n  gc_all: 0.5\n"
+        )
+        message = error(altered)
         self.assertIn("ftl.yaml:5:", message)
         self.assertIn("duplicate key 'gc_all'", message)
 
@@ -172,7 +180,8 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("must be an integer", message)
 
     def test_decimal_page_size_is_rejected(self):
-        message = error(VALID.replace("page_size: 2048", "page_size: 2048.0", 1))
+        altered = VALID.replace("page_size: 2048", "page_size: 2048.0", 1)
+        message = error(altered)
         self.assertIn("must be an integer", message)
 
     def test_tuning_must_be_a_section(self):
@@ -260,7 +269,8 @@ class GenerationTests(unittest.TestCase):
         ):
             self.assertEqual(gen_config.check(self.root), 1)
         self.assertIn("-/* drift */", out.getvalue())
-        self.assertEqual(gen_config.generate(self.root), ["include/ftl-config.h"])
+        expected = ["include/ftl-config.h"]
+        self.assertEqual(gen_config.generate(self.root), expected)
         self.assertEqual(gen_config.check(self.root), 0)
 
     def test_check_detects_a_changed_yaml(self):

@@ -96,7 +96,9 @@ def _parse_scalar(path, line, value):
         return float(value)
     if value and value[0] in "\"'{[&*!|>%@`":
         raise ConfigError(path, line, f"unsupported YAML syntax {value[0]!r}")
-    raise ConfigError(path, line, f"{value!r} is not an integer or plain decimal")
+    raise ConfigError(
+        path, line, f"{value!r} is not an integer or plain decimal"
+    )
 
 
 def parse(text, path=SOURCE.name):
@@ -279,8 +281,8 @@ def render_rust(config):
         RUST_BANNER,
         "",
         "// Cargo features are additive, so two backend features at once would",
-        "// define every geometry constant twice with different values. Name the",
-        "// mistake here instead of letting a duplicate-item error hide it.",
+        "// define every geometry constant twice with different values. Name",
+        "// the mistake here instead of a duplicate-item error that hides it.",
         "#[cfg(any(",
         '    all(feature = "zone", feature = "bluedbm"),',
         '    all(feature = "zone", feature = "raspberry"),',
@@ -334,13 +336,21 @@ def _header_arm(lines, config, section):
 def render_header(config):
     lines = [
         C_BANNER,
+        "",
+        "/**",
+        " * @file ftl-config.h",
+        " * @brief generated device geometry, sourced from `ftl.yaml`",
+        " * @author Gijun Oh",
+        " * @version 0.1",
+        " * @date 2026-10-20",
+        " */",
         "#ifndef FTL_CONFIG_H",
         "#define FTL_CONFIG_H",
         "",
         "/*",
         " * One arm per backend. The Makefile passes exactly one",
-        " * -DFTL_BACKEND_<NAME> and a consumer may override any macro with its",
-        " * own -D, so every macro keeps its #ifndef guard.",
+        " * -DFTL_BACKEND_<NAME> and a consumer may override any macro with",
+        " * its own -D, so every macro keeps its #ifndef guard.",
         " */",
     ]
     arms = ("ramdisk", "zone", "bluedbm", "raspberry")

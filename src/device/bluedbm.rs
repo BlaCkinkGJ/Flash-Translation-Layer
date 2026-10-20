@@ -39,14 +39,10 @@
 //! Deliberate deviations from the C original, each idiomatic rather than
 //! literal:
 //!
-//! - The geometry arithmetic uses the BlueDBM build's bit counts (`3/3/7/19`,
-//!   the Makefile's `USE_BLUEDBM_DEVICE=1` `DEVICE_INFO`), held in
-//!   [`BLUEDBM_NR_BUS_BITS`] and friends, not the default counts in
-//!   [`crate::device`]. C compiles `bluedbm.c` with the same `-D` flags, so
-//!   `addr.format.block` in C occupies bits 13 and up. The crate's
-//!   [`crate::device::device_address`] helpers are built from the default
-//!   (ramdisk) counts, so this module packs and unpacks the segment field with
-//!   the BlueDBM shift instead of those helpers.
+//! - The geometry is the `bluedbm` section of `ftl.yaml`, generated into
+//!   `src/ftl_config.rs` and `include/ftl-config.h`: bus 3 bits, chip 3 bits,
+//!   page 7 bits, block 19 bits and 8192 byte pages. The bus, chip and page
+//!   run puts the segment field of a `device_address` at bit 13.
 //! - `struct bluedbm`'s fields become `Cell`s behind `&self`, because
 //!   [`DeviceOperations`] hands out `&self` and `open` / `close` mutate the
 //!   handle in place, exactly as C mutates `dev->d_private`. `o_flags` stays
@@ -88,18 +84,19 @@ use core::slice;
 use core::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 
 use crate::bits::{set_bit, BITS_PER_UINT64};
-use crate::device::{device, device_request, DeviceOperations, DEVICE_PAGE_SIZE};
+// The geometry is the shared, generated `ftl.yaml` bluedbm section, not a
+// private copy, so this backend and the rest of the crate pack the same
+// address.
+use crate::device::{
+    device, device_request, DeviceOperations,
+    DEVICE_NR_BUS_BITS as BLUEDBM_NR_BUS_BITS,
+    DEVICE_NR_CHIPS_BITS as BLUEDBM_NR_CHIPS_BITS,
+    DEVICE_NR_PAGES_BITS as BLUEDBM_NR_PAGES_BITS, DEVICE_PAGE_SIZE,
+};
 use crate::{pr_err, pr_warn};
 
 /// C's `BLUEDBM_NR_BLOCKS`: the number of blocks (segments) in the board.
 const BLUEDBM_NR_BLOCKS: usize = 4096;
-
-/// The Makefile's `USE_BLUEDBM_DEVICE=1` `DEVICE_INFO` bit counts. C compiles
-/// `bluedbm.c` and the FTL with these, so the segment field of a
-/// `device_address` sits at bit 13, not at the default build's bit 11.
-const BLUEDBM_NR_BUS_BITS: u32 = 3;
-const BLUEDBM_NR_CHIPS_BITS: u32 = 3;
-const BLUEDBM_NR_PAGES_BITS: u32 = 7;
 
 /// Width of the bus/chip/page run below the segment field (C's
 /// `DEVICE_NR_PAGES_BITS + DEVICE_NR_CHIPS_BITS + DEVICE_NR_BUS_BITS`).

@@ -375,8 +375,8 @@ The geometry each feature selects is generated from `ftl.yaml` into
 `src/ftl_config.rs` and `include/ftl-config.h` (`make config`, gated by
 `make check-config`).
 
-The `zone` feature changes the address bit split, not just the backend table
-entry (`src/ftl_config.rs`), so a zoned build decodes a `device_address`
+A backend feature changes the address bit split, not just the backend table
+entry (`src/ftl_config.rs`), so a non-default build decodes a `device_address`
 differently from the default build. The C headers in `include/` are the ABI
 contract for consumers: 46 `ffi_`-prefixed entry points across the crate, plus
 the pre-existing `crc32` (`src/crc32.rs:68`), for 47 `#[no_mangle]` symbols
