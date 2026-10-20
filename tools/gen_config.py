@@ -278,9 +278,9 @@ def render_rust(config):
     lines = [
         RUST_BANNER,
         "",
-        "// Cargo features are additive, so two backend features at once would",
-        "// define every geometry constant twice with different values. Name",
-        "// the mistake here instead of a duplicate-item error that hides it.",
+        "// Cargo features are additive, so two backend features at once",
+        "// would define every geometry constant twice with different values.",
+        "// Name the mistake here instead of a duplicate-item error that hides",
         "#[cfg(any(",
         '    all(feature = "zone", feature = "bluedbm"),',
         '    all(feature = "zone", feature = "raspberry"),',

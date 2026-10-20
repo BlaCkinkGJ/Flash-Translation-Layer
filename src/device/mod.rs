@@ -851,21 +851,29 @@ mod tests {
 
     #[test]
     fn address_packing_matches_c_bitfields() {
-        // The default build is bus 2 bits, chip 2 bits, page 7 bits, block 19
-        // bits, and the zoned build is 3/3/5/21. Both put the block at bit 11.
-        let addr = device_address::new(1, 2, 3, 4);
+        // Each backend feature selects its own bit split, so the packed word
+        // below is the one this build's `ftl.yaml` section describes.
+        let addr = device_address::new(1, 1, 3, 4);
         assert_eq!(
             addr.lpn,
-            1 | (2 << DEVICE_NR_BUS_BITS)
+            1 | (1 << DEVICE_NR_BUS_BITS)
                 | (4 << (DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS))
                 | (3 << BLOCK_SHIFT)
         );
-        #[cfg(not(feature = "zone"))]
-        assert_eq!(addr.lpn, 6217);
+        #[cfg(not(any(
+            feature = "zone",
+            feature = "bluedbm",
+            feature = "raspberry"
+        )))]
+        assert_eq!(addr.lpn, 6213);
         #[cfg(feature = "zone")]
-        assert_eq!(addr.lpn, 6417);
+        assert_eq!(addr.lpn, 6409);
+        #[cfg(feature = "bluedbm")]
+        assert_eq!(addr.lpn, 24841);
+        #[cfg(feature = "raspberry")]
+        assert_eq!(addr.lpn, 211);
         assert_eq!(addr.bus(), 1);
-        assert_eq!(addr.chip(), 2);
+        assert_eq!(addr.chip(), 1);
         assert_eq!(addr.page(), 4);
         assert_eq!(addr.block(), 3);
 
@@ -874,19 +882,19 @@ mod tests {
         let full = device_address::new(BUS_MASK, CHIP_MASK, BLOCK_MASK, PAGE_MASK);
         assert_eq!(full.block(), BLOCK_MASK);
 
-        // The default geometry packs 30 of the 32 bits, so the "empty"
-        // sentinel is not a packable address. The zoned geometry packs all 32,
-        // so there the sentinel is a reachable address, which is C's behaviour
-        // under `-DDEVICE_NR_*_BITS=3/3/5/21` too.
-        #[cfg(not(feature = "zone"))]
-        {
-            assert_eq!(full.lpn, (1u32 << 30) - 1);
-            assert_ne!(PADDR_EMPTY, full.lpn);
-        }
-        #[cfg(feature = "zone")]
+        // The default and raspberry geometries pack 30 of the 32 bits, so the
+        // "empty" sentinel is not a packable address. The zoned and bluedbm
+        // geometries pack all 32, so there the sentinel is a reachable address,
+        // which is C's behaviour under the same `-DDEVICE_NR_*_BITS` too.
+        #[cfg(any(feature = "zone", feature = "bluedbm"))]
         {
             assert_eq!(full.lpn, u32::MAX);
             assert_eq!(full.lpn, PADDR_EMPTY);
+        }
+        #[cfg(not(any(feature = "zone", feature = "bluedbm")))]
+        {
+            assert_eq!(full.lpn, (1u32 << 30) - 1);
+            assert_ne!(PADDR_EMPTY, full.lpn);
         }
         assert_eq!(device_address { lpn: PADDR_EMPTY }.lpn, u32::MAX);
 
@@ -900,7 +908,10 @@ mod tests {
             device_address::new(0, 0, 1, 0)
         );
         assert_eq!(device_address::from_segment_page(0, 2).lpn, 2);
-        assert_eq!(device_address::from_segment_page(2, 5).lpn, (2 << 11) | 5);
+        assert_eq!(
+            device_address::from_segment_page(2, 5).lpn,
+            (2 << BLOCK_SHIFT) | 5
+        );
         // The segment keeps 16 bits, the width C's cast truncates to.
         assert_eq!(
             device_address::from_segment_page(u16::MAX, 0).block(),
@@ -922,14 +933,18 @@ mod tests {
             dev.blocks_per_segment(),
             1 << (DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS)
         );
-        // Both geometries give a segment 2^11 pages: 4 * 4 * 128 in the default
-        // build, 8 * 8 * 32 in the zoned one.
-        assert_eq!(dev.pages_per_segment(), 1 << 11);
+        assert_eq!(
+            dev.pages_per_segment(),
+            1 << (DEVICE_NR_BUS_BITS
+                + DEVICE_NR_CHIPS_BITS
+                + DEVICE_NR_PAGES_BITS)
+        );
         assert_eq!(dev.page_size(), DEVICE_PAGE_SIZE);
-        // The Makefile's default build is the 1GiB ramdisk, and the zoned build
-        // reaches the same 1GiB with 64 segments of 2048 pages.
-        assert_eq!(dev.total_size(), 1 << 30);
-        assert_eq!(dev.total_pages(), (1 << 30) / DEVICE_PAGE_SIZE);
+        assert_eq!(
+            dev.total_size(),
+            64 * dev.pages_per_segment() * DEVICE_PAGE_SIZE
+        );
+        assert_eq!(dev.total_pages(), 64 * dev.pages_per_segment());
     }
 
     #[test]
@@ -1070,13 +1085,33 @@ mod tests {
 
     #[test]
     fn native_address_and_direction_surface() {
-        let addr = device_address::new(1, 2, 3, 4);
+        let addr = device_address::new(1, 1, 3, 4);
         assert_eq!(u32::from(addr), addr.lpn);
         assert_eq!(device_address::from(addr.lpn), addr);
-        #[cfg(not(feature = "zone"))]
-        assert_eq!(addr.to_string(), "bus 1 chip 2 block 3 page 4 (lpn 0x1849)");
+        #[cfg(not(any(
+            feature = "zone",
+            feature = "bluedbm",
+            feature = "raspberry"
+        )))]
+        assert_eq!(
+            addr.to_string(),
+            "bus 1 chip 1 block 3 page 4 (lpn 0x1845)"
+        );
         #[cfg(feature = "zone")]
-        assert_eq!(addr.to_string(), "bus 1 chip 2 block 3 page 4 (lpn 0x1911)");
+        assert_eq!(
+            addr.to_string(),
+            "bus 1 chip 1 block 3 page 4 (lpn 0x1909)"
+        );
+        #[cfg(feature = "bluedbm")]
+        assert_eq!(
+            addr.to_string(),
+            "bus 1 chip 1 block 3 page 4 (lpn 0x6109)"
+        );
+        #[cfg(feature = "raspberry")]
+        assert_eq!(
+            addr.to_string(),
+            "bus 1 chip 1 block 3 page 4 (lpn 0xd3)"
+        );
 
         assert_eq!(DeviceDirection::from_flag(0), Some(DeviceDirection::Write));
         assert_eq!(DeviceDirection::from_flag(2), Some(DeviceDirection::Erase));
