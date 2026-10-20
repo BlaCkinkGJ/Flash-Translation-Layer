@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate `src/ftl_config.rs` and `include/ftl-config.h` from `ftl.yaml`.
+"""
+Generate `src/ftl_config.rs` and `include/ftl-config.h` from `ftl.yaml`.
 
 Only the project's own YAML subset is read: two-space indentation,
 `key: value`, `#` comments, integers and plain decimals. Anything else is an
@@ -80,6 +81,7 @@ class ConfigError(Exception):
     """A grammar or value error, tagged with its file and line."""
 
     def __init__(self, path, line, message):
+        """Tag a message with the source file and line."""
         super().__init__(f"{path}:{line}: {message}")
 
 
