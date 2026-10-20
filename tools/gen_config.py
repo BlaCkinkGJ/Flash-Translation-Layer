@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""
-Generate `src/ftl_config.rs` and `include/ftl-config.h` from `ftl.yaml`.
+"""Generate both config files from `ftl.yaml`."""
 
-Only the project's own YAML subset is read: two-space indentation,
-`key: value`, `#` comments, integers and plain decimals. Anything else is an
-error with a file and line, so a typo cannot silently change a compiled
-constant. Standard library only.
-
-`--check` writes nothing. It compares the files on disk with what would be
-generated and exits non-zero with a diff when either differs.
-"""
+# Only the project's own YAML subset is read: two-space indentation,
+# `key: value`, `#` comments, integers and plain decimals. Anything else is an
+# error with a file and line, so a typo cannot silently change a compiled
+# constant. Standard library only.
+#
+# `--check` writes nothing. It compares the files on disk with what would be
+# generated and exits non-zero with a diff when either differs.
 
 import difflib
 import re
