@@ -25,7 +25,7 @@ extern "C" {
 /**
  * @brief deallocation callback type for eviction
  *
- * 0 means successfully evicted
+ * @return 0 on success
  */
 typedef int (*lru_dealloc_fn)(const uint64_t, uintptr_t);
 

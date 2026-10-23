@@ -27,11 +27,11 @@ endif
 DEVICE_LIBS =
 
 # The geometry a C consumer compiles against. `include/ftl-config.h` is
-# generated from `ftl.yaml`, and one `-DFTL_BACKEND_<NAME>` macro selects each
-# backend section. The Rust build reads the same `ftl.yaml` sections through the
-# matching cargo feature, so the two cannot disagree. An explicit
-# `-DDEVICE_NR_*` on a consumer's own compile line still wins, because every
-# macro in the generated header keeps its `#ifndef` guard.
+# generated from `ftl.yaml`, and each backend section is selected by one
+# `-DFTL_BACKEND_<NAME>` macro. The Rust build reads the same `ftl.yaml`
+# sections through the matching cargo feature, so the two cannot disagree. An
+# explicit `-DDEVICE_NR_*` on a consumer's own compile line still wins, because
+# every macro in the generated header keeps its `#ifndef` guard.
 DEVICE_INFO =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
@@ -137,14 +137,14 @@ install: $(RUST_LIB)
 	@echo "installed $(RUST_LIB) and the headers: link with -lftl_rust $(strip $(CONSUMER_LIBS))"
 
 # The zoned backend's end-to-end check against an emulated zoned block device.
-# `null_blk`
+# Two emulators can make a host-managed device out of nothing and the target
+# tries both: `null_blk`
 # (https://zonedstorage.io/docs/getting-started/zbd-emulation) and the `zloop`
-# driver (`Documentation/admin-guide/blockdev/zoned_loop`) can both make a
-# host-managed device out of nothing, and the target tries each. It needs root
-# to load a module, libzbd to link and the cargo `zone` feature, so it is its
-# own target rather than part of `test` or `make cargo-test`. When no emulator
-# can be created it prints why and exits 0, which is what happens on macOS,
-# where the Docker builder has no module tree.
+# driver (`Documentation/admin-guide/blockdev/zoned_loop`). It needs root to
+# load a module, libzbd to link and the cargo `zone` feature, so it is its own
+# target rather than part of `test` or `make cargo-test`. When no emulator can
+# be created it prints why and exits 0, which is what happens on macOS, where
+# the Docker builder has no module tree.
 #
 # The device it asks for is 4 zones of 16MiB with no conventional zone. A zone
 # has to hold exactly one segment of the zoned build (2^5 pages * 2^3 bus * 2^3

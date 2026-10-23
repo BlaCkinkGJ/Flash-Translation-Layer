@@ -7,7 +7,7 @@
 //! The flow matches C's. Resolve the logical page and the in-page offset, then
 //! look the physical address up in the L2P table. An unmapped page is served
 //! with zeros, and a read that runs past the page is rejected. A mapped read
-//! copies the whole page into a scratch buffer through the device layer, then
+//! reads the whole page into a scratch buffer through the device layer, then
 //! waits on the request's condition variable. The completion callback copies
 //! the requested subrange out.
 //!
@@ -42,9 +42,9 @@ unsafe fn reclaim_scratch(page_ptr: *mut u8, page_size: usize, read_rq: *mut dev
     ffi_device_free_request(read_rq);
 }
 
-/// Copy the requested subrange out of the finished page read, release the
-/// scratch buffer and the internal request, then signal the caller's request
-/// finished. C's static `page_ftl_read_end_rq` does the same.
+/// C's `page_ftl_read_end_rq`: copy the requested subrange out of the finished
+/// page read, release the scratch buffer and the internal request, then signal
+/// the caller's request finished.
 ///
 /// The device's completion path runs this while [`read_page`] still holds its
 /// borrows, so it works entirely through raw pointers. It never forms a second

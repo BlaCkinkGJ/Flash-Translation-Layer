@@ -10,9 +10,9 @@
 //! keeps C's "skip and retry" behaviour when the free counter and the bitmap
 //! disagree. C logs a warning and moves to the next segment.
 //!
-//! The packed address mirrors C exactly.
+//! The packed address mirrors C exactly:
 //! `paddr.format.block = (uint16_t)segnum` then `paddr.lpn |= page`, so the
-//! segment number truncates to 16 bits the same way C's cast does. The low
+//! segment number truncates to 16 bits the same way C's cast does, and the low
 //! (bus + chip + page) bits carry the page-within-segment index.
 
 use core::ffi::c_int;
@@ -24,16 +24,15 @@ use crate::device::{device_address, PADDR_EMPTY};
 use crate::ftl::PageFtl;
 use crate::{pr_err, pr_warn};
 
-/// Pick the next free physical page. C's `page_ftl_get_free_page` does the
-/// same.
+/// C's `page_ftl_get_free_page`: pick the next free physical page.
 ///
 /// Starts at `pgftl.alloc_segnum` and walks every segment once, skipping bad
 /// segments and segments with no free pages. It then returns the first zero bit
 /// in the chosen segment's `use_bits` bitmap, marks the page used, decrements
 /// `nr_free_pages`, increments `nr_valid_pages`, and advances `alloc_segnum`.
 /// Returns `None` when nothing is free, where C returns a [`PADDR_EMPTY`] word.
-/// Take [`PageFtl`] with its mutex held. This takes `&mut` because C reads
-/// `alloc_segnum` and the counters concurrently.
+/// Take [`PageFtl`] with its mutex held. The function takes `&mut` because C
+/// reads `alloc_segnum` and the counters concurrently.
 pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
     if pgftl.segments.is_empty() {
         pr_err!("fatal error detected: segment array is NULL");
@@ -97,8 +96,8 @@ pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
     }
 }
 
-/// Store `ppn` for the logical page holding `sector`. C's
-/// `page_ftl_update_map` does the same.
+/// C's `page_ftl_update_map`: store `ppn` for the logical page holding
+/// `sector`.
 ///
 /// Fails with `EINVAL` when the logical page number would run past the L2P
 /// table, exactly like C.

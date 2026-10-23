@@ -31,7 +31,7 @@
 //!   the port reads the `type` field of the mirrored zone.
 //!
 //! The narrow C wrapper the issue allows as a fallback is for a header whose
-//! fields are not reachable from Rust. They are reachable here. `struct
+//! fields are not reachable from Rust. They are reachable here: `struct
 //! zbd_zone` and `struct zbd_info` are plain C structs whose layout
 //! `#[repr(C)]` reproduces byte for byte. Their `__attribute__((packed))`
 //! changes nothing, because every member is naturally aligned either way. The
@@ -90,7 +90,7 @@
 //!   [`device::uninstall_backend`], where C leaves `d_op` pointing at the
 //!   vtable of the metadata it just freed (`zone.c:450-452`).
 //! - `ffi_zone_device_init` cannot report `-ENOMEM`. C returns it when its
-//!   `malloc` fails and leaves `d_op` untouched (`zone.c:419-424`).
+//!   `malloc` fails and leaves `d_op` untouched (`zone.c:419-424`), while
 //!   `install_backend` allocates with `Box`, which aborts on OOM. That is the
 //!   whole-module behaviour [`crate::device`] already documents for
 //!   `ffi_device_module_init`.

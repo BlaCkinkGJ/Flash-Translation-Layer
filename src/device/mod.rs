@@ -40,7 +40,7 @@
 //!   (`-EINVAL` / no-op). C dereferences it, and `device_module_exit` asserts.
 //! - A failing `pthread_mutex_init` / `pthread_cond_init` releases the
 //!   partially built structure. C leaks the request (mutex failure) or the
-//!   mutex (cond failure). It also ignores the mutex failure in
+//!   mutex (cond failure), and ignores the mutex failure in
 //!   `device_module_init` entirely.
 //! - `ffi_device_module_init` cannot fail with `-ENOMEM`: `Box` aborts on OOM,
 //!   as in `src/list.rs`.

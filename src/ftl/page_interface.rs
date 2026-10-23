@@ -62,7 +62,7 @@ unsafe fn page_ftl_of(flash: *mut flash_device) -> Result<*mut PageFtl, c_int> {
     Ok(pgftl)
 }
 
-/// Hand the open to the page FTL. C's `page_ftl_open_interface` does the same.
+/// C's `page_ftl_open_interface`: hand the open to the page FTL.
 ///
 /// # Safety
 /// `flash` is a live handle carrying a page FTL, and `name` is `NULL` or a NUL
@@ -78,8 +78,8 @@ unsafe extern "C" fn page_ftl_open_interface(
     }
 }
 
-/// Write `count` bytes from `buffer` at `sector`. C's
-/// `page_ftl_write_interface` does the same.
+/// C's `page_ftl_write_interface`: write `count` bytes from `buffer` at
+/// `sector`.
 ///
 /// The buffer is split into one request per page, so a transfer that does not
 /// start or end on a page boundary submits a partial first and last request.
@@ -173,8 +173,8 @@ unsafe extern "C" fn page_ftl_write_interface(
     size as ssize_t
 }
 
-/// Read `count` bytes into `buffer` from `sector`. C's
-/// `page_ftl_read_interface` does the same.
+/// C's `page_ftl_read_interface`: read `count` bytes into `buffer` from
+/// `sector`.
 ///
 /// The buffer is split the same way the write path splits it, one request per
 /// page with a partial first and last request.
@@ -264,7 +264,7 @@ unsafe extern "C" fn page_ftl_read_interface(
     size as ssize_t
 }
 
-/// Close the page FTL. C's `page_ftl_close_interface` does the same.
+/// C's `page_ftl_close_interface`: close the page FTL.
 ///
 /// # Safety
 /// `flash` is a live handle carrying a page FTL.
@@ -328,8 +328,8 @@ pub static PAGE_FOPS: flash_operations = flash_operations {
     close: Some(page_ftl_close_interface),
 };
 
-/// Bring up the page FTL over the device module `flags` names. C's
-/// `page_ftl_module_init` does the same.
+/// C's `page_ftl_module_init`: bring up the page FTL over the device module
+/// `flags` names.
 ///
 /// The table is installed before anything can fail, as in C. A `NULL` flash
 /// handle reports `-EINVAL`, where C dereferences it. A failing device module
@@ -368,8 +368,8 @@ pub unsafe extern "C" fn ffi_page_ftl_module_init(flash: *mut flash_device, flag
     0
 }
 
-/// Close the page FTL, release it and tear the device module down. C's
-/// `page_ftl_module_exit` does the same.
+/// C's `page_ftl_module_exit`: close the page FTL, release it and tear the
+/// device module down.
 ///
 /// A `NULL` flash handle or a flash handle without a page FTL is a logged
 /// no-op that returns `0`, as in C.

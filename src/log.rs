@@ -4,9 +4,9 @@
 //! expand to no-ops, C's `-DENABLE_LOG_SILENT` equivalent.
 //!
 //! `RUST_LOG` sets the level, e.g. `RUST_LOG=debug` enables `pr_debug!` in
-//! release. Output is one JSON object per line, Loki-compatible. The
-//! `env_logger` sink can be swapped for a Loki / OpenTelemetry exporter later
-//! without touching call sites.
+//! release. Output is one JSON object per line, Loki-compatible. Swap
+//! `env_logger` for a Loki / OpenTelemetry exporter later without touching
+//! call sites.
 
 use std::io::Write;
 

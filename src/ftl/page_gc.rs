@@ -41,9 +41,9 @@ use crate::ftl::page_write::write_page;
 use crate::ftl::{PageFtl, PageFtlLock};
 use crate::{pr_debug, pr_err};
 
-/// Release the request the erase was submitted with. This runs on the device's
-/// completion path, so it only touches the request pointer it is handed. C's
-/// `page_ftl_erase_end_rq` does the same.
+/// C's `page_ftl_erase_end_rq`: release the request the erase was submitted
+/// with. Runs on the device's completion path, so it only touches the request
+/// pointer it is handed.
 ///
 /// # Safety
 /// `request` came from [`ffi_device_alloc_request`] and is not used afterwards.
@@ -51,9 +51,9 @@ unsafe extern "C" fn erase_end_rq(request: *mut device_request) {
     ffi_device_free_request(request);
 }
 
-/// Sort the GC list, take its head and unlink it. Then pin the victim's free
-/// page count to 0, so the copy that follows cannot allocate a page inside the
-/// segment it is draining. C's `page_ftl_pick_gc_target` does the same.
+/// C's `page_ftl_pick_gc_target`: sort the GC list, take its head and unlink
+/// it, then pin the victim's free page count to 0 so the copy that follows
+/// cannot allocate a page inside the segment it is draining.
 ///
 /// Returns the index of the victim segment, or `None` when the list is empty.
 /// C's list holds a pointer to the segment and orders the nodes by
@@ -83,8 +83,8 @@ fn pick_gc_target(pgftl: &mut PageFtl) -> Option<usize> {
     Some(segnum)
 }
 
-/// Hand an erase request for `paddr` to the device. C's
-/// `page_ftl_segment_erase` does the same.
+/// C's `page_ftl_segment_erase`: hand an erase request for `paddr` to the
+/// device.
 ///
 /// Once the backend accepts the request, its completion callback `erase_end_rq`
 /// owns it. A backend that fails without running the callback leaves the
@@ -159,8 +159,7 @@ fn read_valid_page(pgftl: &mut PageFtl, lpn: usize) -> io::Result<Vec<u8>> {
     Ok(buffer)
 }
 
-/// Write `buffer` to a fresh page as `lpn`. C's
-/// `page_ftl_write_valid_page` does the same.
+/// C's `page_ftl_write_valid_page`: write `buffer` to a fresh page as `lpn`.
 ///
 /// The write path allocates the page, remaps `lpn` to it and invalidates the
 /// old mapping. That makes this the step that both moves the payload and
@@ -200,8 +199,8 @@ fn write_valid_page(pgftl: &mut PageFtl, lpn: usize, buffer: &mut [u8]) -> io::R
     Ok(())
 }
 
-/// Move every valid page of `segment` to a free page elsewhere. C's
-/// `page_ftl_valid_page_copy` does the same.
+/// C's `page_ftl_valid_page_copy`: move every valid page of `segment` to a free
+/// page elsewhere.
 ///
 /// The walk reads the head of the LPN list each turn. The copy's write path
 /// invalidates the mapping it replaces, and that unlinks the LPN the walk is
@@ -234,7 +233,7 @@ fn valid_page_copy(pgftl: &mut PageFtl, segnum: usize) -> io::Result<()> {
     Ok(())
 }
 
-/// Garbage collect one segment. C's `page_ftl_do_gc` does the same.
+/// C's `page_ftl_do_gc`: garbage collect one segment.
 ///
 /// Picks the queued segment with the fewest valid pages, copies its valid pages
 /// elsewhere, erases it, reinitializes its metadata and clears its bit in
@@ -270,8 +269,8 @@ pub fn do_gc(pgftl: &mut PageFtl) -> io::Result<()> {
     Ok(())
 }
 
-/// Garbage collect up to `gc_ratio * nr_segments` segments, stopping early once
-/// the GC list is empty. C's `page_ftl_gc_from_list` does the same.
+/// C's `page_ftl_gc_from_list`: garbage collect up to `gc_ratio * nr_segments`
+/// segments, stopping early once the GC list is empty.
 ///
 /// The return value is C's. It has two quirks worth naming, because the tests
 /// pin them:

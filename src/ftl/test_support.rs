@@ -8,10 +8,10 @@
 //! `page_ftl_open` builds it.
 //!
 //! Geometry: the ramdisk sizes its store from the 1GiB geometry `open`
-//! installs. The fixture then narrows `dev.info` to the requested geometry, so
-//! a test can fill a whole segment in a handful of writes. Every address the
-//! narrowed geometry produces still lands inside the ramdisk's store. The
-//! packed address keeps the segment in the high bits, and the store is sized
+//! installs. The fixture then narrows `dev.info` to the requested geometry so a
+//! test can fill a whole segment in a handful of writes. Every address the
+//! narrowed geometry produces still lands inside the ramdisk's store, because
+//! the packed address keeps the segment in the high bits and the store is sized
 //! by the *default* page count.
 
 use core::ffi::{c_char, c_int};

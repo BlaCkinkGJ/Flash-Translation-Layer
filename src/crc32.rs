@@ -56,8 +56,8 @@ fn get_crc32_tables() -> &'static [[u32; 256]; 8] {
 /// Compute the CRC32 checksum of `buf`.
 ///
 /// # Safety
-/// `buf` must point to at least `size` valid bytes. A null `buf` returns
-/// `initial ^ 0xFFFFFFFF`.
+/// The caller must ensure that `buf` points to at least `size` valid bytes.
+/// A null `buf` returns `initial ^ 0xFFFFFFFF`.
 ///
 /// # Incremental Calculation
 /// For incremental CRC32, pass the previous result XORed with `0xFFFFFFFF` as

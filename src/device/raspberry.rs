@@ -54,9 +54,9 @@
 //!   `request->paddr`. Both union views use this build's bit counts, and
 //!   `addr.lpn = 0` precedes the copies, so the port masks the packed word
 //!   once instead of copying four fields.
-//! - `open` releases a previous bitmap instead of leaking it, which is what C
-//!   does when it is called twice. This is a deliberate deviation from the
-//!   literal port.
+//! - `open` releases a previous bitmap instead of leaking it the way C does
+//!   when it is called twice, which is a deliberate deviation from the literal
+//!   port rather than C behaviour.
 //! - The bitmap is `nr_segments.div_ceil(64)` words. C's
 //!   `BITS_TO_UINT64_ALIGN` over-allocates by one `u64`, which no accessor
 //!   reaches.

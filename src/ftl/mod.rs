@@ -27,7 +27,6 @@
 //!   (`ftl/page/page-core.c:341-367`). The port's dispatch already holds one
 //!   exclusive borrow of the FTL for the whole operation, so that lock had no
 //!   reader concurrency left to hand out, and nothing read the field.
-//!
 //!   C's per-bus array goes with it. `pgftl->bus_rwlock` and
 //!   `page_ftl_init_bus_lock` (`ftl/page/page-core.c:183-205`) built one lock
 //!   per bus, and `page_ftl_close` released them. No caller in C ever locked
@@ -63,10 +62,9 @@
 //!   GC thread and the callers' threads both reach them. C touched them through
 //!   `__atomic_*` builtins. `is_gc` existed only to hold `use_bits` at C's
 //!   offset 16 and nothing read it, so it is gone.
-//! - A segment whose `nr_free_pages` and `use_bits` bitmap disagree is where C
-//!   hands out an out-of-range page. The port refuses that page. C's
-//!   `find_first_zero_bit` (`include/bits.h:63`, called from
-//!   `ftl/page/page-map.c:71` as
+//! - When a segment's `nr_free_pages` and its `use_bits` bitmap disagree, the
+//!   port refuses the out-of-range page C hands out. C's `find_first_zero_bit`
+//!   (`include/bits.h:63`, called from `ftl/page/page-map.c:71` as
 //!   `find_first_zero_bit(segment->use_bits, pages_per_segment, 0)`) checks
 //!   only `idx < size` before scanning a bucket. Once every bit in
 //!   `[0, pages_per_segment)` is set, it returns the tail bucket's first zero

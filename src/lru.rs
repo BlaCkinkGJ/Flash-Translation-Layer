@@ -30,10 +30,10 @@
 //!   C-visible fields) and no Rust consumer exists yet. Revisit alongside the
 //!   `page_write.rs` / `page_gc.rs` ports (Tasks 10-11), as in `src/list.rs`.
 //! - `get` is O(1) via a `HashMap` index keyed on the newest node, the issue's
-//!   requested improvement over C's linear scan. It is equivalent. Eviction
-//!   takes the tail (oldest) first, so of two nodes sharing a key the newer one
-//!   always outlives the older one. The index points at that newer node, and it
-//!   is the one the C scan would return.
+//!   requested improvement over C's linear scan. It is equivalent: eviction
+//!   takes the tail (oldest) first, so of two nodes sharing a key the newer
+//!   one (the one the index points at, and the one the C scan would return)
+//!   always outlives the older one.
 //! - The eviction policy is C's, not a standard evict-one: a `put` into a full
 //!   cache evicts `capacity` entries, i.e. drains it. Pinned by
 //!   `eviction_drains_whole_cache_when_full`. The issue raised this as an open
@@ -249,8 +249,8 @@ pub unsafe extern "C" fn ffi_lru_get(cache: *mut lru_cache, key: u64) -> usize {
     (*node).value
 }
 
-/// Release every entry, then the cache itself. Returns the last dealloc status,
-/// which is `0` on success and `0` for a `NULL` cache, like C.
+/// Release every entry, then the cache itself. Returns the last dealloc
+/// status (`0` on success, and for a `NULL` cache), like C.
 ///
 /// # Safety
 /// `cache` is `NULL` or was returned by `ffi_lru_init` and not yet freed.

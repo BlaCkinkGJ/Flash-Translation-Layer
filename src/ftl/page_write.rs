@@ -31,8 +31,8 @@ use crate::ftl::page_read::read_page;
 use crate::ftl::{PageFtl, PageFtlLock};
 use crate::{pr_debug, pr_err};
 
-/// Release the scratch page and the request that carried it. C's
-/// `page_ftl_write_end_rq` does the same.
+/// C's `page_ftl_write_end_rq`: release the scratch page and the request that
+/// carried it.
 ///
 /// # Safety
 /// `request` is a live request whose `data` points at a `data_len` byte page
@@ -48,9 +48,9 @@ unsafe extern "C" fn write_end_rq(request: *mut device_request) {
     ffi_device_free_request(request);
 }
 
-/// Drop the mapping of `lpn` and unlink it from its segment. The segment joins
-/// the garbage collection queue once it has no free page left. C's
-/// `page_ftl_invalidate` does the same.
+/// C's `page_ftl_invalidate`: drop the mapping of `lpn`, unlink it from its
+/// segment and queue that segment for garbage collection once it has no free
+/// page left.
 ///
 /// The free page count of the segment deliberately does not move here. C only
 /// reloads `nr_free_pages` (`ftl/page/page-write.c:44`), so the counter keeps
@@ -77,8 +77,8 @@ fn invalidate(pgftl: &mut PageFtl, lpn: usize) {
     }
 }
 
-/// Fill `buffer` with the page `lpn` is currently mapped to. C's
-/// `page_ftl_read_for_overwrite` does the same.
+/// C's `page_ftl_read_for_overwrite`: fill `buffer` with the page `lpn` is
+/// currently mapped to.
 ///
 /// NAND cannot be overwritten in place, so the write path reads the previous
 /// page, splices the new bytes into it and writes the result to a fresh page.
@@ -113,8 +113,8 @@ fn read_for_overwrite(pgftl: &mut PageFtl, lpn: usize, buffer: &mut [u8]) -> io:
     Ok(())
 }
 
-/// Point `sector`'s logical page at `paddr`, dropping and queueing the mapping
-/// it replaces. C's `page_ftl_write_update_metadata` does the same.
+/// C's `page_ftl_write_update_metadata`: point `sector`'s logical page at
+/// `paddr`, dropping and queueing the mapping it replaces.
 fn update_metadata(pgftl: &mut PageFtl, paddr: device_address, sector: usize) {
     let lpn = pgftl.lpn(sector);
     if pgftl.trans_map[lpn] != PADDR_EMPTY {
