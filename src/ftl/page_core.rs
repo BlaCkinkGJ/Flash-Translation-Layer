@@ -1,23 +1,23 @@
 //! Page FTL core lifecycle, checkpoint and request dispatch, ported from
 //! `ftl/page/page-core.c`.
 //!
-//! [`open`] mirrors C's `page_ftl_open`: open the device, allocate the L2P
+//! [`open`] mirrors C's `page_ftl_open`. It opens the device, allocates the L2P
 //! table, the segment array with its `use_bits` bitmaps and the `gc_seg_bits`
-//! bitmap, load the checkpoint and spawn the GC thread. [`close`] mirrors C's
-//! `page_ftl_close`: save or discard the checkpoint, join the GC thread,
-//! release every allocation and close the device. [`submit_request`]
-//! mirrors C's `page_ftl_submit_request`, the dispatch the interface layer and
-//! the GC loop drive.
+//! bitmap, loads the checkpoint and spawns the GC thread. [`close`] mirrors C's
+//! `page_ftl_close`: it saves or discards the checkpoint, joins the GC thread,
+//! releases every allocation and closes the device. [`submit_request`] mirrors
+//! C's `page_ftl_submit_request`, the dispatch the interface layer and the GC
+//! loop drive.
 //!
 //! The statics mirror the file's statics: [`alloc_bitmap`], [`init_segment`],
-//! [`init_map`], [`gc_thread_main`] with
-//! its [`gc_thread_iteration`] turn and [`gc_pass`] body, and the checkpoint
-//! pair [`checkpoint_save`] / [`checkpoint_load`]. C's
-//! `page_ftl_segment_data_init` lives here as [`segment_data_init`], its C home
-//! (`ftl/page/page-core.c:110`), and [`crate::ftl::page_gc`] calls it. C's
-//! `page_ftl_free_segments` has no port: the buffers it freed are owned here,
-//! so [`close`] drops them, and C's `page_ftl_init_bus_lock` has no port
-//! either: that lock array is deleted (see the deviations in [`crate::ftl`]).
+//! [`init_map`], [`gc_thread_main`] with its [`gc_thread_iteration`] turn and
+//! [`gc_pass`] body, and the checkpoint pair [`checkpoint_save`] /
+//! [`checkpoint_load`]. C's `page_ftl_segment_data_init` lives here as
+//! [`segment_data_init`], its C home (`ftl/page/page-core.c:110`), and
+//! [`crate::ftl::page_gc`] calls it. C's `page_ftl_free_segments` has no port:
+//! the buffers it freed are owned here, so [`close`] drops them. C's
+//! `page_ftl_init_bus_lock` has no port either: that lock array is deleted (see
+//! the deviations in [`crate::ftl`]).
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
@@ -56,10 +56,10 @@ const GC_THREAD_INTERVAL: Duration = Duration::from_secs(1);
 /// address.
 ///
 /// C keeps one `static int is_gc_thread_exit` for the whole process
-/// (`ftl/page/page-core.c:24`), so `open`'s clear (`:302`) and `close`'s set
-/// (`:422`) reach every FTL in it, and one FTL's close stops another's
-/// collector. The request is keyed by FTL here instead. `close` removes the key
-/// after the join, so the map holds one entry per FTL being shut down.
+/// (`ftl/page/page-core.c:24`). `open`'s clear (`:302`) and `close`'s set
+/// (`:422`) therefore reach every FTL in it, and one FTL's close stops
+/// another's collector. Here the request is keyed by FTL. `close` removes the
+/// key after the join, so the map holds one entry per FTL being shut down.
 static GC_THREAD_STOP: Mutex<Option<HashSet<usize>>> = Mutex::new(None);
 
 /// The GC thread stop set, through the crate's lock policy
@@ -163,10 +163,10 @@ pub fn segment_data_init(pgftl: &mut PageFtl, segnum: usize) {
 /// C's `page_ftl_init_segment` (`ftl/page/page-core.c:134`): build the segment
 /// array with one zeroed bitmap per segment.
 ///
-/// The array is a local until every bitmap has been built, where C assigns
-/// `pgftl->segments` only after the loop and leaks what the loop had already
-/// handed out when a later bitmap fails. A failing bitmap drops the local
-/// array and with it the bitmaps built so far.
+/// The array is a local until every bitmap has been built. C assigns
+/// `pgftl->segments` only after the loop, and leaks what the loop had already
+/// handed out when a later bitmap fails. A failing bitmap drops the local array
+/// and with it the bitmaps built so far.
 fn init_segment(pgftl: &mut PageFtl) -> c_int {
     let nr_segments = pgftl.dev().nr_segments();
     let pages_per_segment = pgftl.dev().pages_per_segment();
@@ -279,11 +279,11 @@ fn gc_thread_iteration(pgftl: &mut PageFtl, exit_requested: bool) -> bool {
 
 /// The FTL pointer the collector thread carries, as a `Send` handle.
 ///
-/// A Rust thread's closure has to be `Send` and the [`PageFtl`] is not: it holds
-/// the device pointer and is reached from C through raw pointers. C passed the
-/// same pointer to `pthread_create` as a `void *` with no such bound. The
-/// safety argument is C's: the FTL stays alive and unmoved until the join in
-/// [`close`], and the collector touches nothing but it.
+/// A Rust thread's closure has to be `Send`, and the [`PageFtl`] is not: it
+/// holds the device pointer and is reached from C through raw pointers. C
+/// passed the same pointer to `pthread_create` as a `void *` with no such
+/// bound. The safety argument is C's: the FTL stays alive and unmoved until the
+/// join in [`close`], and the collector touches nothing but it.
 struct GcThreadTarget(*mut PageFtl);
 
 // SAFETY: `open` spawns the thread over an FTL it holds alive until `close`
@@ -400,9 +400,9 @@ fn checkpoint_crc(before_crc: &[u8], body: &[u8]) -> u32 {
 /// checksum, an allocation cursor outside the segment array, a segment whose
 /// free page count is outside the segment, an oversized file, and any
 /// individual entry the mapping cannot honour. Every one of them leaves the
-/// freshly initialized empty mapping in place, which is C's start state: C never
-/// fails `page_ftl_open` for a storage problem, because it has no recovery step
-/// at all (`ftl/page/page-core.c:238`).
+/// freshly initialized empty mapping in place, which is C's start state. C
+/// never fails `page_ftl_open` for a storage problem, because it has no
+/// recovery step at all (`ftl/page/page-core.c:238`).
 ///
 /// The checksum covers the header as well as the body, so a corrupted
 /// `alloc_segnum` is caught rather than trusted. The body is read only after
@@ -533,8 +533,8 @@ fn checkpoint_load(pgftl: &mut PageFtl, path: &str) -> io::Result<bool> {
 /// Install a loaded L2P table and the per-segment free page counts that came
 /// with it.
 ///
-/// `use_bits` is rebuilt from the free counts, not from the mapping: a page
-/// whose mapping an overwrite invalidated is still programmed and its bit is
+/// `use_bits` is rebuilt from the free counts, not from the mapping. A page
+/// whose mapping an overwrite invalidated is still programmed, and its bit is
 /// still set in the running FTL until the segment is erased
 /// (`ftl/page/page-write.c:43-47`), so a mapping alone would present it as free
 /// and the next allocation would program it a second time. The programmed pages
@@ -542,12 +542,12 @@ fn checkpoint_load(pgftl: &mut PageFtl, path: &str) -> io::Result<bool> {
 /// out the lowest zero bit and only an erase clears a bit.
 ///
 /// The mapping walk then fills the GC `lpn_list`s and the valid page counters.
-/// An entry is dropped, the way C drops nothing at all because it has no
-/// recovery, when it points outside the segment array, when its page is not
-/// programmed, or when another entry already claimed the same page. The last
-/// one needs the set below: two entries on one page would count the page twice
-/// in `nr_valid_pages` and then send the collector after a segment that does
-/// not hold the pages it claims.
+/// An entry is dropped when it points outside the segment array, when its page
+/// is not programmed, or when another entry already claimed the same page. C
+/// drops nothing at all, because it has no recovery. The last case needs the
+/// set below: two entries on one page would count the page twice in
+/// `nr_valid_pages` and then send the collector after a segment that does not
+/// hold the pages it claims.
 fn restore_segments(pgftl: &mut PageFtl, free_pages: &[u32]) {
     let pages_per_segment = pgftl.dev().pages_per_segment();
     let nr_segments = pgftl.dev().nr_segments();
@@ -709,7 +709,7 @@ pub unsafe fn open(pgftl: &mut PageFtl, name: *const c_char, flags: c_int) -> c_
     clear_gc_stop(key);
     // C's `pthread_create`, with the target the collector dereferences. The
     // spawn error's errno is C's `status` from `pthread_create`, which the open
-    // reports negated; `EAGAIN` is the fallback for an `io::Error` that carries
+    // reports negated. `EAGAIN` is the fallback for an `io::Error` that carries
     // none, which is the code a thread creation that runs out of resources
     // produces.
     let target = GcThreadTarget(pgftl);

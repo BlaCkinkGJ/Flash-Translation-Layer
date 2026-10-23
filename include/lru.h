@@ -23,7 +23,9 @@ extern "C" {
 #include "log.h"
 
 /**
- * @brief deallocate the value for eviction function type. 0 means successfully evicted
+ * @brief deallocation callback type for eviction
+ *
+ * 0 means successfully evicted
  */
 typedef int (*lru_dealloc_fn)(const uint64_t, uintptr_t);
 

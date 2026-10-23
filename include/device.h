@@ -53,14 +53,13 @@ enum {
  * @brief device address information
  *
  * The `DEVICE_*_BITS` and `DEVICE_PAGE_SIZE` geometry comes from the generated
- * `ftl-config.h`, which reads `ftl.yaml`. A consumer picks a section with
- * `-DFTL_BACKEND_<NAME>`, and an explicit `-DDEVICE_NR_*` still wins over the
- * header because every macro keeps its `#ifndef` guard.
+ * `ftl-config.h`, which is built from `ftl.yaml`. A consumer picks a section
+ * with `-DFTL_BACKEND_<NAME>`. An explicit `-DDEVICE_NR_*` still wins over the
+ * header, because every macro keeps its `#ifndef` guard.
  *
  * @note
- * If you want to use the ZONE_MODULE, you must change the
- * DEVICE_NR_PAGES_BITS and DEVICE_NR_BLOCKS_BITS based on the zone's
- * size.
+ * To use ZONE_MODULE you must set DEVICE_NR_PAGES_BITS and
+ * DEVICE_NR_BLOCKS_BITS from the zone's size.
  */
 #if 0
 #pragma message("DEVICE_NR_BUS_BITS = " TOSTRING(DEVICE_NR_BUS_BITS))
@@ -75,8 +74,7 @@ enum {
  * @param request device request structure's pointer
  *
  * @note
- * You must specify the call routine of this function in your custom device
- * module
+ * You must set this function in your custom device module.
  */
 typedef void (*device_end_req_fn)(struct device_request *);
 
@@ -84,7 +82,7 @@ typedef void (*device_end_req_fn)(struct device_request *);
  * @brief generic device address format
  *
  * @note
- * `seqnum` is used for distinguish the each host pages in a device page
+ * `seqnum` distinguishes each host page within a device page.
  */
 struct device_address {
 	union {
@@ -150,7 +148,7 @@ struct device_block {
 };
 
 /**
- * @brief flash board's package(nand chip) information
+ * @brief flash board's package (NAND chip) information
  */
 struct device_package {
 	struct device_block block;
@@ -174,7 +172,7 @@ struct device {
 	const struct device_operations *d_op;
 	struct device_info info;
 	uint64_t *badseg_bitmap;
-	void *d_private; /**< generally contain the sub-layer's data structure */
+	void *d_private; /**< generally holds the sub-layer's data structure */
 	int (*d_submodule_exit)(struct device *);
 };
 
@@ -398,7 +396,7 @@ static inline size_t device_get_total_size(struct device *dev)
 }
 
 /**
- * @brief get total the number of pages in a flash board
+ * @brief get the total number of pages in a flash board
  *
  * @param dev device structure pointer
  *

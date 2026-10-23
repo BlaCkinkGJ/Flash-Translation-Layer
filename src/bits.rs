@@ -4,21 +4,20 @@
 //! 1. Pure-Rust safe API on `&mut [u64]` / `&[u64]`.
 //! 2. `unsafe extern "C"` FFI wrappers (`ffi_*`) on raw pointers for C interop.
 //!
-//! The `ffi_` prefix on the C-ABI functions avoids collision with the
-//! `static inline` symbols still exposed by `include/bits.h` to other
-//! C translation units. The FFI wrappers do **not** null-check. Passing
-//! `null` is undefined behaviour, matching the C contract.
+//! The `ffi_` prefix keeps the C-ABI functions from colliding with the
+//! `static inline` symbols that `include/bits.h` still exposes to other C
+//! translation units. The FFI wrappers do **not** null-check. Passing `null`
+//! is undefined behaviour, matching the C contract.
 //!
 //! ## Differences from the C original
 //!
 //! The Rust port fixes two latent bugs in the C inlines in `include/bits.h`:
 //!
-//! - `find_first_*_bit` no longer returns a position `>= size` (the C
-//!   version can return `idx + diff` where `diff` is large enough to
-//!   overshoot `size`).
-//! - `find_first_*_bit` correctly honours `idx` values that are not
-//!   multiples of 64 (the C version scans every bucket from bit 0 and
-//!   can return a position strictly less than `idx`).
+//! - `find_first_*_bit` no longer returns a position `>= size`. The C version
+//!   can return `idx + diff` where `diff` is large enough to overshoot `size`.
+//! - `find_first_*_bit` honours `idx` values that are not multiples of 64. The
+//!   C version scans every bucket from bit 0 and can return a position strictly
+//!   less than `idx`.
 
 use std::os::raw::c_int;
 
@@ -83,9 +82,9 @@ fn find_first_bit_matching(bits: &[u64], size: u64, idx: u64, want: bool) -> u64
 
 /// Find the position of the first `1` bit at or after `idx`.
 ///
-/// `size` is the number of bits in the bitmap. Returns `BITS_NOT_FOUND`
-/// when no such bit exists within `[idx, size)`. Unlike the C inline
-/// in `include/bits.h`, this function never returns a position `>= size`.
+/// `size` is the number of bits in the bitmap. Returns `BITS_NOT_FOUND` when no
+/// such bit exists within `[idx, size)`, and never a position `>= size`. The C
+/// inline in `include/bits.h` can return one.
 ///
 /// `bits` must have at least `size.div_ceil(BITS_PER_UINT64 as u64)` elements.
 pub fn find_first_one_bit(bits: &[u64], size: u64, idx: u64) -> u64 {
@@ -94,9 +93,9 @@ pub fn find_first_one_bit(bits: &[u64], size: u64, idx: u64) -> u64 {
 
 /// Find the position of the first `0` bit at or after `idx`.
 ///
-/// `size` is the number of bits in the bitmap. Returns `BITS_NOT_FOUND`
-/// when every bit in `[idx, size)` is `1`. Unlike the C inline in
-/// `include/bits.h`, this function never returns a position `>= size`.
+/// `size` is the number of bits in the bitmap. Returns `BITS_NOT_FOUND` when
+/// every bit in `[idx, size)` is `1`, and never a position `>= size`. The C
+/// inline in `include/bits.h` can return one.
 ///
 /// `bits` must have at least `size.div_ceil(BITS_PER_UINT64 as u64)` elements.
 pub fn find_first_zero_bit(bits: &[u64], size: u64, idx: u64) -> u64 {

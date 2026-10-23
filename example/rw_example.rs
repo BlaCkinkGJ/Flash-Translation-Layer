@@ -1,28 +1,28 @@
-//! Read/write example over the ramdisk backend, the Rust port of
+//! Read/write example over the ramdisk backend. It is the Rust port of
 //! `example/rw_example.c`.
 //!
 //! The program is the reference a reader copies when writing their own. It
-//! brings the page FTL up over the ramdisk with [`ffi_module_init`], opens the
-//! device, writes and reads an `int` across `8192 * 10` offsets, collects
-//! garbage when the C predicate fires, then closes the device and tears the
-//! module down with [`ffi_module_exit`].
+//! brings the page FTL up over the ramdisk with [`ffi_module_init`], then opens
+//! the device. It writes and reads an `int` across `8192 * 10` offsets, and
+//! collects garbage when the C predicate fires. Finally it closes the device
+//! and tears the module down with [`ffi_module_exit`].
 //!
-//! It is the C program's behaviour, kept call for call. The `ffi_` entry points
-//! it keeps calling are the C ABI, and the open / write / read / ioctl / close
-//! hooks it reaches through `flash->f_op` are the crate's own
-//! [`flash_device`]. The program re-declares neither `struct flash_device` nor
-//! `f_op`: `crate::flash` owns both, so the layout stays a single contract.
+//! The behaviour is C's, kept call for call. The `ffi_` entry points it keeps
+//! calling are the C ABI. The open / write / read / ioctl / close hooks it
+//! reaches through `flash->f_op` are the crate's own [`flash_device`]. The
+//! program re-declares neither `struct flash_device` nor `f_op`, because
+//! `crate::flash` owns both, so the layout stays a single contract.
 //!
 //! Deliberate deviations from the C original:
 //!
 //! - C's `sector = rand() % (1 << 31)` overflows the 32-bit `int` divisor to
-//!   `INT_MIN`, and `rand()` never reaches `2^31`, so the modulo returns the
-//!   draw unchanged. The Rust form states the divisor as `1i64 << 31` and gets
-//!   the same value without the overflow.
+//!   `INT_MIN`, and `rand()` never reaches `2^31`. The modulo therefore returns
+//!   the draw unchanged. The Rust form states the divisor as `1i64 << 31` and
+//!   gets the same value without the overflow.
 //! - C prints through its own `pr_info` and the port prints through the crate's
-//!   JSON log facade, so the line format differs while the values do not.
-//! - The ioctl predicate is C's `i % 8192 * 5 == 0`, which `%` and `*` bind
-//!   left to right as `(i % 8192) * 5`, and the port writes it the same way.
+//!   JSON log facade. The line format differs while the values do not.
+//! - The ioctl predicate is C's `i % 8192 * 5 == 0`. `%` and `*` bind left to
+//!   right, so it reads as `(i % 8192) * 5`. The port writes it the same way.
 
 use core::ffi::{c_char, c_int, c_uint};
 use core::mem::size_of;
@@ -50,7 +50,7 @@ const OPEN_FLAGS: c_int = libc::O_CREAT | libc::O_RDWR;
 fn main() {
     let mut flash: *mut flash_device = ptr::null_mut();
     // C asserts `ffi_module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE)`
-    // returns 0, where `RAMDISK_MODULE` is `DeviceModule::Ramdisk`.
+    // returns 0. `RAMDISK_MODULE` is `DeviceModule::Ramdisk`.
     let flags = DeviceModule::Ramdisk as u64;
     let ret = unsafe { ffi_module_init(PAGE_FTL_MODULE, &mut flash, flags) };
     assert_eq!(ret, 0, "module init failed");

@@ -4,11 +4,12 @@
 //! static `page_ftl_read_end_rq` completion callback. The C-ABI entry point is
 //! [`ffi_page_ftl_read`].
 //!
-//! The flow is the C flow: resolve the logical page and the in-page offset,
-//! look the physical address up in the L2P table, serve an unmapped page with
-//! zeros, reject a read that runs past the page, read the whole page into a
-//! scratch buffer through the device layer, wait on the request's condition
-//! variable, then let the completion callback copy the requested subrange out.
+//! The flow matches C's. Resolve the logical page and the in-page offset, then
+//! look the physical address up in the L2P table. An unmapped page is served
+//! with zeros, and a read that runs past the page is rejected. A mapped read
+//! copies the whole page into a scratch buffer through the device layer, then
+//! waits on the request's condition variable. The completion callback copies
+//! the requested subrange out.
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
@@ -41,19 +42,19 @@ unsafe fn reclaim_scratch(page_ptr: *mut u8, page_size: usize, read_rq: *mut dev
     ffi_device_free_request(read_rq);
 }
 
-/// C's `page_ftl_read_end_rq`: copy the requested subrange out of the finished
-/// page read, release the scratch buffer and the internal request, then signal
-/// the caller's request finished.
+/// Copy the requested subrange out of the finished page read, release the
+/// scratch buffer and the internal request, then signal the caller's request
+/// finished. C's static `page_ftl_read_end_rq` does the same.
 ///
-/// This runs on the device's completion path while [`read_page`] still holds
-/// its borrows, so it works entirely through raw pointers and never forms a
-/// second reference to the page FTL or to the caller's request.
+/// The device's completion path runs this while [`read_page`] still holds its
+/// borrows, so it works entirely through raw pointers. It never forms a second
+/// reference to the page FTL or to the caller's request.
 ///
 /// # Safety
-/// `read_rq` is a live request produced by [`read_page`]: its `data` came from a
-/// `Vec<u8>` of `data_len` bytes that was forgotten, so its length equals its
-/// capacity, and `rq_private` holds the live caller request whose `data` points
-/// at its own `data_len` writable bytes and stays valid until this returns.
+/// `read_rq` is a live request produced by [`read_page`]. Its `data` came from
+/// a `Vec<u8>` of `data_len` bytes that was forgotten, so its length equals its
+/// capacity. `rq_private` holds the live caller request, whose `data` points at
+/// its own `data_len` writable bytes and stays valid until this returns.
 unsafe extern "C" fn read_end_rq(read_rq: *mut device_request) {
     let request = (*read_rq).rq_private as *mut device_request;
 
@@ -90,7 +91,8 @@ unsafe extern "C" fn read_end_rq(read_rq: *mut device_request) {
     libc::pthread_mutex_unlock(mutex);
 }
 
-/// C's `page_ftl_read`: read `request.data_len` bytes at `request.sector`.
+/// Read `request.data_len` bytes at `request.sector`. C calls this
+/// `page_ftl_read`.
 ///
 /// An unmapped logical page is served by zero filling `request.data`, which is
 /// what C does at `ftl/page/page-read.c:80-86`. A read that runs past the end
@@ -104,10 +106,11 @@ pub fn read_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resul
     let lpn = pgftl.lpn(request.sector);
     let offset = pgftl.page_offset(request.sector);
 
-    // C reads `trans_map[lpn]` with no bound at all (`ftl/page/page-read.c:71-78`),
-    // so a sector past the L2P table reads one entry past its end. The port
-    // refuses it with the bound `update_map` already applies, and the C ABI
-    // mirror reports the same `-EINVAL`. See the deviations in `crate::ftl`.
+    // C reads `trans_map[lpn]` with no bound at all
+    // (`ftl/page/page-read.c:71-78`), so a sector past the L2P table reads one
+    // entry past its end. The port refuses it with the bound `update_map`
+    // already applies. The C ABI mirror reports the same `-EINVAL`. See the
+    // deviations in `crate::ftl`.
     let map_entries = pgftl.map_entries();
     if lpn >= map_entries {
         pr_err!("invalid lpn detected (lpn: {}, max: {})", lpn, map_entries);
@@ -191,7 +194,8 @@ pub fn read_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resul
     Ok(data_len)
 }
 
-/// C-ABI entry point for [`read_page`], mirroring C's `page_ftl_read`.
+/// The C-ABI entry point for [`read_page`], and the mirror of C's
+/// `page_ftl_read`.
 ///
 /// Frees the caller's request on success and on the zero-fill path, exactly
 /// like C, and leaves it to the caller on the error paths.

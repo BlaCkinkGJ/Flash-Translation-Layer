@@ -1,17 +1,17 @@
 //! Shared ramdisk fixture for the page FTL test modules (test builds only).
 //!
-//! The write and GC paths share the same setup: a real ramdisk through
-//! the device layer, narrowed to a geometry small enough that a handful of
-//! writes fills a segment. The page FTL state those paths read and write (the
-//! L2P table, the segment array, the `use_bits` bitmaps and the `gc_seg_bits` /
-//! `gc_list` bookkeeping) is the FTL's own, built here the way `page_ftl_open`
-//! builds it.
+//! The write and GC paths share the same setup: a real ramdisk through the
+//! device layer, narrowed to a geometry small enough that a handful of writes
+//! fills a segment. The page FTL state those paths read and write (the L2P
+//! table, the segment array, the `use_bits` bitmaps and the `gc_seg_bits` /
+//! `gc_list` bookkeeping) is the FTL's own. It is built here the way
+//! `page_ftl_open` builds it.
 //!
 //! Geometry: the ramdisk sizes its store from the 1GiB geometry `open`
-//! installs. The fixture then narrows `dev.info` to the requested geometry so a
-//! test can fill a whole segment in a handful of writes. Every address the
-//! narrowed geometry produces still lands inside the ramdisk's store, because
-//! the packed address keeps the segment in the high bits and the store is sized
+//! installs. The fixture then narrows `dev.info` to the requested geometry, so
+//! a test can fill a whole segment in a handful of writes. Every address the
+//! narrowed geometry produces still lands inside the ramdisk's store. The
+//! packed address keeps the segment in the high bits, and the store is sized
 //! by the *default* page count.
 
 use core::ffi::{c_char, c_int};
@@ -30,9 +30,9 @@ use crate::ftl::page_write::write_page;
 use crate::ftl::{PageFtl, PageFtlSegment};
 
 /// `u64` words reserved for one segment's `use_bits` bitmap. C sizes the bitmap
-/// with `BITS_TO_UINT64_ALIGN(pages_per_segment)` and this is comfortably past
-/// it for every geometry a test uses, so a test can narrow the geometry after
-/// the fixture is built.
+/// with `BITS_TO_UINT64_ALIGN(pages_per_segment)`, and this is comfortably past
+/// it for every geometry a test uses. A test can therefore narrow the geometry
+/// after the fixture is built.
 const WORDS_PER_SEGMENT: usize = 64;
 
 /// A real ramdisk device plus the page FTL state the page paths need.
@@ -180,9 +180,9 @@ unsafe extern "C" fn failing_read(_dev: *mut device, _request: *mut device_reque
     -(libc::EIO as isize)
 }
 
-/// Fails every device erase with `EIO` and deliberately does not run the
-/// request's completion callback, which is how a backend that fails behaves
-/// and what keeps the request owned by the caller.
+/// Fails every device erase with `EIO`. It deliberately does not run the
+/// request's completion callback, which is how a backend that fails behaves and
+/// what keeps the request owned by the caller.
 unsafe extern "C" fn failing_erase(_dev: *mut device, _request: *mut device_request) -> i32 {
     -libc::EIO
 }
@@ -242,8 +242,8 @@ unsafe fn dev_write(dev: *mut device, request: *mut device_request) -> isize {
 ///
 /// [`Fixture`] builds the FTL's state by hand because the read, write and GC
 /// paths take it as input. `page_ftl_open` builds that state itself, so this
-/// fixture owns only the device and the zeroed structure, and the allocations
-/// the FTL makes belong to the lifecycle the test drives.
+/// fixture owns only the device and the zeroed structure. The allocations the
+/// FTL makes belong to the lifecycle the test drives.
 pub struct CoreFixture {
     pub dev: *mut device,
     pub pgftl: Box<PageFtl>,

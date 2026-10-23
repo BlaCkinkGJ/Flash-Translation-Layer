@@ -1,24 +1,25 @@
-//! End to end integration test over the ramdisk backend, the Rust port of
+//! End to end integration test over the ramdisk backend. It is the Rust port of
 //! `integration-test.c`.
 //!
 //! The C test brings the ramdisk and the page FTL up through
 //! `ffi_module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE)`
-//! (`integration-test.c:190`), opens the device (`:192`), runs two writers, two
-//! readers, one overwriter and one forced erase thread over the same handle,
-//! then closes and tears the module down (`:237-238`). This test drives the
-//! same C ABI in the same order: [`ffi_module_init`], the `open` / `close` /
-//! `ioctl` hooks through `flash->f_op` exactly as C reaches them
-//! (`integration-test.c:162`, `:192`, `:237`), and [`ffi_flash_write`] /
-//! [`ffi_flash_read`], the Rust dispatch pair over the same two hooks.
+//! (`integration-test.c:190`), then opens the device (`:192`). It runs two
+//! writers, two readers, one overwriter and one forced erase thread over the
+//! same handle, then closes and tears the module down (`:237-238`). This test
+//! drives the same C ABI in the same order. It uses [`ffi_module_init`] and the
+//! `open` / `close` / `ioctl` hooks through `flash->f_op` exactly as C reaches
+//! them (`integration-test.c:162`, `:192`, `:237`). For the data path it uses
+//! [`ffi_flash_write`] / [`ffi_flash_read`], the Rust dispatch pair over the
+//! same two hooks.
 //!
 //! The scenario and its verification are C's:
 //!
-//! - One block is `BLOCK_SIZE` bytes and the run covers `WRITE_SIZE` of them,
+//! - One block is `BLOCK_SIZE` bytes, and the run covers `WRITE_SIZE` of them,
 //!   the same 4 KiB and 128 MiB the C test uses. The readers' jitter alone is
 //!   32768 waits of 1 to 1.5 ms, so a run takes a couple of minutes.
 //! - Each writer stamps its offset into the first word of every block
 //!   (`integration-test.c:94`, `:132`), so a reader can tell which block it
-//!   read by the value it finds, and every block a reader ever sees is recorded
+//!   read by the value it finds. Every block a reader ever sees is recorded
 //!   in `IS_CHECK` (`:71`). After all six threads join (`:230-235`) every
 //!   entry must be set, or the read of that offset failed (`:241-248`).
 //! - A reader spins on the same offset when the device reports an error, a zero
@@ -34,11 +35,11 @@
 //!   inside every loop (`integration-test.c:55`, `:91`, `:129`) and then draws
 //!   `rand() % 500` for a 100, 1000 or 500 microsecond base (`:74`, `:107`,
 //!   `:145`). The port gives each worker its own fixed xorshift stream seeded
-//!   from a constant and draws the same ranges, so the sequence of interleavings
-//!   it puts the FTL under is the same on every run while the workers still
-//!   drift apart the way C's wall-clock seeds made them. Nothing outside those
-//!   sleeps is random, and none of the verification depends on them.
-//! - The reader bounds the block index it records against `NR_BLOCKS`, and the
+//!   from a constant and draws the same ranges. The sequence of interleavings
+//!   it puts the FTL under is therefore the same on every run. The workers
+//!   still drift apart the way C's wall-clock seeds made them. Nothing outside
+//!   those sleeps is random, and none of the verification depends on them.
+//! - The reader bounds the block index it records against `NR_BLOCKS`. The
 //!   writers and readers report a mismatch instead of aborting on C's `assert`.
 //!   C indexes `is_check` with whatever the device returned
 //!   (`integration-test.c:71`), which is out of bounds for a stray value.
@@ -46,7 +47,7 @@
 //!   unread offset and returns 0 either way (`integration-test.c:240-252`), so
 //!   the C integration test cannot fail its build on lost data.
 //! - The ioctl's return value is ignored, as in C (`integration-test.c:162`).
-//!   A collection that lost data would fail the `IS_CHECK` sweep instead, and
+//!   A collection that lost data would fail the `IS_CHECK` sweep instead.
 //!   `gc_from_list` reports one fewer segment than it erased, so its count is
 //!   not a value to assert on.
 
@@ -62,7 +63,8 @@ use ftl_rust::ftl::PAGE_FTL_IOCTL_TRIM;
 use ftl_rust::module::{ffi_module_exit, ffi_module_init, PAGE_FTL_MODULE};
 use libc::{off_t, ssize_t};
 
-/// C's `BLOCK_SIZE`, the transfer size of every request (`integration-test.c:37`).
+/// C's `BLOCK_SIZE`, the transfer size of every request
+/// (`integration-test.c:37`).
 const BLOCK_SIZE: usize = 4 * 1024;
 
 /// C's `WRITE_SIZE`, the range the writers and readers sweep
@@ -157,10 +159,10 @@ fn read_thread(flash: SharedFlash, seed: u64) {
     let mut rng = Rng::new(seed);
     let mut buffer = vec![0u8; BLOCK_SIZE];
     let mut offset = 0usize;
-    // C spins on the current offset forever waiting for a writer, which is
-    // fine for a program whose only failure mode is not finishing. This test is
-    // the CI gate, so a lost block has to fail instead of hanging: the deadline
-    // is per offset and resets whenever the read advances.
+    // C spins on the current offset forever waiting for a writer. That is fine
+    // for a program whose only failure mode is not finishing. This test is the
+    // CI gate, so a lost block has to fail instead of hanging. The deadline is
+    // per offset and resets whenever the read advances.
     let mut attempt_started = std::time::Instant::now();
 
     while offset < WRITE_SIZE {
@@ -178,8 +180,8 @@ fn read_thread(flash: SharedFlash, seed: u64) {
         };
         let first = i64::from_ne_bytes(buffer[..8].try_into().expect("8 bytes"));
 
-        // C retries the same offset on a device error and on a zero first word
-        // past offset 0, which is how a reader waits for a writer
+        // C retries the same offset on a device error, and on a zero first word
+        // past offset 0. That retry is how a reader waits for a writer
         // (`integration-test.c:60-62`).
         if ret < 0 || (offset > 0 && first == 0) {
             assert!(
@@ -189,7 +191,8 @@ fn read_thread(flash: SharedFlash, seed: u64) {
             );
             continue;
         }
-        // The fill of a page that was never programmed (`integration-test.c:63-65`).
+        // The fill of a page that was never programmed
+        // (`integration-test.c:63-65`).
         if first == -1 {
             assert!(
                 attempt_started.elapsed() < READ_DEADLINE,
@@ -315,7 +318,7 @@ fn integration_over_ramdisk() {
 
     // Safety: `flash` is the handle the module init just returned.
     let open = unsafe { (*(*flash).f_op).open }.expect("the page FTL installs open");
-    // Safety: `flash` carries the page FTL, and `DEVICE_PATH` is NUL terminated.
+    // Safety: `flash` carries the page FTL. `DEVICE_PATH` is NUL terminated.
     let ret = unsafe { open(flash, DEVICE_PATH.as_ptr().cast::<c_char>(), OPEN_FLAGS) };
     assert_eq!(ret, 0, "open failed");
 

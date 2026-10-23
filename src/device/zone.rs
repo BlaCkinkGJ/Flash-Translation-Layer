@@ -2,7 +2,7 @@
 //!
 //! [`ZoneBackend`] drives a host-managed zoned block device through libzbd.
 //! `open` keeps C's two descriptors (a read-only one and a write-only one
-//! opened with `O_DIRECT`), lists every zone once and caches the array, and the
+//! opened with `O_DIRECT`), lists every zone once and caches the array. The
 //! request paths move whole pages with `pread` / `pwrite` through a
 //! page-aligned bounce buffer. `erase` resets one zone and rewinds its cached
 //! write pointer.
@@ -14,10 +14,10 @@
 //!
 //! # libzbd binding
 //!
-//! libzbd is bound by hand: `extern "C"` declarations plus
-//! `#[link(name = "zbd")]` for the entry points the port needs, and
-//! `#[repr(C)]` mirrors of the two ABI structs it passes. Three of the names
-//! the C source uses are not linkable symbols in libzbd 2.0.4:
+//! libzbd is bound by hand, with `extern "C"` declarations plus
+//! `#[link(name = "zbd")]` for the entry points the port needs. The two ABI
+//! structs it passes get `#[repr(C)]` mirrors. Three of the names the C source
+//! uses are not linkable symbols in libzbd 2.0.4:
 //! `nm -D --defined-only libzbd.so.2` exports exactly `zbd_close`,
 //! `zbd_device_is_zoned`, `zbd_device_model_str`, `zbd_get_info`,
 //! `zbd_list_zones`, `zbd_open`, `zbd_report_zones`, `zbd_set_log_level`,
@@ -31,30 +31,30 @@
 //!   the port reads the `type` field of the mirrored zone.
 //!
 //! The narrow C wrapper the issue allows as a fallback is for a header whose
-//! fields are not reachable from Rust. They are reachable here: `struct
+//! fields are not reachable from Rust. They are reachable here. `struct
 //! zbd_zone` and `struct zbd_info` are plain C structs whose layout
-//! `#[repr(C)]` reproduces byte for byte, and their `__attribute__((packed))`
-//! changes nothing because every member is naturally aligned either way. The
+//! `#[repr(C)]` reproduces byte for byte. Their `__attribute__((packed))`
+//! changes nothing, because every member is naturally aligned either way. The
 //! size assertions below pin that, so no `zbd_wrap.c` and no extra build step.
 //!
 //! # Geometry
 //!
 //! C's `zone_open` builds the device geometry from the build's
 //! `DEVICE_NR_*_BITS`. `USE_ZONE_DEVICE=1` makes the Makefile compile with
-//! `3/3/5/21` where the default build uses `2/2/7/19`, and it also turns on the
+//! `3/3/5/21` where the default build uses `2/2/7/19`. It also turns on the
 //! `zone` cargo feature, which now selects the same counts in
 //! [`crate::device`]. `open` writes C's `nr_bus = 8`, `nr_chips = 8`,
 //! `nr_pages = 32`, `page_size = 8192` and `nr_blocks = nr_zones` on both
 //! sides. Both geometries put the block field at bit 11 and give a segment 2048
-//! pages, so the zoned build only changes how the low 11 bits split between
-//! bus, chip and page.
+//! pages. The zoned build therefore only changes how the low 11 bits split
+//! between bus, chip and page.
 //!
 //! Deliberate deviations from the C original:
 //!
 //! - C's `struct zone_meta` (`include/zone.h`) is not mirrored. Its `struct
 //!   zbd_info` member is never written or read (`zone_open` passes a local
-//!   `struct zbd_info` to `zbd_open`), `block_size` is stored and never read,
-//!   and `struct zone_file_descriptor` wraps one `int`. The state lives in
+//!   `struct zbd_info` to `zbd_open`), and `block_size` is stored and never
+//!   read. `struct zone_file_descriptor` wraps one `int`. The state lives in
 //!   [`ZoneState`], with the two descriptors flattened and the zone array owned
 //!   by a `Vec`.
 //! - The zone array comes from libzbd's `calloc` (`zbd.c`, `zbd_list_zones`),
@@ -64,10 +64,10 @@
 //!   `meta->read.fd` (`zone.c:55`), `meta->write.fd` (`zone.c:61`) and
 //!   `meta->zones` (`zone.c:93`) and leaks all three.
 //! - `open` returns `-EINVAL` when `zbd_list_zones` reports a zone count other
-//!   than the device's (`zone.c:95`) and when a zone is not
+//!   than the device's (`zone.c:95`), and when a zone is not
 //!   `ZBD_ZONE_TYPE_SWR` (`zone.c:102`). C prints the error, jumps to the
-//!   cleanup label and returns `ret`, which is still 0 on both paths, so a
-//!   caller that trusted it would use a device whose zones were just freed.
+//!   cleanup label and returns `ret`, which is still 0 on both paths. A caller
+//!   that trusted it would use a device whose zones were just freed.
 //! - A bounce buffer allocation failure returns `-ENOMEM`. C returns
 //!   `posix_memalign`'s positive `errno` (`zone.c:199`, `zone.c:302`), which a
 //!   caller reading a byte count takes for success.
@@ -90,7 +90,7 @@
 //!   [`device::uninstall_backend`], where C leaves `d_op` pointing at the
 //!   vtable of the metadata it just freed (`zone.c:450-452`).
 //! - `ffi_zone_device_init` cannot report `-ENOMEM`. C returns it when its
-//!   `malloc` fails and leaves `d_op` untouched (`zone.c:419-424`), while
+//!   `malloc` fails and leaves `d_op` untouched (`zone.c:419-424`).
 //!   `install_backend` allocates with `Box`, which aborts on OOM. That is the
 //!   whole-module behaviour [`crate::device`] already documents for
 //!   `ffi_device_module_init`.
@@ -101,9 +101,9 @@
 //! # Tests
 //!
 //! The request paths are unit tested against a plain file descriptor, which is
-//! all `zone_do_rw` and the write pointer arithmetic need, and the emulator
-//! routine at the bottom of this file covers the libzbd calls end to end: it
-//! loads nothing itself, it drives a zoned device a developer created with the
+//! all `zone_do_rw` and the write pointer arithmetic need. The emulator routine
+//! at the bottom of this file covers the libzbd calls end to end. It loads
+//! nothing itself. It drives a zoned device a developer created with the
 //! `null_blk` emulator through `make zone-smoke`.
 
 use core::ffi::{c_char, c_int, c_uint, c_void};
@@ -178,16 +178,16 @@ struct ZbdZone {
     reserved: [u8; 20],
 }
 
-// The two mirrored structs are `__attribute__((packed))` in `zbd.h` and 128
-// and 64 bytes long. Their members are naturally aligned either way, so
-// `#[repr(C)]` reproduces the layout exactly, and these assertions fail the
-// build if a newer libzbd ever adds a field.
+// The two mirrored structs are `__attribute__((packed))` in `zbd.h`, and are
+// 128 and 64 bytes long. Their members are naturally aligned either way, so
+// `#[repr(C)]` reproduces the layout exactly. These assertions fail the build
+// if a newer libzbd ever adds a field.
 const _: () = assert!(size_of::<ZbdInfo>() == 128);
 const _: () = assert!(size_of::<ZbdZone>() == 64);
 
-// The exported half of libzbd's ABI that this backend uses. See the module
-// docs for why `zbd_reset_zones`, `zbd_finish_zones` and `zbd_zone_type` are
-// not declared here: rustdoc does not document `extern` blocks, so the
+// The exported half of libzbd's ABI that this backend uses. The module docs
+// explain why `zbd_reset_zones`, `zbd_finish_zones` and `zbd_zone_type` are
+// not declared here. Rustdoc does not document `extern` blocks, so the
 // description of each call lives on the wrapper that uses it.
 #[link(name = "zbd")]
 extern "C" {
@@ -256,12 +256,12 @@ impl ZoneState {
     }
 }
 
-/// Page-aligned scratch buffer for the `O_DIRECT` write descriptor, C's
-/// `posix_memalign(..., sysconf(_SC_PAGESIZE), page_size)` plus the `free` at
-/// its single exit label (`zone.c:199`, `zone.c:247`, `zone.c:302`,
+/// Page-aligned scratch buffer for the `O_DIRECT` write descriptor. It matches
+/// C's `posix_memalign(..., sysconf(_SC_PAGESIZE), page_size)` plus the `free`
+/// at its single exit label (`zone.c:199`, `zone.c:247`, `zone.c:302`,
 /// `zone.c:319`).
 ///
-/// The buffer is deliberately not zeroed here: the write path fills it with
+/// The buffer is deliberately not zeroed here. The write path fills it with
 /// the request payload before any byte of it is read, and the read path zeroes
 /// it the way C's `memset` does (`zone.c:309`).
 struct AlignedBuffer {
@@ -306,9 +306,9 @@ pub struct ZoneBackend {
 
 // Every method that touches the cell is `unsafe`, so safe code cannot race
 // through a shared `&ZoneBackend`. The marker states the backend contract from
-// `DeviceOperations`: a backend is callable from any thread, and it is the
-// caller's job not to issue overlapping requests, the same deal C's zoned
-// backend makes. `UnsafeCell` is what would otherwise make this `!Sync`.
+// `DeviceOperations`: a backend is callable from any thread, and the caller
+// must not issue overlapping requests. C's zoned backend makes the same deal.
+// `UnsafeCell` is what would otherwise make this `!Sync`.
 unsafe impl Sync for ZoneBackend {}
 
 impl ZoneBackend {
@@ -319,8 +319,8 @@ impl ZoneBackend {
     }
 
     /// C's `zone_close`: close both descriptors, then release the zone array,
-    /// in that order (`zone.c:378-389`). A `NULL` metadata is a no-op there,
-    /// and an unopened backend has -1 descriptors, so this is idempotent.
+    /// in that order (`zone.c:378-389`). A `NULL` metadata is a no-op there. An
+    /// unopened backend has -1 descriptors, so this is idempotent.
     ///
     /// # Safety
     /// No other borrow of the state cell is live.
@@ -574,7 +574,7 @@ impl DeviceOperations for ZoneBackend {
     }
 
     /// Read one page. Mirrors C's `zone_read`, including its fallthrough on a
-    /// request whose flag is not `DEVICE_READ` (`zone.c:277-280`): the wrong
+    /// request whose flag is not `DEVICE_READ` (`zone.c:277-280`). The wrong
     /// flag reaches `zone_do_rw`, which fails against the descriptor, and the
     /// zeroed bounce buffer is copied to the caller anyway (`zone.c:313`).
     ///
@@ -795,9 +795,9 @@ mod tests {
     /// One page of the zoned build, 8192 bytes.
     const PAGE: usize = DEVICE_PAGE_SIZE;
 
-    /// 16 MiB, the zone size C's write pointer check needs: one segment of
-    /// `DEVICE_NR_PAGES_BITS` pages, so the byte offset the FTL computes for a
-    /// page inside a segment equals its offset inside the zone.
+    /// 16 MiB, the zone size C's write pointer check needs. That is one segment
+    /// of `DEVICE_NR_PAGES_BITS` pages, so the byte offset the FTL computes for
+    /// a page inside a segment equals its offset inside the zone.
     const ZONE: u64 = 16 << 20;
 
     /// A zone description as `zbd_list_zones` fills it in.
@@ -1442,12 +1442,12 @@ mod tests {
 
         // The zone state libzbd reports: zone 0 is full and sequential-write
         // required, the rest are empty. A full zone's write pointer is not
-        // applicable, and the drivers do not agree on how to say that:
-        // `zloop` reports `ULLONG_MAX` (`zloop_mark_full`,
-        // `drivers/block/zloop.c`) where `null_blk` reports the end of the
-        // zone, and libzbd scales either by the sector size. So the check here
-        // is the condition, and the write pointer is checked after the reset
-        // below, where it is a plain byte offset.
+        // applicable, and the drivers do not agree on how to say that. `zloop`
+        // reports `ULLONG_MAX` (`zloop_mark_full`, `drivers/block/zloop.c`).
+        // `null_blk` reports the end of the zone. libzbd scales either by the
+        // sector size. So the check here is the condition, and the write
+        // pointer is checked after the reset below, where it is a plain byte
+        // offset.
         let (zones, reported, probe) = list_zones(path);
         let listed = zones_slice(zones, reported);
         assert_eq!(listed[0].cond, ZBD_ZONE_COND_FULL);
@@ -1476,7 +1476,7 @@ mod tests {
         assert_eq!((ops.write.unwrap())(dev, request.as_ptr()), PAGE as isize);
 
         // The reset rewound the zone and the write moved it by one page. The
-        // page is not read back a second time: the emulated device backs its
+        // page is not read back a second time. The emulated device backs its
         // zones with regular files and serves the buffered read descriptor the
         // pages it cached before the reset, so a read of the page just written
         // returns the pre-reset content. A real zoned device has no such cache,

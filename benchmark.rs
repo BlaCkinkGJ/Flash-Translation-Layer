@@ -1,10 +1,10 @@
 //! Performance benchmark over the page FTL, the Rust port of `benchmark.c`.
 //!
-//! The program drives C's ABI in C's order: [`ffi_module_init`] brings the page
-//! FTL up over the device module `-d` names, `flash->f_op->open` opens it, and
-//! every transfer goes through [`ffi_flash_write`] / [`ffi_flash_read`], the
-//! dispatch pair over the same two hooks. Nothing here mirrors a C struct, the
-//! handle comes from `ftl_rust::flash`.
+//! The program drives C's ABI in C's order. [`ffi_module_init`] brings the page
+//! FTL up over the device module `-d` names, then `flash->f_op->open` opens it.
+//! Every transfer goes through [`ffi_flash_write`] / [`ffi_flash_read`], the
+//! dispatch pair over the same two hooks. Nothing here mirrors a C struct, and
+//! the handle comes from `ftl_rust::flash`.
 //!
 //! What the port keeps, read off `benchmark.c` and checked against it:
 //!
@@ -23,33 +23,32 @@
 //! Deliberate deviations from `benchmark.c`:
 //!
 //! - The parsed options are a [`Parameters`] value and the run state is one
-//!   [`Shared`], where C hands one `struct benchmark_parameter *` to every
-//!   thread. Both are Rust types with no C layout, so a field costs no header
-//!   change, and the counters a job publishes are atomics instead of C's
-//!   unsynchronised `size_t` writes.
-//! - The latency samples of a job are a `Vec<u64>` the job returns, where C
-//!   prepends fake pointers to an intrusive list and frees it afterwards. The
-//!   report reads the same three things off them: the count, the sum and the
-//!   extremes.
+//!   [`Shared`]. C hands one `struct benchmark_parameter *` to every thread.
+//!   Both are Rust types with no C layout, so a field costs no header change.
+//!   The counters a job publishes are atomics instead of C's unsynchronised
+//!   `size_t` writes.
+//! - The latency samples of a job are a `Vec<u64>` the job returns. C prepends
+//!   fake pointers to an intrusive list and frees it afterwards. The report
+//!   reads the same three things off them: the count, the sum and the extremes.
 //! - A failed C `assert` reports through [`check`] and aborts, so the exit
 //!   stays SIGABRT where a Rust panic would exit 101. C's
-//!   `assert(parm->crc32_list != NULL)` has no equivalent, `vec!` aborts on
+//!   `assert(parm->crc32_list != NULL)` has no equivalent. `vec!` aborts on
 //!   allocation failure, as `src/list.rs` documents.
 //! - `argv` is read through `args_os` and `to_string_lossy`, so a byte that is
 //!   not UTF-8 becomes U+FFFD instead of the raw byte C passes to `strcmp` and
 //!   `isprint`.
 //! - `-j 0` indexes the per job slots out of bounds whenever the warm-up runs,
-//!   which is the default write workload and every read workload: the sweep
+//!   which is the default write workload and every read workload. The sweep
 //!   that fills the store runs on this thread before any job starts, and it
 //!   publishes into `wp[0]` of an empty table. C writes the same slot out of
-//!   bounds (its `wp` comes from `malloc(0)`) and corrupts the heap, the port
+//!   bounds (its `wp` comes from `malloc(0)`) and corrupts the heap. The port
 //!   panics on its bounds check instead. Only a write workload with `-w` skips
 //!   the warm-up, where neither program runs a job and both print the empty
 //!   table.
-//! - `-n 0` walks the same underflowed condition C walks: the progress loop
+//! - `-n 0` walks the same underflowed condition C walks. The progress loop
 //!   compares against `nr_blocks - 1`, which wraps to `usize::MAX`, and the
-//!   job index never reaches it, so both loops print a progress line per second
-//!   and never finish.
+//!   job index never reaches it. Both loops then print a progress line per
+//!   second and never finish.
 
 use core::ffi::{c_char, c_int};
 use core::mem::size_of;
@@ -259,7 +258,7 @@ enum Opt {
 /// The scanning half of C's `getopt`.
 ///
 /// glibc permutes operands out of the way, so an operand is skipped and the
-/// options after it are still read, `--` ends the options, and a lone `-` is
+/// options after it are still read. A `--` ends the options and a lone `-` is
 /// an operand. `next` walks bytes, as `getopt` does, so an element that is not
 /// UTF-8 is reported byte by byte like C reports it.
 struct Getopt<'a> {
@@ -341,7 +340,7 @@ impl<'a> Getopt<'a> {
 ///
 /// `argv[0]` is the program name the usage line and glibc's `getopt` diagnostic
 /// print, the rest are options. C's help prints the counts the parser has
-/// filled in so far, so the usage text it emits has the zero state in it rather
+/// filled in so far, so the usage text it emits carries the zero state rather
 /// than the defaults a run uses. That is C's behaviour (`parm` is assigned only
 /// after the option loop) and it is kept as is.
 fn parse_arguments(argv: &[String]) -> Outcome {
@@ -419,7 +418,7 @@ fn names<K>(table: &[(&str, K)]) -> String {
 /// C's `help_message`, which C calls `-h` and every error path print.
 ///
 /// The counts it echoes are the ones the parser has filled in, which at that
-/// point is nothing: C assigns `parm->nr_jobs`, `parm->nr_blocks` and
+/// point is nothing. C assigns `parm->nr_jobs`, `parm->nr_blocks` and
 /// `parm->device_path` only after the option loop, so the usage text always
 /// reports `0`, `0` and `(null)`.
 fn print_usage(argv0: &str, out: &mut impl Write) {
@@ -467,8 +466,8 @@ fn processing_parameters_error(flag: u8) -> String {
 }
 
 /// glibc's own `getopt` message, which C prints because it never clears
-/// `opterr`, and C's `processing_parameters_error` after it. The usage follows
-/// both.
+/// `opterr`. C's `processing_parameters_error` follows it, and the usage
+/// follows both.
 ///
 /// C's `%c` writes the byte it was given, which is what a `char` cast back to a
 /// byte does here. For a byte above `0x7f` C's `(char)optopt` is implementation
@@ -489,7 +488,7 @@ fn flag_failure(argv0: &str, flag: u8, kind: OptError) -> String {
 /// C's `atoi`: leading spaces, an optional sign, digits, and a stop at the
 /// first byte that is none of those. An empty result is zero.
 ///
-/// C's overflow is undefined, this truncates to `c_int` the way the implicit
+/// C's overflow is undefined. This truncates to `c_int` the way the implicit
 /// `int` return would on a two's complement target.
 fn c_atoi(text: &str) -> i32 {
     let bytes = text.as_bytes();
@@ -528,7 +527,7 @@ fn size_suffix(text: &str) -> usize {
 }
 
 /// C's `strncpy(dst, optarg, DEVICE_PATH_SIZE - 1)`: the path is cut to the
-/// buffer size. C's byte copy can cut a character in half, this one backs up to
+/// buffer size. C's byte copy can cut a character in half. This one backs up to
 /// the character boundary before it.
 fn truncated_path(path: &str) -> String {
     let mut end = path.len().min(DEVICE_PATH_SIZE - 1);
@@ -588,7 +587,7 @@ fn get_random_seed() -> u64 {
 }
 
 /// C's `shuffling`: one draw per block picks the swap partner. A draw is not a
-/// permutation algorithm, it is C's two index shuffle, which leaves the
+/// permutation algorithm. It is C's two index shuffle, which leaves the
 /// sequence in a different order than Fisher-Yates would.
 fn shuffling(sequence: &mut [off_t]) {
     let mut state = get_random_seed();
@@ -600,7 +599,7 @@ fn shuffling(sequence: &mut [off_t]) {
 }
 
 /// C's `fill_buffer_random`: the payload of a block, drawn from the caller's
-/// stream. C keeps the stream in a thread local, a job owns one here.
+/// stream. C keeps the stream in a thread local. A job owns one here.
 fn fill_buffer_random(buffer: &mut [u8], seed: &mut u64) {
     if *seed == 0 {
         *seed = get_random_seed();
@@ -671,10 +670,10 @@ struct Shared {
 }
 
 // Safety: every job reaches the flash handle through the page FTL's hooks, each
-// of which holds the FTL lock across the whole transfer, so one handle is
-// callable from every thread, which is the contract `integration.rs` records
-// for the same handle. A job writes only its own `wp` and `total_time` slot and
-// its own latency vector, and the counters are atomics.
+// of which holds the FTL lock across the whole transfer. One handle is callable
+// from every thread, which is the contract `integration.rs` records for the
+// same handle. A job writes only its own `wp` and `total_time` slot and its own
+// latency vector, and the counters are atomics.
 unsafe impl Sync for Shared {}
 
 impl Shared {
@@ -1268,7 +1267,7 @@ mod tests {
         assert!(text.starts_with("error: unexpected argument detected (nope)\n"));
         assert!(text.contains("\t- w           disable warm-up phase"));
 
-        // and for a bad flag, glibc's diagnostic first.
+        // A bad flag prints glibc's diagnostic first.
         let mut text = Vec::new();
         assert_eq!(entry(&argv(&["b", "-z"]), &mut text), 1);
         let text = String::from_utf8(text).expect("the failure is UTF-8");
@@ -1326,7 +1325,7 @@ mod tests {
         assert_eq!(truncated_path("/dev/ftl"), "/dev/ftl");
         let long = "a".repeat(DEVICE_PATH_SIZE + 100);
         assert_eq!(truncated_path(&long).len(), DEVICE_PATH_SIZE - 1);
-        // C cuts bytes, this one backs up to the character boundary.
+        // C cuts bytes. This one backs up to the character boundary.
         let wide = "\u{e9}".repeat(DEVICE_PATH_SIZE);
         assert_eq!(truncated_path(&wide).len(), DEVICE_PATH_SIZE - 2);
     }

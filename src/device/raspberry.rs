@@ -2,9 +2,9 @@
 //!
 //! [`Raspberry`] is the Pi's NAND backend. It talks to the controller through
 //! libnand (`nand_init`, `nand_write`, `nand_read`, `nand_erase`, `nand_free`
-//! and `nand_get_read_error_msg`) and keeps C's buffer ownership: the caller
-//! owns the payload and its lifetime, the backend only passes `request->data`
-//! to libnand and never allocates, copies or frees it. The one allocation the
+//! and `nand_get_read_error_msg`) and keeps C's buffer ownership. The caller
+//! owns the payload and its lifetime. The backend passes `request->data` to
+//! libnand and never allocates, copies or frees it. The one allocation the
 //! backend owns is `dev->badseg_bitmap`, released by `close` like C's.
 //!
 //! Geometry is the raspberry section of `ftl.yaml`, generated into
@@ -13,50 +13,50 @@
 //! That is 1024 segments of 4 blocks of 16 pages, 128 MiB in total.
 //!
 //! C's `struct raspberry` is not mirrored field for field. `size` is written
-//! twice and read only by the `pr_info` in `raspberry_open`, `o_flags` is
-//! written and never read, and no other file touches either, so the size is
-//! logged from the local that computes it and both fields are dropped. The
-//! `pthread_spinlock_t lock` becomes a [`Mutex`]`<()>`: C never calls
+//! twice and read only by the `pr_info` in `raspberry_open`, and `o_flags` is
+//! written and never read. No other file touches either, so the size is logged
+//! from the local that computes it and both fields are dropped. The
+//! `pthread_spinlock_t lock` becomes a [`Mutex`]`<()>`. C never calls
 //! `pthread_spin_init` on it, so C locks an uninitialized object, and Rust has
 //! no uninitialized-mutex form. C's `__raspberry_dops` static vtable is gone
-//! the way the ramdisk one is, [`DeviceOperations`] is the vtable and
+//! the way the ramdisk one is. [`DeviceOperations`] is the vtable, and
 //! `ffi_raspberry_device_init` installs it through [`crate::device`].
 //!
-//! libnand and wiringPi are bound by hand: the `extern "C"` block below is the
-//! C prototype list `raspberry.c` calls, `nand.h` is not in this tree, and the
+//! libnand and wiringPi are bound by hand. The `extern "C"` block below is the
+//! C prototype list `raspberry.c` calls, and `nand.h` is not in this tree. The
 //! two [`link`] attributes are the Makefile's `-lnand -lwiringPi`. No wiringPi
-//! function is called here, the source only needs the library for libnand's
+//! function is called here. The source needs the library only for libnand's
 //! own references, exactly as the C build does. The symbols live behind
 //! [`NandApi`], a struct of function pointers with the same signatures, so the
-//! unit tests can substitute the library and cover the geometry, the request
-//! checks and the buffer and bitmap bookkeeping without the hardware. A
-//! machine without the libraries fails `cargo test --features raspberry` at
-//! link time (`ld: library 'nand' not found`), which is the failure the C
-//! `USE_RASPBERRY_DEVICE=1` build has too, and `cargo check` and clippy still
-//! pass because neither links. Install libnand and wiringPi (the same two the
+//! unit tests can substitute the library. That covers the geometry, the
+//! request checks and the buffer and bitmap bookkeeping without the hardware.
+//! A machine without the libraries fails `cargo test --features raspberry` at
+//! link time (`ld: library 'nand' not found`), the same failure the C
+//! `USE_RASPBERRY_DEVICE=1` build has. `cargo check` and clippy still pass,
+//! because neither links. Install libnand and wiringPi (the same two the
 //! Makefile lists) and the feature build and its tests link on a machine that
 //! has them.
 //!
 //! Other deliberate deviations from the C original:
 //!
 //! - The six libnand calls go through [`NandApi`], a struct of function
-//!   pointers filled from the `extern "C"` block, where C names the symbols
-//!   directly. That is a deliberate divergence from the literal port: without
+//!   pointers filled from the `extern "C"` block. C names the symbols
+//!   directly. That is a deliberate divergence from the literal port. Without
 //!   the seam no test can run at all, because libnand is absent from every
-//!   machine here. The signatures and the call order are still C's, and
-//!   wiringPi is linked but never called, the source needs it only for
-//!   libnand's own references.
+//!   machine here. The signatures and the call order are still C's. wiringPi
+//!   is linked but never called, and the source needs it only for libnand's
+//!   own references.
 //! - The geometry constants live in this module instead of arriving as `-D`
 //!   for the whole build. The FTL and the other backends keep the default
 //!   ramdisk geometry, so the raspberry bit counts are expressed where C uses
 //!   them: `open` and C's `raspberry` address view.
 //! - C's four `addr.raspberry_converter` field copies are a masked copy of
-//!   `request->paddr` (both union views use this build's bit counts, and
-//!   `addr.lpn = 0` precedes the copies), so the port masks the packed word
+//!   `request->paddr`. Both union views use this build's bit counts, and
+//!   `addr.lpn = 0` precedes the copies, so the port masks the packed word
 //!   once instead of copying four fields.
-//! - `open` releases a previous bitmap instead of leaking it the way C does
-//!   when it is called twice, which is a deliberate deviation from the literal
-//!   port rather than C behaviour.
+//! - `open` releases a previous bitmap instead of leaking it, which is what C
+//!   does when it is called twice. This is a deliberate deviation from the
+//!   literal port.
 //! - The bitmap is `nr_segments.div_ceil(64)` words. C's
 //!   `BITS_TO_UINT64_ALIGN` over-allocates by one `u64`, which no accessor
 //!   reaches.
@@ -81,10 +81,10 @@
 //!   dereferences it, as the ramdisk entry points do.
 //!
 //! Every branch in this module except one is reached by the tests below. The
-//! exception is the `calloc` failure in `open`, which reports `-ENOMEM`:
-//! forcing an allocation failure needs `LD_PRELOAD` or a failing `calloc` in
-//! the test build, and that is the check a later run needs before the line
-//! can be called covered.
+//! exception is the `calloc` failure in `open`, which reports `-ENOMEM`.
+//! Forcing an allocation failure needs `LD_PRELOAD` or a failing `calloc` in
+//! the test build. That is the check a later run needs before the line can be
+//! called covered.
 
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use core::mem::size_of;
@@ -328,7 +328,7 @@ impl DeviceOperations for Raspberry {
     ) -> isize {
         // C checks `request->paddr.lpn`, the raw word, and fills `addr`, its
         // own masked copy. `raspberry.c` builds it through the
-        // `raspberry_converter` view, four field-by-field copies of
+        // `raspberry_converter` view: four field-by-field copies of
         // `request->paddr.format` into a word it zeroed first. Both views use
         // this build's bit counts, so the copies are one masked copy.
         let paddr = (*request).paddr.lpn;
@@ -529,10 +529,10 @@ pub unsafe extern "C" fn ffi_raspberry_device_init(
 }
 
 /// Install `nand` on `dev` and run `nand_init`, the body of
-/// [`ffi_raspberry_device_init`]. This is C's order (fill the device, then
-/// initialize the library) with its `exception:` label as the failure branch,
-/// which runs the exit routine so the backend is released and `nand_free`
-/// still runs.
+/// [`ffi_raspberry_device_init`]. This is C's order: fill the device, then
+/// initialize the library. C's `exception:` label is the failure branch, which
+/// runs the exit routine so the backend is released and `nand_free` still
+/// runs.
 ///
 /// # Safety
 /// `dev` is a live device with no backend installed yet.
@@ -1054,8 +1054,8 @@ mod tests {
         assert_eq!(ERASE_CALLS.load(Ordering::SeqCst), calls);
 
         // A successful erase returns 0, signals the request and leaves the
-        // bitmap alone. Block 4 keeps the bad bit the failed erase set, which
-        // only a fresh `open` clears, exactly as in C.
+        // bitmap alone. Block 4 keeps the bad bit the failed erase set. Only a
+        // fresh `open` clears it, exactly as in C.
         ERASE_FAILS_FROM.store(-1, Ordering::SeqCst);
         request.flag = DeviceDirection::Erase.into();
         request.paddr = device_address { lpn: 4 << VIEW_BITS };

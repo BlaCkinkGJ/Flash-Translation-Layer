@@ -12,8 +12,8 @@
 
 /*
  * One arm per backend. The Makefile passes exactly one
- * -DFTL_BACKEND_<NAME> and a consumer may override any macro with
- * its own -D, so every macro keeps its #ifndef guard.
+ * -DFTL_BACKEND_<NAME>. A consumer may override any macro with its
+ * own -D, so every macro keeps its #ifndef guard.
  */
 #if defined(FTL_BACKEND_RAMDISK)
 #ifndef DEVICE_NR_BUS_BITS

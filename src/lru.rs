@@ -1,11 +1,12 @@
 //! LRU cache ported from `include/lru.h` + `util/lru.c`.
 //!
-//! The C ABI is preserved: `lru_node` / `lru_cache` are `#[repr(C)]` mirrors
-//! of the C structs, the `nil` sentinel is embedded in the cache exactly as
-//! in C (so `head` points *inside* the cache allocation), and C reads
-//! `cache->capacity` / `cache->size` directly (`lru_get_evict_size` inline in
-//! the header), and those offsets are the contract, pinned on both sides by
-//! `layout_matches_c` here and the `LRU_STATIC_ASSERT`s in `include/lru.h`.
+//! The C ABI is preserved. `lru_node` / `lru_cache` are `#[repr(C)]` mirrors of
+//! the C structs, and the `nil` sentinel is embedded in the cache exactly as in
+//! C, so `head` points *inside* the cache allocation. C reads
+//! `cache->capacity` / `cache->size` directly through the `lru_get_evict_size`
+//! inline in the header, so those offsets are the contract. They are pinned on
+//! both sides by `layout_matches_c` here and the `LRU_STATIC_ASSERT`s in
+//! `include/lru.h`.
 //!
 //! Symbols carry the `ffi_` prefix because they are the C ABI this module
 //! exports. `util/lru.c` is gone (Task 16a), and `include/lru.h` keeps the
@@ -15,11 +16,11 @@
 //!
 //! - `ffi_lru_init` / `ffi_lru_put` cannot fail with `NULL` / `-ENOMEM`:
 //!   `Box` aborts on OOM, as in `src/list.rs`.
-//! - Eviction stops (and logs) when the list is empty while `size` still says
-//!   otherwise. C unlinks the sentinel there, hands it to the dealloc
-//!   callback and `free()`s it, which corrupts the heap. Reachable in both
-//!   implementations by the same route: a failing dealloc callback returns
-//!   early and skips the `size` decrement. See
+//! - Eviction stops and logs when the list is empty while `size` still says
+//!   otherwise. C unlinks the sentinel there, hands it to the dealloc callback
+//!   and `free()`s it, which corrupts the heap. Both implementations reach that
+//!   state the same way: a failing dealloc callback returns early and skips the
+//!   `size` decrement. See
 //!   `eviction_on_desynced_size_does_not_free_the_sentinel`.
 //! - `ffi_lru_free` frees the cache structure even when the dealloc callback
 //!   fails (C returns early and leaks both the structure and the remaining
@@ -29,15 +30,14 @@
 //!   C-visible fields) and no Rust consumer exists yet. Revisit alongside the
 //!   `page_write.rs` / `page_gc.rs` ports (Tasks 10-11), as in `src/list.rs`.
 //! - `get` is O(1) via a `HashMap` index keyed on the newest node, the issue's
-//!   requested improvement over C's linear scan. It is equivalent: eviction
-//!   takes the tail (oldest) first, so of two nodes sharing a key the newer
-//!   one (the one the index points at, and the one the C scan would return)
-//!   always outlives the older one.
+//!   requested improvement over C's linear scan. It is equivalent. Eviction
+//!   takes the tail (oldest) first, so of two nodes sharing a key the newer one
+//!   always outlives the older one. The index points at that newer node, and it
+//!   is the one the C scan would return.
 //! - The eviction policy is C's, not a standard evict-one: a `put` into a full
 //!   cache evicts `capacity` entries, i.e. drains it. Pinned by
 //!   `eviction_drains_whole_cache_when_full`. The issue raised this as an open
-//!   question and the port keeps that behaviour rather than a standard
-//!   evict-one.
+//!   question. The port keeps C's behaviour, not a standard evict-one.
 
 use crate::{pr_debug, pr_err};
 use std::collections::HashMap;
@@ -109,8 +109,8 @@ unsafe fn unlink(node: *mut lru_node) {
 }
 
 /// Evict the least recently used entry. Mirrors C's `__lru_do_evict`: unlink,
-/// drop the index entry, run the callback, release the node, in that order,
-/// and the node is released even when the callback reports failure.
+/// drop the index entry, run the callback, release the node, in that order. The
+/// node is released even when the callback reports failure.
 ///
 /// # Safety
 /// `cache` is live and its list is non-empty (`cache->head->next != head`).
@@ -230,8 +230,8 @@ pub unsafe extern "C" fn ffi_lru_put(
     0
 }
 
-/// Return the value stored under `key` and promote it to most recently used,
-/// or `0` when absent (C's `NULL`), like C.
+/// Return the value stored under `key` and promote it to most recently used.
+/// A missing key returns `0` here and `NULL` in C.
 ///
 /// # Safety
 /// `cache` was returned by `ffi_lru_init` and not yet freed.
@@ -249,8 +249,8 @@ pub unsafe extern "C" fn ffi_lru_get(cache: *mut lru_cache, key: u64) -> usize {
     (*node).value
 }
 
-/// Release every entry, then the cache itself. Returns the last dealloc
-/// status (`0` on success, and for a `NULL` cache), like C.
+/// Release every entry, then the cache itself. Returns the last dealloc status,
+/// which is `0` on success and `0` for a `NULL` cache, like C.
 ///
 /// # Safety
 /// `cache` is `NULL` or was returned by `ffi_lru_init` and not yet freed.

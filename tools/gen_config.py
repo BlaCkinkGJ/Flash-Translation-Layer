@@ -60,13 +60,15 @@ C_MACROS = {
 
 TUNING_DOCS = {
     "gc_ratio": (
-        "/// Maximum fraction of the segments one GC pass collects, C's\n"
-        "/// `PAGE_FTL_GC_RATIO`."
+        "/// Maximum fraction of the segments one GC pass collects.\n"
+        "/// Mirrors C's `PAGE_FTL_GC_RATIO`."
     ),
-    "gc_all": "/// Collect every dirty segment, C's `PAGE_FTL_GC_ALL`.",
+    "gc_all": (
+        "/// Collect every dirty segment. Mirrors C's `PAGE_FTL_GC_ALL`."
+    ),
     "gc_threshold": (
-        "/// GC triggers once the free-page fraction drops below this, C's\n"
-        "/// `PAGE_FTL_GC_THRESHOLD`."
+        "/// GC triggers once the free-page fraction drops below this.\n"
+        "/// Mirrors C's `PAGE_FTL_GC_THRESHOLD`."
     ),
 }
 
@@ -278,9 +280,10 @@ def render_rust(config):
     lines = [
         RUST_BANNER,
         "",
-        "// Cargo features are additive, so two backend features at once",
-        "// would define every geometry constant twice with different values.",
-        "// Name the mistake here instead of a duplicate-item error that hides",
+        "// Cargo features are additive. Two backend features at once",
+        "// would define every geometry constant twice, with different",
+        "// values. Name that mistake here instead of a duplicate-item",
+        "// error that hides it.",
         "#[cfg(any(",
         '    all(feature = "zone", feature = "bluedbm"),',
         '    all(feature = "zone", feature = "raspberry"),',
@@ -347,8 +350,8 @@ def render_header(config):
         "",
         "/*",
         " * One arm per backend. The Makefile passes exactly one",
-        " * -DFTL_BACKEND_<NAME> and a consumer may override any macro with",
-        " * its own -D, so every macro keeps its #ifndef guard.",
+        " * -DFTL_BACKEND_<NAME>. A consumer may override any macro with its",
+        " * own -D, so every macro keeps its #ifndef guard.",
         " */",
     ]
     arms = ("ramdisk", "zone", "bluedbm", "raspberry")

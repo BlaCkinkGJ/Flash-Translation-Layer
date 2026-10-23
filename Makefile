@@ -1,6 +1,6 @@
-# Nothing here compiles C any more: every implementation is Rust and the C left
-# is the ABI headers in `include/`. `make` builds the cargo archive and the two
-# cargo bins, `make check` / `flow` / `format` read the headers, and
+# Nothing here compiles C any more. Every implementation is Rust, and the C
+# left is the ABI headers in `include/`. `make` builds the cargo archive and the
+# two cargo bins. `make check` / `flow` / `format` read the headers, and
 # `make consumer-check` compiles a C consumer against the installed archive,
 # which is what used to keep the headers compiling.
 INTEGRATION_TEST_TARGET = integration-test.out
@@ -27,11 +27,11 @@ endif
 DEVICE_LIBS =
 
 # The geometry a C consumer compiles against. `include/ftl-config.h` is
-# generated from `ftl.yaml`, and each backend section is selected by one
-# `-DFTL_BACKEND_<NAME>` macro. The Rust build reads the same `ftl.yaml`
-# sections through the matching cargo feature, so the two cannot disagree. An
-# explicit `-DDEVICE_NR_*` on a consumer's own compile line still wins, because
-# every macro in the generated header keeps its `#ifndef` guard.
+# generated from `ftl.yaml`, and one `-DFTL_BACKEND_<NAME>` macro selects each
+# backend section. The Rust build reads the same `ftl.yaml` sections through the
+# matching cargo feature, so the two cannot disagree. An explicit
+# `-DDEVICE_NR_*` on a consumer's own compile line still wins, because every
+# macro in the generated header keeps its `#ifndef` guard.
 DEVICE_INFO =
 
 ifeq ($(USE_ZONE_DEVICE), 1)
@@ -49,10 +49,9 @@ else ifeq ($(USE_RASPBERRY_DEVICE), 1)
 # Configuration for RaspberryPi Device
 # https://www.waveshare.com/wiki/File:K9F1G08U0D.pdf
 #
-# RaspberryPi does not support the multiple chips and pages.
-# For this reason, it does not match with conventional physical address format.
-#
-# Therefore, I translated conventional physical address format to RaspberryPi compatible format.
+# RaspberryPi does not support multiple chips and pages, so its physical address
+# format differs from the conventional one. The table below translates the
+# conventional format into the RaspberryPi compatible one.
 #               +----------------+--------------+--------------+-------------+
 # Compatible => | Block(24 bits) | Page(4 bits) | Chip(1 bits) | Bus(1 bits) |
 #               +----------------+-------------------------------------------+
@@ -79,7 +78,7 @@ CC = gcc
 CONSUMER_LIBS := -lm -lpthread $(DEVICE_LIBS)
 
 # Cargo features mirroring the make switches. Each backend feature mirrors the
-# USE_*_DEVICE switch that also names the library the backend binds, and the
+# `USE_*_DEVICE` switch, which also names the library the backend binds. The
 # feature is what selects the backend into the Rust device table.
 RUST_FEATURES :=
 ifeq ($(USE_LOG_SILENT), 1)
@@ -111,9 +110,8 @@ all: build_rust $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 # The two generated files are committed, so `make`, `cargo build` and
 # `make consumer-check` never run Python. `config` rewrites them and writes
 # nothing when they are already current. `check-config` is the drift gate and
-# runs the generator's own tests. No target depends on `config`: that would
-# make a cargo build shell out to Python for a file that is already in the
-# tree.
+# runs the generator's own tests. No target depends on `config`. Depending on it
+# would make a cargo build shell out to Python for a file already in the tree.
 config:
 	python3 tools/gen_config.py
 
@@ -128,8 +126,8 @@ test: cargo-test
 integration-test: $(INTEGRATION_TEST_TARGET)
 	./$(INTEGRATION_TEST_TARGET)
 
-# One archive, because no C object is left to archive: the headers are the C
-# surface and the consumer check below is what proves they still compile and
+# One archive, because no C object is left to archive. The headers are the C
+# surface, and the consumer check below is what proves they still compile and
 # link.
 install: $(RUST_LIB)
 	install -d $(DESTDIR)$(PREFIX)/lib/
@@ -139,19 +137,19 @@ install: $(RUST_LIB)
 	@echo "installed $(RUST_LIB) and the headers: link with -lftl_rust $(strip $(CONSUMER_LIBS))"
 
 # The zoned backend's end-to-end check against an emulated zoned block device.
-# Two emulators can make a host-managed device out of nothing and the target
-# tries both: `null_blk`
+# `null_blk`
 # (https://zonedstorage.io/docs/getting-started/zbd-emulation) and the `zloop`
-# driver (`Documentation/admin-guide/blockdev/zoned_loop`). It needs root to
-# load a module, libzbd to link and the cargo `zone` feature, so it is its own
-# target rather than part of `test` or `make cargo-test`. When no emulator can
-# be created it prints why and exits 0, which is what happens on macOS, where
-# the Docker builder has no module tree.
+# driver (`Documentation/admin-guide/blockdev/zoned_loop`) can both make a
+# host-managed device out of nothing, and the target tries each. It needs root
+# to load a module, libzbd to link and the cargo `zone` feature, so it is its
+# own target rather than part of `test` or `make cargo-test`. When no emulator
+# can be created it prints why and exits 0, which is what happens on macOS,
+# where the Docker builder has no module tree.
 #
 # The device it asks for is 4 zones of 16MiB with no conventional zone. A zone
 # has to hold exactly one segment of the zoned build (2^5 pages * 2^3 bus * 2^3
 # chips * 8192 bytes), because the backend compares the zone's byte offset
-# against the address the FTL computes, and every zone has to be
+# against the address the FTL computes. Every zone has to be
 # sequential-write-required, because `open` rejects a device that has a
 # conventional zone. See `src/device/zone.rs`.
 ZONE_DEVICE ?= $(or $(FTL_ZONE_DEVICE),/dev/nullb0)
@@ -187,16 +185,17 @@ zone-smoke:
 	echo "zone-smoke: using $$dev"; \
 	FTL_ZONE_DEVICE="$$dev" cargo test --features zone -- --ignored --nocapture emulator_writes_reads_and_resets_a_zone
 
-# The end-to-end program is the `integration-test` cargo bin. `integration-test.out`
-# is the artifact the `integration-test` target runs and `make clean` removes.
+# The end-to-end program is the `integration-test` cargo bin.
+# `integration-test.out` is the artifact the `integration-test` target runs and
+# `make clean` removes.
 $(INTEGRATION_TEST_TARGET): integration-test.rs $(RUST_LIB)
 	cargo build $(CARGO_PROFILE_FLAG) $(RUST_FEATURE_FLAG) --bin integration-test
 	cp $(RUST_LIB_DIR)/integration-test $@
 
 # Task 16: the benchmark is a cargo bin (`benchmark.rs`, declared in
 # `Cargo.toml`), so cargo links it and the rule only renames the artifact to the
-# name the README uses. It links no C object: the page FTL, the ramdisk and the
-# module and flash interfaces are the crate.
+# name the README uses. It links no C object, since the page FTL, the ramdisk
+# and the module and flash interfaces are the crate.
 $(BENCHMARK_TARGET): benchmark.rs $(RUST_LIB)
 	cargo build $(CARGO_PROFILE_FLAG) $(RUST_FEATURE_FLAG) --bin benchmark
 	cp $(RUST_LIB_DIR)/benchmark $@
@@ -239,9 +238,9 @@ format:
 
 # The check the `example/rw_example.c` used to provide: a C consumer of the
 # installed headers and the installed archive. It writes the consumer to a
-# temporary file, installs into a staging prefix, compiles with `-Werror` so a
-# header that no longer compiles fails here, links the one archive and runs the
-# program against the ramdisk. Nothing is added to the repository.
+# temporary file, installs into a staging prefix and compiles with `-Werror`, so
+# a header that no longer compiles fails here. The link takes the one archive,
+# and the program runs against the ramdisk. Nothing is added to the repository.
 consumer-check: $(RUST_LIB)
 	@set -e; \
 	stage=$$(mktemp -d); \
@@ -312,13 +311,13 @@ cargo-coverage:
 	cargo llvm-cov --lcov --output-path coverage-rust.lcov $(RUST_FEATURE_FLAG)
 
 # The Rust sources and the feature switches are cargo's business, so the rule
-# does not try to track them: `FORCE` makes every build re-run cargo, which
+# does not try to track them. `FORCE` makes every build re-run cargo, which
 # re-checks sources and features itself and costs one no-op invocation. Without
 # it, a `make test USE_LOG_SILENT=1` after a plain `make` reused the archive
 # built without `silent`, because make only sees file timestamps.
 #
-# RUST_SRCS is kept as the documented input list, so `make -n` and a reader can
-# see what the archive is built from.
+# `RUST_SRCS` is kept as the documented input list, so `make -n` and a reader
+# can see what the archive is built from.
 RUST_SRCS := $(shell find src -name '*.rs') Cargo.toml $(wildcard Cargo.lock)
 $(RUST_LIB): $(RUST_SRCS) FORCE
 	cargo build $(CARGO_PROFILE_FLAG) $(RUST_FEATURE_FLAG)
