@@ -30,6 +30,22 @@ Three documents cover the parts this README does not:
 - [docs/guards.md](docs/guards.md): which header guard, cargo feature, `USE_*`
   switch and CI job guards what, and what breaks without it.
 
+[AGENTS.md](AGENTS.md) is the machine-readable guide: the layout, the build
+and test targets, the conventions a change has to follow, and the review
+gates. It is the file to read before sending a patch.
+
+| Path | What is there |
+| --- | --- |
+| `src/` | the crate: the device layer, the four backends and the page FTL |
+| `include/` | the C ABI headers, the only C surface left |
+| `ftl.yaml` | the GC tuning and the per-backend geometry |
+| `tools/` | the generator that turns `ftl.yaml` into the two config files |
+| `tests/` | the cargo integration test |
+| `example/` | a small cargo example, `rw_example` |
+| `docs/` | the three documents above |
+| `benchmark.rs` | a cargo bin, the benchmark, at the crate root |
+| `integration-test.rs` | a cargo bin, the end-to-end test, at the crate root |
+
 ## Build
 
 > These instructions are based on the Ubuntu(>=16.04) environments
@@ -48,6 +64,11 @@ The Rust toolchain is required as well: install it from
 [rustup](https://rustup.rs/) so `cargo` is on `PATH`. `gcc` is only used by
 `make consumer-check`, the one C compile left in the tree.
 
+`python3` is needed by `make config` and `make check-config` only, which
+regenerate the two committed config files from `ftl.yaml` and check them for
+drift. A plain `make` or `cargo build` never runs it, because both generated
+files are in the tree.
+
 After you download the packages, you must receive this project code using
 `git clone` like below.
 
@@ -59,11 +80,11 @@ Now you move to this repository's project directory root by using `cd`, and
 `make` builds the Rust archive and the two cargo programs. The `USE_*`
 switches select cargo features: `USE_ZONE_DEVICE=1`, `USE_BLUEDBM_DEVICE=1`
 and `USE_RASPBERRY_DEVICE=1` pick the matching device backend,
-`USE_LOG_SILENT=1` silences the info logs (`silent`) and
-`USE_LEGACY_RANDOM=1` selects the legacy random generator (`legacy-random`).
-
-> If you want to use a module like the Zoned Block Device module, you must
-> set the value of the `USE_ZONE_DEVICE` variable to 1 in the `Makefile`.
+`USE_LOG_SILENT=1` silences the info logs (`silent`),
+`USE_LEGACY_RANDOM=1` selects the legacy random generator (`legacy-random`)
+and `USE_DEBUG=1` builds the debug cargo profile instead of the release one.
+Pass them on the command line, for example `make USE_ZONE_DEVICE=1`; the
+`Makefile` reads them and is the authoritative list.
 
 ### Tuning and geometry
 
@@ -73,11 +94,17 @@ geometry of each backend (`ramdisk`, `zone`, `bluedbm`, `raspberry` and
 `default`). A geometry section holds `bus_bits`, `chip_bits`, `page_bits`,
 `block_bits` and `page_size`.
 
-`make config` regenerates `src/ftl_config.rs` and `include/ftl-config.h`, and
-writes nothing when they are already current. Both files are committed, so
-`make` and a plain `cargo build` need no Python. `make check-config` is the
-drift gate: it exits non-zero with a diff when either generated file differs
-from the YAML, and it runs the generator's tests.
+`make config` runs `tools/gen_config.py`, which reads that file and writes
+`src/ftl_config.rs` and `include/ftl-config.h`. It writes nothing when they are
+already current. Both files are committed, so `make` and a plain `cargo build`
+need no Python. `make check-config` is the drift gate: it exits non-zero with a
+diff when either generated file differs from the YAML, and it runs the
+generator's own tests. Do not edit the two generated files by hand, because the
+next `make config` would undo it.
+
+The generator parses a small YAML subset and rejects anything outside it: two
+space indentation, `key: value`, `#` comments, integers and plain decimals. A
+typo therefore fails the build instead of quietly changing a compiled constant.
 
 A `USE_*_DEVICE` switch selects the matching geometry section together with the
 cargo feature. For a C consumer the Makefile passes one `-DFTL_BACKEND_<NAME>`
@@ -110,7 +137,7 @@ Before you run `make check`, you must install the below tools.
 
 - [flawfinder](https://dwheeler.com/flawfinder/)
 - [cppcheck](https://cppcheck.sourceforge.io/)
-- [lizard](https://github.com/terryyin/lizard)
+- [lizard](https://github.com/terryyin/lizard), version 1.17.0
 
 You can check the source code status by using `make check`. The unit and
 integration tests are Rust and driven by cargo, so run the suite with:
@@ -125,6 +152,10 @@ make test USE_LOG_SILENT=1
 `make cargo-coverage` writes an LCOV report once
 `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
 have run.
+
+`make format` runs `clang-format` over `include/*.h` with the repository's
+`.clang-format`. CI does not run it, so a formatting slip blocks nothing, but
+the headers are kept clean with it.
 
 ### Execution
 
@@ -159,7 +190,7 @@ sudo make install
 where root's `PATH` and rustup environment reach the toolchain, or use
 `make install DESTDIR=<dir>` to stage the same tree without root.
 
-## For building in the macOS
+## Building on macOS
 
 The project targets Linux and does not support the macOS natively. The Rust
 build and the test suite nevertheless run with cargo, so `make test` and the
