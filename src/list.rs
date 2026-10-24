@@ -1,9 +1,9 @@
 //! Doubly-linked list ported from `include/list.h` and from `util/list.c`,
 //! deleted in Task 16a.
 //!
-//! The C ABI is preserved verbatim: `list_node_t` is `#[repr(C)]` with the
-//! same three pointers, nodes are heap-allocated by `ffi_list_prepend`, and
-//! released only by `ffi_list_remove` / `ffi_list_free`. The tests below walk
+//! The C ABI is preserved verbatim. `list_node_t` is `#[repr(C)]` with the same
+//! three pointers, `ffi_list_prepend` heap-allocates nodes, and only
+//! `ffi_list_remove` / `ffi_list_free` release them. The tests below walk
 //! `->next` and read `->data` directly, so the node layout is part of the
 //! contract.
 //!
@@ -18,9 +18,9 @@
 //! - `ffi_list_sort` with a `NULL` comparator returns the list unchanged
 //!   instead of dereferencing `NULL`.
 //! - `ffi_list_sort` re-stitches a scratch `Vec<*mut list_node_t>` with
-//!   `sort_by` (stable, like C's merge sort, so equal elements keep their
-//!   order). ponytail: O(n) transient memory on the GC-time sort only,
-//!   swap for an in-place merge if the sort ever lands on the write path.
+//!   `sort_by`. That sort is stable, like C's merge sort, so equal elements
+//!   keep their order. ponytail: O(n) transient memory on the GC-time sort
+//!   only, swap for an in-place merge if the sort ever lands on the write path.
 
 use std::os::raw::{c_int, c_void};
 
@@ -57,10 +57,9 @@ pub unsafe extern "C" fn ffi_list_prepend(
     node
 }
 
-/// Remove the first node whose `data` pointer equals `data` (pointer
-/// equality, not payload equality, because the FTL stores LPNs as fake
-/// pointers).
-/// Returns the head, unchanged if no node matched.
+/// Remove the first node whose `data` pointer equals `data`. The comparison is
+/// pointer equality, not payload equality, because the FTL stores LPNs as fake
+/// pointers. Returns the head, unchanged when no node matched.
 ///
 /// # Safety
 /// `list` is `NULL` or a live list from this module. Every node must have

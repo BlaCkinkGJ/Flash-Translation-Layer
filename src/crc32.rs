@@ -53,17 +53,16 @@ fn get_crc32_tables() -> &'static [[u32; 256]; 8] {
     })
 }
 
-/// Calculates the CRC32 checksum of the given buffer.
+/// Compute the CRC32 checksum of `buf`.
 ///
 /// # Safety
-/// The caller must ensure that `buf` is a valid pointer to at least `size` bytes.
-/// If `buf` is null, the function returns `initial ^ 0xFFFFFFFF`.
+/// The caller must ensure that `buf` points to at least `size` valid bytes.
+/// A null `buf` returns `initial ^ 0xFFFFFFFF`.
 ///
 /// # Incremental Calculation
-/// To perform incremental CRC32, the `initial` value for subsequent calls should be
-/// the result of the previous call XORed with `0xFFFFFFFF`. This is because the
-/// function applies a final XOR with `0xFFFFFFFF` to its output. Chaining subsequent
-/// calculations requires reverting this final XOR for the new `initial` input.
+/// For incremental CRC32, pass the previous result XORed with `0xFFFFFFFF` as
+/// the next `initial`. The function XORs its output with `0xFFFFFFFF`, so
+/// chaining calls means reverting that final XOR on the way in.
 #[no_mangle]
 pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
     if buf.is_null() || size == 0 {
@@ -72,13 +71,14 @@ pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
 
     let mut crc = initial;
 
-    // Safety: We verified that buf is not null, and size > 0.
-    // The caller must ensure that buf points to at least size valid bytes.
+    // Safety: the checks above guarantee that `buf` is not null and `size` is
+    // positive. The caller must still ensure `buf` points to at least `size`
+    // valid bytes.
     let slice = unsafe { std::slice::from_raw_parts(buf as *const u8, size) };
 
     let tables = get_crc32_tables();
 
-    // Process chunks of 8 bytes
+    // Slice by 8: consume whole 8-byte chunks first.
     let (chunks, remainder) = slice.as_chunks::<8>();
     for chunk in chunks {
         let one = crc ^ u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
@@ -94,7 +94,7 @@ pub extern "C" fn crc32(buf: *const c_void, size: usize, initial: u32) -> u32 {
             ^ tables[0][(two >> 24) as usize];
     }
 
-    // Process remaining bytes
+    // The remainder is shorter than 8 bytes, so take it one byte at a time.
     for &byte in remainder {
         let index = ((crc ^ (byte as u32)) & 0xFF) as usize;
         crc = tables[0][index] ^ (crc >> 8);

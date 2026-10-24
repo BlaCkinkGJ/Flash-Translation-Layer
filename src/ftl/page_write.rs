@@ -5,14 +5,14 @@
 //! [`read_for_overwrite`] and [`update_metadata`] mirror C's file-static
 //! helpers of the same name. The C-ABI entry point is [`ffi_page_ftl_write`].
 //!
-//! The flow is the C flow: resolve the logical page and the in-page offset,
-//! reject a logical page past the L2P table and a write that runs past its
-//! page, take a free physical page, build the whole page buffer (zeroed, or the
-//! previous contents when the LPN is already mapped), splice the caller's bytes
-//! into it, hand the page to the device, then update the L2P table, dropping
-//! the previous mapping and queueing its segment for garbage collection once
-//! that segment has no free page left. The return value is the caller's byte
-//! count, not the page the device wrote.
+//! The flow matches C's. Resolve the logical page and the in-page offset.
+//! Reject a logical page past the L2P table, and a write that runs past its
+//! page. Take a free physical page and build the page buffer, zeroed or filled
+//! with the previous contents when the LPN is already mapped. Splice the
+//! caller's bytes in, hand the page to the device, then update the L2P table.
+//! The old mapping is dropped, and its segment joins the GC queue once the
+//! segment has no free page left. The return value is the caller's byte count,
+//! not the page the device wrote.
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
@@ -52,10 +52,10 @@ unsafe extern "C" fn write_end_rq(request: *mut device_request) {
 /// segment and queue that segment for garbage collection once it has no free
 /// page left.
 ///
-/// The free page count of the segment deliberately does not move here: C only
-/// reloads `nr_free_pages` (`ftl/page/page-write.c:44`), so the counter
-/// keeps its meaning (a page that was written once is still "used" and is
-/// reclaimed by an erase, not by an invalidation).
+/// The free page count of the segment deliberately does not move here. C only
+/// reloads `nr_free_pages` (`ftl/page/page-write.c:44`), so the counter keeps
+/// its meaning: a page that was written once is still "used", and an erase
+/// reclaims it, not an invalidation.
 fn invalidate(pgftl: &mut PageFtl, lpn: usize) {
     let paddr = device_address::from(pgftl.trans_map[lpn]);
     let segnum = paddr.block() as usize;
@@ -137,9 +137,10 @@ fn update_metadata(pgftl: &mut PageFtl, paddr: device_address, sector: usize) {
     );
 }
 
-/// C's `page_ftl_write`: write `request.data_len` bytes at `request.sector`.
+/// Write `request.data_len` bytes at `request.sector`. C calls this
+/// `page_ftl_write`.
 ///
-/// The bytes go into a freshly allocated physical page: the page is zeroed for
+/// The bytes go into a freshly allocated physical page. The page is zeroed for
 /// an unmapped logical page, and otherwise filled with the page that LPN is
 /// currently mapped to before the new bytes are spliced in. The previous
 /// mapping is invalidated afterwards, so an overwrite leaves the old page
@@ -149,10 +150,10 @@ fn update_metadata(pgftl: &mut PageFtl, paddr: device_address, sector: usize) {
 /// page size.
 ///
 /// # Errors
-/// `EINVAL` for a logical page past the L2P table or a write that runs past the
-/// end of its page, `EFAULT` when no free page is left on the device or the
-/// read for overwrite fails, `ENOMEM` when the page request cannot be
-/// allocated, and the device's negated error code for a failed device write.
+/// `EINVAL` for a logical page past the L2P table, or a write that runs past
+/// the end of its page. `EFAULT` when no free page is left on the device, or
+/// the read for overwrite fails. `ENOMEM` when the page request cannot be
+/// allocated. A failed device write returns the device's negated error code.
 /// The request is borrowed, not consumed.
 pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Result<usize> {
     let page_size = pgftl.dev().page_size();
@@ -244,7 +245,8 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
     Ok(write_size)
 }
 
-/// C-ABI entry point for [`write_page`], mirroring C's `page_ftl_write`.
+/// The C-ABI entry point for [`write_page`], and the mirror of C's
+/// `page_ftl_write`.
 ///
 /// Frees the caller's request on the success path, where C's
 /// `page_ftl_write_end_rq` does, and leaves it to the caller on every error
@@ -613,7 +615,8 @@ mod tests {
             (*request).data = payload.as_mut_ptr() as *mut c_void;
             assert_eq!(ffi_page_ftl_write(f.pgftl.as_mut(), request), 8);
             assert_eq!(f.pgftl.trans_map[0], 0);
-            // `request` was freed by `ffi_page_ftl_write`, so it is not touched.
+            // `request` was freed by `ffi_page_ftl_write`, so it is not
+            // touched.
 
             // The bytes the splice copied are where the caller put them.
             let mut read_back = vec![0u8; payload.len()];

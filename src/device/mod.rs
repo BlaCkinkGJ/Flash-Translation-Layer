@@ -1,6 +1,6 @@
 //! Device abstraction layer ported from `include/device.h` + `device/device.c`.
 //!
-//! The C ABI is preserved: every struct is a `#[repr(C)]` mirror of its C
+//! The C ABI is preserved. Every struct is a `#[repr(C)]` mirror of its C
 //! counterpart, and `device` / `device_request` keep the exact field offsets C
 //! reads and writes (`dev->d_op`, `dev->info`, `dev->badseg_bitmap`,
 //! `dev->d_private`, `dev->d_submodule_exit`, `request->mutex`,
@@ -9,33 +9,33 @@
 //! `include/device.h`.
 //!
 //! `device_operations` stays the C-visible vtable that a backend installs into
-//! `dev->d_op`. Rust backends implement [`DeviceOperations`] and
+//! `dev->d_op`. Rust backends implement [`DeviceOperations`], and
 //! [`device::install_backend`] stores the backend plus the vtable built from it
-//! in one slot, so C keeps dispatching through `dev->d_op` unchanged and the
-//! vtable can never disagree with the type behind it. The C-named structs keep
-//! their C names (a `#[repr(C)]` type is not subject to
+//! in one slot. C therefore keeps dispatching through `dev->d_op` unchanged,
+//! and the vtable can never disagree with the type behind it. The C-named
+//! structs keep their C names (a `#[repr(C)]` type is not subject to
 //! `non_camel_case_types`). Type aliases are camel-cased as in `src/lru.rs`.
 //!
 //! Two layers live here. The C ABI layer (the `#[repr(C)]` mirrors, the `ffi_*`
-//! entry points and the vtable) is what C calls. The native
-//! layer ([`device_address`] helpers, [`DeviceDirection`], [`Request`] and the
-//! accessors on [`device_request`] and [`device`]) is what Rust callers use, so
-//! the FTL port (Tasks 8-13) does not hand-roll raw pointers, `errno` or
-//! atomics.
+//! entry points and the vtable) is what C calls. The native layer
+//! ([`device_address`] helpers, [`DeviceDirection`], [`Request`] and the
+//! accessors on [`device_request`] and [`device`]) is what Rust callers use.
+//! The FTL port (Tasks 8-13) therefore does not hand-roll raw pointers,
+//! `errno` or atomics.
 //!
 //! Symbols carry the `ffi_` prefix because they are the C ABI this module
 //! exports. The C original (`device/device.c`) went with the last C source in
-//! the cutover, so this module is the only implementation: `SUBMODULE_INIT`
+//! the cutover, so this module is the only implementation. `SUBMODULE_INIT`
 //! installs every backend, and `ffi_device_module_init` /
 //! `ffi_device_module_exit` are the live pair every caller uses.
 //!
-//! Deliberate deviations from the C original, which is deleted, so the bullets
-//! below describe what it did:
+//! Deliberate deviations from the C original. That source is deleted, so the
+//! bullets below describe what it did:
 //!
 //! - `ffi_device_module_init` rejects an out-of-range `modnum` with `-EINVAL`
 //!   and a module with no backend with `-ENODEV`. C indexes
-//!   `submodule_init[modnum]` unchecked and calls a `NULL` entry, so both are
-//!   wild calls there.
+//!   `submodule_init[modnum]` unchecked and calls a `NULL` entry. Both are wild
+//!   calls there.
 //! - `ffi_device_module_init` and `ffi_device_free_request` accept `NULL`
 //!   (`-EINVAL` / no-op). C dereferences it, and `device_module_exit` asserts.
 //! - A failing `pthread_mutex_init` / `pthread_cond_init` releases the
@@ -49,20 +49,20 @@
 //!   symbol is exported for them.
 //! - The bit counts and `DEVICE_PAGE_SIZE` come from `ftl.yaml` through
 //!   [`crate::ftl_config`], so the Rust build and the Makefile's
-//!   `DEVICE_INFO` cannot disagree: a zoned build is `3/3/5/21`, bluedbm is
-//!   `3/3/7/19`, raspberry is `1/1/4/24` with a 2048 byte page and the build
+//!   `DEVICE_INFO` cannot disagree. A zoned build is `3/3/5/21`, bluedbm is
+//!   `3/3/7/19`, raspberry is `1/1/4/24` with a 2048 byte page, and the build
 //!   with no backend feature is the ramdisk `2/2/7/19`. The bluedbm and
 //!   raspberry backends still need their hardware, but their geometry no
 //!   longer waits for it.
-//! - C's `raspberry` address view is not ported: it only means something under
-//!   the raspberry build's bit counts, and the Pi NAND path is out of scope, so
-//!   it lands with the raspberry hardware port instead of carrying a constant
-//!   that is wrong for its own target. See [`device_address`].
-//! - `ffi_device_module_init` dispatches through a backend table where the
-//!   ramdisk entry is wired (Task 6), the zone entry carries the ported zoned
-//!   backend (#108) and the two remaining slots are wired behind their Cargo
-//!   features (Task 7). C's table indexed the backend pointers unchecked, and
-//!   the C entry points that read it are deleted.
+//! - The `raspberry` address view from C is not ported. It only means something
+//!   under the raspberry build's bit counts, and the Pi NAND path is out of
+//!   scope. It lands with the raspberry hardware port, rather than carry a
+//!   constant that is wrong for its own target. See [`device_address`].
+//! - `ffi_device_module_init` dispatches through a backend table. The ramdisk
+//!   entry is wired (Task 6), the zone entry carries the ported zoned backend
+//!   (#108), and the two remaining slots are wired behind their Cargo features
+//!   (Task 7). C's table indexed the backend pointers unchecked, and the C
+//!   entry points that read it are deleted.
 
 pub mod ramdisk;
 
@@ -173,16 +173,16 @@ impl From<DeviceDirection> for c_uint {
 ///
 /// C declares it as a union of bitfield views over one `uint32_t`. Rust keeps
 /// the `lpn` word and reproduces the views with shifts, so the bit order is
-/// explicit instead of compiler-defined. C's bitfield order on a little-endian
-/// target puts the first declared field in the least significant bits, which
-/// is what the shifts below encode.
+/// explicit instead of compiler-defined. On a little-endian target, C's
+/// bitfield order puts the first declared field in the least significant bits.
+/// The shifts below encode that order.
 ///
-/// C's third view, `raspberry`, folds the whole bus/chip/page run into one
+/// The third C view, `raspberry`, folds the whole bus/chip/page run into one
 /// `page` field for the Pi NAND API (`device/raspberry/raspberry.c` reads
-/// `addr.raspberry.page` and `.block`). It is only meaningful under the
-/// raspberry build's bit counts, which this port does not express, so it lands
+/// `addr.raspberry.page` and `.block`). It only means something under the
+/// raspberry build's bit counts, which this port does not express. It lands
 /// with the raspberry hardware port (the Task 7 work shipped stubs only, so
-/// nothing landed there yet). C's `raspberry_converter` view is a
+/// nothing landed there yet). The `raspberry_converter` view is a
 /// field-by-field copy of `format` and needs no helper here.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -603,8 +603,8 @@ const RASPBERRY_INIT: Option<SubmoduleInitFn> = None;
 ///
 /// Task 6 wired the ramdisk entry, #108 replaced the zone stub with the ported
 /// zoned backend, and Task 7 wired the bluedbm and raspberry stub slots. Each
-/// non-default entry is enabled by its Cargo feature. It is the only backend
-/// table now that the C one is deleted.
+/// non-default entry is enabled by its Cargo feature. With the C table deleted,
+/// this is the only backend table.
 static SUBMODULE_INIT: [Option<SubmoduleInitFn>; DEVICE_MODULE_COUNT] = [
     Some(ramdisk::ffi_ramdisk_device_init),
     BLUEDBM_INIT,
@@ -1357,9 +1357,9 @@ mod tests {
                     "{module:?} should install its backend"
                 );
                 assert!(!dev.is_null());
-                // The operations are not driven here, each backend's own
+                // The operations are not driven here. Each backend's own
                 // module covers them. Driving `open` would touch hardware for
-                // a ported backend and the stub would answer -ENOSYS.
+                // a ported backend, and the stub would answer -ENOSYS.
                 assert!((*(*dev).d_op).open.is_some());
                 assert_eq!(ffi_device_module_exit(dev), 0);
             }

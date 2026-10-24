@@ -2,25 +2,25 @@
 //!
 //! C's `__page_fops` installs one operation per flash hook, and the page FTL
 //! reaches its own state through `flash->f_private`. [`PAGE_FOPS`] is that
-//! table and the five functions above it are C's `page_ftl_*_interface`
-//! entry points. Every one of them casts `f_private` back to [`PageFtl`]
+//! table, and the five functions above it are C's `page_ftl_*_interface` entry
+//! points. Every one of them casts `f_private` back to [`PageFtl`]
 //! ([`page_ftl_of`]) and then drives the native paths in
 //! [`crate::ftl::page_core`] and [`crate::ftl::page_gc`].
 //!
-//! [`ffi_page_ftl_module_init`] / [`ffi_page_ftl_module_exit`] are C's
-//! `page_ftl_module_init` / `page_ftl_module_exit`, the pair the module
-//! dispatch table in [`crate::module`] runs: init installs [`PAGE_FOPS`],
-//! allocates the page FTL and brings up the device module the flag word names.
-//! Exit closes the FTL, releases it and tears the device module down.
+//! [`ffi_page_ftl_module_init`] and [`ffi_page_ftl_module_exit`] are C's
+//! `page_ftl_module_init` and `page_ftl_module_exit`. The module dispatch table
+//! in [`crate::module`] runs that pair: init installs [`PAGE_FOPS`], allocates
+//! the page FTL and brings up the device module the flag word names. Exit
+//! closes the FTL, releases it and tears the device module down.
 //!
 //! The read and write entry points are the reason this layer exists. They split
-//! the user buffer into one page sized request per page the buffer touches, so
-//! the first and the last request of a transfer that does not start or end on a
-//! page boundary are partial, and each request is submitted and completed on
-//! its own.
+//! the user buffer into one page sized request per page the buffer touches. The
+//! first and last request of a transfer that does not start or end on a page
+//! boundary are therefore partial, and each request is submitted and completed
+//! on its own.
 //!
 //! [`ffi_flash_write`] and [`ffi_flash_read`] drive the table the same way, for
-//! Rust callers. C has no such pair: its callers reach through `f_op`
+//! Rust callers. C has no such pair. Its callers reach through `f_op`
 //! themselves (`integration-test.c:95`, `benchmark.c:646`).
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
@@ -38,7 +38,8 @@ use crate::ftl::page_gc::gc_from_list;
 use crate::ftl::{PageFtl, PageFtlLock, PAGE_FTL_GC_ALL, PAGE_FTL_IOCTL_TRIM};
 use crate::{pr_debug, pr_err, pr_info};
 
-/// The page FTL a flash handle carries, C's `(struct page_ftl *)flash->f_private`.
+/// The page FTL a flash handle carries, C's
+/// `(struct page_ftl *)flash->f_private`.
 ///
 /// Reports `-EINVAL` for a missing handle or a handle without FTL state, where
 /// C returns the same code after logging.
@@ -77,14 +78,15 @@ unsafe extern "C" fn page_ftl_open_interface(
     }
 }
 
-/// C's `page_ftl_write_interface`: write `count` bytes from `buffer` at `sector`.
+/// C's `page_ftl_write_interface`: write `count` bytes from `buffer` at
+/// `sector`.
 ///
 /// The buffer is split into one request per page, so a transfer that does not
 /// start or end on a page boundary submits a partial first and last request.
 /// Each request allocates its own [`Request`] and completes before the next one
 /// is built.
 ///
-/// The return value is C's, quirk included: a request that fails after an
+/// The return value is C's, quirk included. A request that fails after an
 /// earlier one succeeded returns the byte count written so far, not an error
 /// (`ftl/page/page-interface.c:119-125`, `:140-144`). See the deviations in
 /// [`crate::ftl`].
@@ -171,7 +173,8 @@ unsafe extern "C" fn page_ftl_write_interface(
     size as ssize_t
 }
 
-/// C's `page_ftl_read_interface`: read `count` bytes into `buffer` from `sector`.
+/// C's `page_ftl_read_interface`: read `count` bytes into `buffer` from
+/// `sector`.
 ///
 /// The buffer is split the same way the write path splits it, one request per
 /// page with a partial first and last request.
@@ -184,9 +187,9 @@ unsafe extern "C" fn page_ftl_write_interface(
 /// buffer.
 ///
 /// The read interface reports `-ENOMEM` when it cannot allocate the per chunk
-/// request (`ftl/page/page-interface.c:222-227`) and `-EINVAL` for every other
-/// failure, whatever the read path returned
-/// (`:236-239`), which is what C's interface does.
+/// request (`ftl/page/page-interface.c:222-227`). Every other failure reports
+/// `-EINVAL`, whatever the read path returned (`:236-239`), which is what C's
+/// interface does.
 ///
 /// # Safety
 /// `flash` is a live handle carrying an opened page FTL, and `buffer` points at
@@ -272,10 +275,10 @@ unsafe extern "C" fn page_ftl_close_interface(flash: *mut flash_device) -> c_int
     }
 }
 
-/// C's `page_ftl_ioctl_interface`: the page FTL's extra commands.
+/// The page FTL's extra commands. C calls this `page_ftl_ioctl_interface`.
 ///
-/// `PAGE_FTL_IOCTL_TRIM` collects every segment queued for garbage collection,
-/// anything else reports `-EINVAL`.
+/// `PAGE_FTL_IOCTL_TRIM` collects every segment queued for garbage collection.
+/// Anything else reports `-EINVAL`.
 ///
 /// C declares this operation variadic (`include/flash.h:59-60`) and never reads
 /// a variadic argument. The two in-tree callers pass only the request
@@ -315,8 +318,8 @@ unsafe extern "C" fn page_ftl_ioctl_interface(flash: *mut flash_device, request:
     }
 }
 
-/// C's `__page_fops`: the operations table the page FTL installs into
-/// `flash->f_op`.
+/// The operations table the page FTL installs into `flash->f_op`. C calls it
+/// `__page_fops`.
 pub static PAGE_FOPS: flash_operations = flash_operations {
     open: Some(page_ftl_open_interface),
     write: Some(page_ftl_write_interface),

@@ -1,19 +1,19 @@
 //! Page-level address mapping, ported from `ftl/page/page-map.c`.
 //!
-//! [`get_free_page`] hands out a physical page for the next write using the
+//! [`get_free_page`] hands out a physical page for the next write. It uses the
 //! same round-robin cursor (`pgftl->alloc_segnum`) and first-zero-bit scan as
 //! C. [`update_map`] writes one L2P entry. Both export an `ffi_`-prefixed
 //! raw-pointer entry point next to the native function the Rust callers use.
 //!
 //! The free-page path mirrors C's `__ATOMIC_SEQ_CST` updates of
-//! `nr_free_pages` and `nr_valid_pages` and its `find_first_zero_bit` scan. It
+//! `nr_free_pages` and `nr_valid_pages`, and its `find_first_zero_bit` scan. It
 //! keeps C's "skip and retry" behaviour when the free counter and the bitmap
-//! disagree (C logs a warning and moves to the next segment).
+//! disagree. C logs a warning and moves to the next segment.
 //!
-//! The packed address mirrors C exactly: `paddr.format.block = (uint16_t)segnum`
-//! then `paddr.lpn |= page`, so the segment number truncates to 16 bits the
-//! same way C's cast does, and the low (bus + chip + page) bits carry the
-//! page-within-segment index.
+//! The packed address mirrors C exactly:
+//! `paddr.format.block = (uint16_t)segnum` then `paddr.lpn |= page`, so the
+//! segment number truncates to 16 bits the same way C's cast does, and the low
+//! (bus + chip + page) bits carry the page-within-segment index.
 
 use core::ffi::c_int;
 use core::sync::atomic::Ordering;
@@ -27,12 +27,12 @@ use crate::{pr_err, pr_warn};
 /// C's `page_ftl_get_free_page`: pick the next free physical page.
 ///
 /// Starts at `pgftl.alloc_segnum` and walks every segment once, skipping bad
-/// segments and segments with no free pages, then returns the first zero bit in
-/// the chosen segment's `use_bits` bitmap. Marks the page used, decrements
-/// `nr_free_pages`, increments `nr_valid_pages`, and advances
-/// `alloc_segnum`. Returns `None` when nothing is free, where C returns a
-/// [`PADDR_EMPTY`] word. Use [`PageFtl`] with its mutex held: this takes
-/// `&mut` because C reads `alloc_segnum` and the counters concurrently.
+/// segments and segments with no free pages. It then returns the first zero bit
+/// in the chosen segment's `use_bits` bitmap, marks the page used, decrements
+/// `nr_free_pages`, increments `nr_valid_pages`, and advances `alloc_segnum`.
+/// Returns `None` when nothing is free, where C returns a [`PADDR_EMPTY`] word.
+/// Take [`PageFtl`] with its mutex held. The function takes `&mut` because C
+/// reads `alloc_segnum` and the counters concurrently.
 pub fn get_free_page(pgftl: &mut PageFtl) -> Option<device_address> {
     if pgftl.segments.is_empty() {
         pr_err!("fatal error detected: segment array is NULL");
@@ -117,9 +117,9 @@ pub fn update_map(pgftl: &mut PageFtl, sector: usize, ppn: u32) -> io::Result<()
     Ok(())
 }
 
-/// C-ABI entry point for [`get_free_page`]. The native `None` becomes
-/// `PADDR_EMPTY`, and a `NULL` FTL also yields `PADDR_EMPTY` (C would
-/// dereference it).
+/// The C-ABI entry point for [`get_free_page`]. The native `None` becomes
+/// `PADDR_EMPTY`, and a `NULL` FTL also yields `PADDR_EMPTY`, where C would
+/// dereference it.
 ///
 /// # Safety
 /// `pgftl` is `NULL` or a live page FTL with its geometry and `segments`
@@ -135,9 +135,9 @@ pub unsafe extern "C" fn ffi_page_ftl_get_free_page(pgftl: *mut PageFtl) -> devi
     }
 }
 
-/// C-ABI entry point for [`update_map`]. The native error becomes its negated
-/// `errno` (C returns `-EINVAL`), and a `NULL` FTL also yields `-EINVAL` (C
-/// would dereference it).
+/// The C-ABI entry point for [`update_map`]. The native error becomes its
+/// negated `errno`, which is the `-EINVAL` C returns, and a `NULL` FTL also
+/// yields `-EINVAL`, where C would dereference it.
 ///
 /// # Safety
 /// `pgftl` is `NULL` or a live page FTL with `trans_map` and its geometry

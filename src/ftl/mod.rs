@@ -11,53 +11,53 @@
 //! `free_pages`) and the address mapping in [`page_map`] are the native layer.
 //! Callers use these and never touch raw pointers or `__atomic_*` builtins.
 //!
-//! `page_ftl_get_free_page` and `page_ftl_update_map` from `ftl/page/page-map.c`
-//! live in [`page_map`]. The read, write, garbage collection and core lifecycle
-//! paths live in [`page_read`], [`page_write`], [`page_gc`] and [`page_core`]
-//! the same way, and [`page_interface`] is the flash operations bridge over
-//! them, C's `ftl/page/page-interface.c`.
+//! `page_ftl_get_free_page` and `page_ftl_update_map` from
+//! `ftl/page/page-map.c` live in [`page_map`]. The read, write, garbage
+//! collection and core lifecycle paths live in [`page_read`], [`page_write`],
+//! [`page_gc`] and [`page_core`], in the same shape. [`page_interface`] bridges
+//! the flash operations over them, as C's `ftl/page/page-interface.c` does.
 //!
 //! Deliberate deviations from the C original:
 //!
 //! - Both rwlocks are gone. C's `pgftl->rwlock` and its
 //!   `PAGE_FTL_USE_GLOBAL_RWLOCK` switch (which the Makefile set for the
 //!   `USE_ZONE_DEVICE` build) made `page_ftl_submit_request` take one lock for
-//!   the whole device, a writer for a write or an erase and a reader for a
-//!   read, on top of the mutex rather than instead of it
+//!   the whole device: a writer for a write or an erase, a reader for a read.
+//!   That lock sat on top of the mutex rather than instead of it
 //!   (`ftl/page/page-core.c:341-367`). The port's dispatch already holds one
 //!   exclusive borrow of the FTL for the whole operation, so that lock had no
-//!   reader concurrency left to hand out and nothing read the field. C's
-//!   per-bus array goes with it: `pgftl->bus_rwlock` and
+//!   reader concurrency left to hand out, and nothing read the field.
+//!   C's per-bus array goes with it. `pgftl->bus_rwlock` and
 //!   `page_ftl_init_bus_lock` (`ftl/page/page-core.c:183-205`) built one lock
-//!   per bus and `page_ftl_close` released them, and no caller in C ever locked
-//!   one either, so a `Vec` of locks nothing takes would imply a per-bus
+//!   per bus, and `page_ftl_close` released them. No caller in C ever locked
+//!   one, so a `Vec` of locks nothing takes would imply a per-bus
 //!   serialization that does not exist. The `Mutex<()>` below is the port's
-//!   only lock, and it is what serializes every entry point.
-//! - C's `pgftl->mutex` becomes the `Mutex<()>` field [`PageFtlLock`] takes,
-//!   and C's `pgftl->gc_mutex` is dropped: both become the `&mut PageFtl`
+//!   only lock, and it serializes every entry point.
+//! - C's `pgftl->mutex` becomes the `Mutex<()>` field [`PageFtlLock`] takes.
+//!   C's `pgftl->gc_mutex` is dropped. Both roles become the `&mut PageFtl`
 //!   borrow everywhere inside the native layer, so an entry point has to hold
 //!   the real mutex for that borrow to exclude a second caller. Every entry
 //!   point two C threads can reach takes [`PageFtlLock`] across the whole
-//!   operation: the three `page_interface` flash hooks and the `ffi_` entry
-//!   points of `page_core::submit_request`, `page_read::read_page`,
-//!   `page_write::write_page`, `page_gc::do_gc`, `page_gc::gc_from_list`, plus
-//!   the GC thread's iteration. C's regions are narrower, three small ones per
-//!   write (`ftl/page/page-write.c:187-189`, `:201-203`, `:226-228`), so a
+//!   operation: the three `page_interface` flash hooks, the `ffi_` entry points
+//!   of `page_core::submit_request`, `page_read::read_page`,
+//!   `page_write::write_page`, `page_gc::do_gc` and `page_gc::gc_from_list`,
+//!   plus the GC thread's iteration. C's regions are narrower, three small ones
+//!   per write (`ftl/page/page-write.c:187-189`, `:201-203`, `:226-228`), so a
 //!   Rust entry serializes the whole operation instead. `page_core::open` and
 //!   `page_core::close` hold nothing: the `Mutex` is built with the structure
 //!   and needs no init or destroy call, where C ran `pthread_mutex_init` in
 //!   `open` and `pthread_mutex_destroy` in `close`. `gc_mutex` guarded the
 //!   dispatch switch (`ftl/page/page-core.c:338`), which the borrow of
 //!   `page_core::submit_request` covers, so a second lock would guard nothing.
-//! - The lock policy is to recover a poisoned guard. Every lock site goes
-//!   through `lock_recover`, which logs and takes the guarded state back,
-//!   because C has no poisoning concept: a thread that died mid operation left
-//!   the mutex free and the next caller carried on. The alternative would turn
-//!   one panic into a panic in every later caller. What can poison a lock here
-//!   is the collector, which is a Rust thread, so `page_core::close` logs the
-//!   panic its join reports and discards the checkpoint, and the next `open`
-//!   starts from an empty mapping rather than from state a panicked pass may
-//!   have torn.
+//! - A poisoned guard is recovered, not propagated. Every lock site goes
+//!   through `lock_recover`, which logs and takes the guarded state back. C has
+//!   no poisoning concept: a thread that died mid operation left the mutex free
+//!   and the next caller carried on. Recovering keeps that behaviour, where the
+//!   alternative would turn one panic into a panic in every later caller. The
+//!   one thing that can poison a lock here is the collector, a Rust thread, so
+//!   `page_core::close` logs the panic its join reports and discards the
+//!   checkpoint. The next `open` then starts from an empty mapping rather than
+//!   from state a panicked pass may have torn.
 //! - `nr_free_pages` and `nr_valid_pages` are `AtomicI32` fields, because the
 //!   GC thread and the callers' threads both reach them. C touched them through
 //!   `__atomic_*` builtins. `is_gc` existed only to hold `use_bits` at C's
@@ -66,16 +66,16 @@
 //!   port refuses the out-of-range page C hands out. C's `find_first_zero_bit`
 //!   (`include/bits.h:63`, called from `ftl/page/page-map.c:71` as
 //!   `find_first_zero_bit(segment->use_bits, pages_per_segment, 0)`) checks
-//!   only `idx < size` before scanning a bucket, so once every bit in
-//!   `[0, pages_per_segment)` is set it returns the tail bucket's first zero
+//!   only `idx < size` before scanning a bucket. Once every bit in
+//!   `[0, pages_per_segment)` is set, it returns the tail bucket's first zero
 //!   bit, at or past `pages_per_segment`, instead of a miss. C allocates that
-//!   page from the same segment, sets its bit, decrements the counter, and
-//!   does not retry. `page_map` uses
-//!   [`crate::bits::find_first_zero_bit`], which clamps to `size` and returns
-//!   `BITS_NOT_FOUND`, so it warns and retries the next segment. The Rust
-//!   behaviour never allocates a page at or past `pages_per_segment`.
-//! - The native `page_read::read_page` borrows the caller's request and never
-//!   frees it, because Rust owns it through [`crate::device::Request`]. C's
+//!   page from the same segment, sets its bit, decrements the counter, and does
+//!   not retry. `page_map` uses [`crate::bits::find_first_zero_bit`], which
+//!   clamps to `size` and returns `BITS_NOT_FOUND`, so it warns and retries the
+//!   next segment. The Rust behaviour never allocates a page at or past
+//!   `pages_per_segment`.
+//! - Rust owns the caller's request through [`crate::device::Request`], so the
+//!   native `page_read::read_page` borrows it and never frees it. C's
 //!   `page_ftl_read` frees the caller's request on the zero-fill path
 //!   (`ftl/page/page-read.c:85`) and the success path
 //!   (`ftl/page/page-read.c:135`). `page_read::ffi_page_ftl_read` reproduces
@@ -83,27 +83,29 @@
 //! - `page_read::read_page` takes `&mut PageFtl`, so the exclusive borrow
 //!   replaces C's `pthread_mutex_lock(&pgftl->mutex)` around the `trans_map`
 //!   read (`ftl/page/page-read.c:76-78`).
-//! - `page_read::read_page` refuses a logical page at or past the L2P table
-//!   with `lpn >= map_entries()`. C reads `trans_map[lpn]` with no bound at all
-//!   (`ftl/page/page-read.c:71-78`), so a sector past the table reads one entry
-//!   past its end. The port uses the bound `update_map` already applies.
+//! - A logical page at or past the L2P table is refused by
+//!   `page_read::read_page` with `lpn >= map_entries()`. C reads
+//!   `trans_map[lpn]` with no bound at all (`ftl/page/page-read.c:71-78`), so a
+//!   sector past the table reads one entry past its end. The port uses the
+//!   bound `update_map` already applies.
 //! - `page_read::read_page` clears the request's `is_finish` word before it
 //!   submits the read, so a request reused across calls cannot return early on
 //!   the previous completion's flag. C frees the request on the zero fill and
 //!   success paths (`ftl/page/page-read.c:85`, `ftl/page/page-read.c:135`) and
 //!   never sets the flag on its error paths, so it can never observe a stale
 //!   one.
-//! - When `d_op->read` returns negative, C leaks the scratch page buffer and
-//!   the internal read request by nulling both locals before the cleanup label
-//!   (`ftl/page/page-read.c:121-127`). The Rust read path reclaims both.
+//! - A negative return from `d_op->read` makes C leak the scratch page buffer
+//!   and the internal read request, because it nulls both locals before the
+//!   cleanup label (`ftl/page/page-read.c:121-127`). The Rust read path
+//!   reclaims both.
 //! - The read path's scratch page buffer is a `vec!`, which aborts on out of
-//!   memory like the rest of the port, so C's `-ENOMEM` from the page `malloc`
-//!   (`ftl/page/page-read.c:98-102`) has no Rust equivalent. The internal
-//!   request allocation keeps the `-ENOMEM` path.
+//!   memory like the rest of the port. C's `-ENOMEM` from the page `malloc`
+//!   (`ftl/page/page-read.c:98-102`) therefore has no Rust equivalent. The
+//!   internal request allocation keeps the `-ENOMEM` path.
 //! - `page_read::ffi_page_ftl_read` returns `-EINVAL` for a `NULL` FTL or
 //!   request, where C dereferences them (`ftl/page/page-read.c:71-74`).
 //! - The write path's device write goes through an internal request instead of
-//!   the caller's. C hands the caller's request to `d_op->write` and its
+//!   the caller's. C hands the caller's request to `d_op->write`, and its
 //!   `page_ftl_write_end_rq` frees both that request and the scratch page
 //!   (`ftl/page/page-write.c:59-63`, `:213-218`, `:220`).
 //!   `page_write::write_page` borrows the caller's request instead, so
@@ -111,25 +113,26 @@
 //!   request, and `page_write::ffi_page_ftl_write` frees the caller's request
 //!   on the success path.
 //! - The write path replaces C's three `pthread_mutex_lock(&pgftl->mutex)`
-//!   regions around the free page allocation, the `is_exist` probe and the
-//!   metadata update (`ftl/page/page-write.c:187-189`, `:201-203`, `:226-228`)
-//!   with the `&mut PageFtl` borrow.
+//!   regions with the `&mut PageFtl` borrow. Those regions cover the free page
+//!   allocation, the `is_exist` probe and the metadata update
+//!   (`ftl/page/page-write.c:187-189`, `:201-203`, `:226-228`).
 //! - The write path's scratch page is a `vec!`, which aborts on out of memory
-//!   like the rest of the port, so C's `-ENOMEM` from the page `malloc`
-//!   (`ftl/page/page-write.c:195-199`) has no Rust equivalent. The internal
-//!   request allocation keeps the `-ENOMEM` path.
-//! - C leaks the scratch page when the device write fails and the read request
+//!   like the rest of the port. C's `-ENOMEM` from the page `malloc`
+//!   (`ftl/page/page-write.c:195-199`) therefore has no Rust equivalent. The
+//!   internal request allocation keeps the `-ENOMEM` path.
+//! - C leaks the scratch page when the device write fails, and the read request
 //!   when the read for overwrite fails (`ftl/page/page-write.c:100-103`,
 //!   `:220-225`), since the caller only frees its own request
 //!   (`ftl/page/page-interface.c:140-144`). `page_write` reclaims both through
 //!   their owning types.
 //! - `page_write::write_page` keeps C's collapse of every read-for-overwrite
 //!   failure to `-EFAULT` (`ftl/page/page-write.c:99-103`) and C's `-ENOMEM`
-//!   for the request allocation that fails first (`ftl/page/page-write.c:91-94`).
+//!   for the request allocation that fails first
+//!   (`ftl/page/page-write.c:91-94`).
 //! - A `NULL` `request->data` is refused with `-EINVAL` before the write path's
-//!   splice, where C's `memcpy` faults for a non-zero `write_size`
-//!   (`ftl/page/page-write.c:211`). That also covers a zero `write_size` with a
-//!   `NULL` data pointer, where C copies nothing and writes the page.
+//!   splice. C's `memcpy` faults for a non-zero `write_size`
+//!   (`ftl/page/page-write.c:211`). The refusal also covers a zero `write_size`
+//!   with a `NULL` data pointer, where C copies nothing and writes the page.
 //! - C returns the device write's value verbatim
 //!   (`ftl/page/page-write.c:221-225`), so a short positive write reaches the
 //!   caller as a short count. `page_write::write_page` cannot carry a positive
@@ -153,16 +156,17 @@
 //!   (`:360-369`) with the `&mut PageFtl` borrow.
 //! - `page_gc::read_valid_page` returns an owned `Vec<u8>` and
 //!   `page_gc::write_valid_page` a `Result`, instead of C's buffer
-//!   out-parameter plus length return, so the page buffer and the request are
-//!   reclaimed on every path. C leaks both when the read or write comes back
-//!   short (`ftl/page/page-gc.c:148-152`, `:198-202`) and the buffer when the
-//!   write path fails (`ftl/page/page-write.c:220-224`), because each site
-//!   returns before its own cleanup: the read helper ahead of its `exception`
-//!   label, the write helper ahead of the `free(buffer)` on the next line, and
-//!   `page_ftl_write` ahead of the end callback that normally frees it
-//!   (`ftl/page/page-write.c:59-63`). C also hands the request to
-//!   `page_ftl_read` / `page_ftl_write`, which free it themselves
-//!   (`ftl/page/page-read.c:85`, `:135`, `ftl/page/page-write.c:59-63`).
+//!   out-parameter plus length return. The page buffer and the request are
+//!   therefore reclaimed on every path. C leaks both when the read or write
+//!   comes back short (`ftl/page/page-gc.c:148-152`, `:198-202`), and the
+//!   buffer when the write path fails (`ftl/page/page-write.c:220-224`),
+//!   because each site returns before its own cleanup. The read helper returns
+//!   ahead of its `exception` label, the write helper ahead of the
+//!   `free(buffer)` on the next line, and `page_ftl_write` ahead of the end
+//!   callback that normally frees it (`ftl/page/page-write.c:59-63`). C also
+//!   hands the request to `page_ftl_read` / `page_ftl_write`, which free it
+//!   themselves (`ftl/page/page-read.c:85`, `:135`,
+//!   `ftl/page/page-write.c:59-63`).
 //! - The GC copy's scratch page is a `vec!`, which aborts on out of memory like
 //!   the rest of the port, so C's `-ENOMEM` from the page `malloc`
 //!   (`ftl/page/page-gc.c:127-132`) has no Rust equivalent. The request
@@ -197,9 +201,9 @@
 //! - `page_core::open` has no lock failure to report any more. C's two
 //!   `pthread_mutex_init` calls, the bus array's `malloc` and its
 //!   `pthread_rwlock_init` could fail (`ftl/page/page-core.c:189-200`,
-//!   `:254-263`), and C reports those with a mixture of negated errno and
-//!   positive pthread code, plus `errno` for the array's rwlock case, which is
-//!   not the pthread result and is usually 0, so C reports success after a
+//!   `:254-263`). C reports those with a mixture of negated errno and positive
+//!   pthread code, plus `errno` for the array's rwlock case. That errno is not
+//!   the pthread result and is usually 0, so C reports success after a
 //!   failure. `Mutex::new` cannot fail and the array is gone. What is left is
 //!   the collector's thread creation: the port spawns it with
 //!   `std::thread::Builder::spawn` and reports a failure as the negated
@@ -208,16 +212,16 @@
 //!   (`ftl/page/page-core.c:305`), but the call reports a positive error code,
 //!   so C ignores a collector that never started and reports a successful open.
 //!   The port fails the open on a spawn error.
-//! - The collector is a `std::thread` and `pgftl->gc_thread` is its
-//!   `Option<JoinHandle<()>>`, so `open` spawns it and `close` joins it where C
+//! - The collector is a `std::thread`, and `pgftl->gc_thread` is its
+//!   `Option<JoinHandle<()>>`, so `open` spawns it and `close` joins it. C
 //!   called `pthread_create` and `pthread_join` on a `pthread_t`. The handle
 //!   reaches the thread through a `Send` wrapper over the FTL pointer, because
 //!   a Rust thread's closure must be `Send` and C's `void *` argument had no
 //!   such bound. A collector that panics poisons the FTL's lock and the join
-//!   reports it, and the port then treats the mapping as untrustworthy: a pass
-//!   that died mid way can leave a half updated `use_bits` bitmap, free page
-//!   count or allocation cursor, and the checkpoint's own counters are what the
-//!   next `open` would believe. `close` logs the panic, removes the checkpoint
+//!   reports it. The port then treats the mapping as untrustworthy: a pass that
+//!   died mid way can leave a half updated `use_bits` bitmap, free page count
+//!   or allocation cursor, and the checkpoint's own counters are what the next
+//!   `open` would believe. `close` logs the panic, removes the checkpoint
 //!   instead of writing one, and still closes the device. C has no thread
 //!   result and no recovery step at all, so an empty mapping is the closest
 //!   match: the next `open` finds no file and starts unmapped
@@ -234,12 +238,12 @@
 //!   close and the thread's next turn leaves that thread waiting for a request
 //!   that never comes.
 //! - `page_core::init_segment` builds the segment array and the per-segment
-//!   `use_bits` bitmaps as owning `Vec`s, so C's wrap of the
+//!   `use_bits` bitmaps as owning `Vec`s. C's wrap of the
 //!   `sizeof(segment) * nr_segments` product (`ftl/page/page-core.c:142-146`)
-//!   is gone: `Vec::try_reserve_exact` reports the overloaded count as
-//!   `-ENOMEM` instead of taking a short allocation the loop then writes past.
-//!   Every other buffer C allocated with `malloc` keeps the same trade, so a
-//!   refused reservation is the `-ENOMEM` C returned
+//!   is therefore gone. `Vec::try_reserve_exact` reports the overloaded count
+//!   as `-ENOMEM`, instead of taking a short allocation the loop then writes
+//!   past. Every other buffer C allocated with `malloc` keeps the same trade,
+//!   so a refused reservation is the `-ENOMEM` C returned
 //!   (`ftl/page/page-core.c:85-100`, `:213-221`, `:291-296`).
 //! - The partial allocation paths reclaim what they took. C leaves the segment
 //!   array and the bitmaps already handed out unreachable when a later bitmap
@@ -265,33 +269,34 @@
 //! - The thread's pause is `std::thread::sleep`. C asserts that `nanosleep`
 //!   returns 0 (`ftl/page/page-core.c:55`), so a signal that interrupts the
 //!   sleep aborts the process there, while the port resumes the pause.
-//! - The checkpoint is the port's own addition: C never persists the mapping
+//! - The checkpoint is the port's own addition. C never persists the mapping
 //!   table and leaves recovery as a `@todo` (`ftl/page/page-core.c:238`).
 //!   `page_core::close` writes the magic and version, `alloc_segnum`, the
 //!   device's segment and page counts, the L2P table and each segment's free
-//!   page count to `<device name>.ckpt`, and `page_core::open` loads it back.
-//!   C had no field for the name, because its layout was pinned, so the port
-//!   first keyed the path by FTL in a static map. The path now rides in
+//!   page count to `<device name>.ckpt`. `page_core::open` loads it back. C had
+//!   no field for the name, because its layout was pinned, so the port first
+//!   keyed the path by FTL in a static map. The path now rides in
 //!   [`PageFtl::checkpoint`], which `open` sets and `close` takes.
-//! - The checkpoint's `use_bits` bits come from the segment free page counts,
-//!   not from the mapping: a page whose mapping an overwrite invalidated is
-//!   still programmed and still counted until the erase
-//!   (`ftl/page/page-write.c:43-47`), so a mapping alone would present it as free
-//!   and the next allocation would program it twice. The programmed pages are
-//!   the prefix below the free count, because the allocator takes the lowest
-//!   zero bit (`ftl/page/page-map.c:71`) and only an erase clears a bit
-//!   (`ftl/page/page-core.c:110-124`). An entry outside the segment array, on a
-//!   page that is not programmed, or on a page an earlier entry claimed is
-//!   dropped, which C does not have to do because it never reads a file.
-//! - The checkpoint's checksum covers the header as well as the body, and the
-//!   file is written to a sibling and renamed over the target, so a corrupted
-//!   `alloc_segnum` is caught rather than trusted and a save that cannot
-//!   complete leaves the last good file intact. A missing, foreign, truncated,
-//!   oversized, other-geometry, other-size, checksum-failing or otherwise
-//!   inconsistent file leaves C's empty mapping in place, an unreadable file is
-//!   a warning, and a failed write never turns a successful close into a
-//!   failure. The load reads the header first and sizes the body from the
-//!   device, so a foreign file cannot decide an allocation here.
+//! - Segment free page counts, not the mapping, decide the checkpoint's
+//!   `use_bits` bits. A page whose mapping an overwrite invalidated is still
+//!   programmed and still counted until the erase
+//!   (`ftl/page/page-write.c:43-47`), so a mapping alone would present it as
+//!   free and the next allocation would program it twice. The programmed pages
+//!   are the prefix below the free count: the allocator takes the lowest zero
+//!   bit (`ftl/page/page-map.c:71`), and only an erase clears a bit
+//!   (`ftl/page/page-core.c:110-124`). An entry is dropped when it lies outside
+//!   the segment array, when its page is not programmed, or when an earlier
+//!   entry claimed the page. C does not have to do that, because it never reads
+//!   a file.
+//! - Checksums cover the header as well as the body, so a corrupted
+//!   `alloc_segnum` is caught rather than trusted. The file is written to a
+//!   sibling and renamed over the target, so a save that cannot complete leaves
+//!   the last good file intact. A missing, foreign, truncated, oversized,
+//!   other-geometry, other-size, checksum-failing or otherwise inconsistent
+//!   file leaves C's empty mapping in place. An unreadable file is a warning,
+//!   and a failed write never turns a successful close into a failure. The load
+//!   reads the header first and sizes the body from the device, so a foreign
+//!   file cannot decide an allocation here.
 //! - The `ioctl` slot of [`crate::flash::flash_operations`] is narrowed to the
 //!   one argument shape the two callers in this repository use
 //!   (`integration-test.rs:322`, `example/rw_example.rs:97`), because C
@@ -313,19 +318,18 @@
 //! - `page_interface::ffi_page_ftl_module_exit` clears `f_private` after it
 //!   frees the FTL, so a second exit is a logged no-op where C frees the same
 //!   pointer twice (`ftl/page/page-interface.c:406-407`).
-//! - The page sized staging buffer C allocates in `page_ftl_read_interface`
-//!   (`ftl/page/page-interface.c:200-205`) and copies each chunk out of
-//!   (`:241`) is gone: [`page_read::read_page`] stages the device read in its
-//!   own scratch page and copies the requested subrange into the request's
-//!   buffer. C's `-ENOMEM` from that `malloc` therefore has no Rust
-//!   equivalent, while the per chunk request allocation keeps its `-ENOMEM`
+//! - The page sized staging buffer is gone. C allocates it in
+//!   `page_ftl_read_interface` (`ftl/page/page-interface.c:200-205`) and copies
+//!   each chunk out of it (`:241`). [`page_read::read_page`] stages the device
+//!   read in its own scratch page and copies the requested subrange into the
+//!   request's buffer. C's `-ENOMEM` from that `malloc` therefore has no Rust
+//!   equivalent. The per chunk request allocation keeps its `-ENOMEM`
 //!   (`ftl/page/page-interface.c:222-227`), and the read interface reports
 //!   `-EINVAL` for every other failure exactly as C does (`:236-239`).
-//! - A `NULL` write buffer reaches an interface call that C lets through to the
-//!   `memcpy` in `page_ftl_write` (`ftl/page/page-write.c:211`), which faults
-//!   there. The port's write path refuses it with `-EINVAL` before the splice,
-//!   and the write interface reports its accumulated count, which is `0` for
-//!   the first chunk.
+//! - C lets a `NULL` write buffer through to the `memcpy` in `page_ftl_write`
+//!   (`ftl/page/page-write.c:211`), which faults there. The port's write path
+//!   refuses it with `-EINVAL` before the splice, and the write interface
+//!   reports its accumulated count, which is `0` for the first chunk.
 //! - C leaks the ioctl request on its unknown command branch
 //!   (`ftl/page/page-interface.c:320-322`), since it returns before the
 //!   `device_free_request`. `page_interface::page_ftl_ioctl_interface` owns the
@@ -336,16 +340,16 @@
 //!   handle, a handle with no table and a table with no operation report
 //!   `-EINVAL`, where C dereferences the first two and calls the third.
 //! - `tests/integration.rs` drives C's `integration-test.c` scenario over the
-//!   same ABI with deterministic wait jitter: C reseeds `srand()` from
+//!   same ABI, with deterministic wait jitter. C reseeds `srand()` from
 //!   `time(NULL)` inside every loop (`integration-test.c:55`, `:91`, `:129`)
-//!   and draws `rand() % 500` for the same three bases (`:74`, `:107`, `:145`),
-//!   where the port gives each worker one fixed xorshift stream. It also bounds
-//!   the `is_check` index against the range, where C stores whatever the device
-//!   returned (`integration-test.c:71`), and fails on a missing block, where C
-//!   only prints the offsets and returns 0 (`:240-252`). It also bounds each
-//!   read retry with a thirty second per offset deadline, where C's reader
-//!   spins on the current offset forever (`integration-test.c:60-65`), so a
-//!   lost block fails the suite instead of hanging the CI job.
+//!   and draws `rand() % 500` for the same three bases (`:74`, `:107`, `:145`).
+//!   The port gives each worker one fixed xorshift stream. The `is_check` index
+//!   is bounded against the range, where C stores whatever the device returned
+//!   (`integration-test.c:71`). A missing block fails the suite, where C only
+//!   prints the offsets and returns 0 (`:240-252`). Each read retry is bounded
+//!   by a thirty second per offset deadline, where C's reader spins on the
+//!   current offset forever (`integration-test.c:60-65`), so a lost block fails
+//!   the suite instead of hanging the CI job.
 
 use core::ptr;
 use core::sync::atomic::{AtomicI32, Ordering};
@@ -377,17 +381,17 @@ pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;
 
 /// One segment (block) of the FTL.
 ///
-/// One entry per segment. `use_bits` is a bitmap of `pages_per_segment` bits
-/// and `lpn_list` the logical pages whose current mapping lands in the segment,
-/// oldest first. Both are owned `Vec`s here, where C allocated them with
-/// `malloc` and reached them through `segment->use_bits` / `segment->lpn_list`
-/// (see `page_ftl_segment_data_init` in `ftl/page/page-core.c`, now
-/// [`page_core::segment_data_init`]). The last element of `lpn_list` is C's
-/// list head, the page written most recently, which is the end the GC walk
-/// reads first.
+/// One of these exists per segment. `use_bits` is a bitmap of
+/// `pages_per_segment` bits. `lpn_list` holds the logical pages whose current
+/// mapping lands in the segment, oldest first. Both are owned `Vec`s here. C
+/// allocated them with `malloc` and reached them through `segment->use_bits` /
+/// `segment->lpn_list` (see `page_ftl_segment_data_init` in
+/// `ftl/page/page-core.c`, now [`page_core::segment_data_init`]). The last
+/// element of `lpn_list` is C's list head, the page written most recently,
+/// which is the end the GC walk reads first.
 ///
 /// The two counters are `AtomicI32` because the GC thread and the callers'
-/// threads both reach them, which C did through `__atomic_load_n`,
+/// threads both reach them. C did that through `__atomic_load_n`,
 /// `__atomic_fetch_add`, `__atomic_fetch_sub` and `__atomic_store_n` (see
 /// `page-map.c`, `page-write.c`, `page-gc.c`, `page-core.c`).
 #[derive(Debug)]
@@ -432,16 +436,16 @@ impl PageFtlSegment {
 ///
 /// `trans_map` is the page-level L2P table, `segments` the segment array and
 /// `alloc_segnum` the round-robin cursor. `gc_list` names the segments queued
-/// for collection, most recently queued first, so its first element is C's list
-/// head, and `gc_seg_bits` is the bitmap that says which of them are already
-/// queued. All four are owned here, where C allocated them with `malloc` and
+/// for collection, most recently queued first. Its first element is therefore
+/// C's list head, and `gc_seg_bits` is the bitmap that says which of them are
+/// already queued. All four are owned here. C allocated them with `malloc` and
 /// freed them in `page_ftl_close` ([`page_core::close`]).
 ///
 /// The synchronization is Rust's: `mutex` is the lock [`PageFtlLock`] takes and
 /// `gc_thread` is the collector's [`JoinHandle`]. See the deviations in
 /// [`crate::ftl`] for what happened to C's `gc_mutex` and to its two rwlocks.
 ///
-/// `checkpoint` is the port's own: C never persists the mapping, so it had no
+/// `checkpoint` is the port's own. C never persists the mapping, so it had no
 /// field for a path, and its layout was pinned anyway, so the path would have
 /// lived in a table keyed by the FTL address.
 pub struct PageFtl {
@@ -469,8 +473,8 @@ pub struct PageFtl {
 
 impl PageFtl {
     /// An FTL with no buffers, no device and no lock held: C's `memset(0)` of
-    /// `struct page_ftl`, with the empty buffers and the lock Rust needs where C
-    /// had `NULL` pointers and an uninitialized `pthread_mutex_t`.
+    /// `struct page_ftl`, with the empty buffers and the lock Rust needs where
+    /// C had `NULL` pointers and an uninitialized `pthread_mutex_t`.
     /// [`page_core::open`] and the test fixtures build from here.
     pub fn empty() -> PageFtl {
         PageFtl {
@@ -528,15 +532,14 @@ impl PageFtl {
 
 /// Take `mutex`, recovering a guard a panicking thread poisoned.
 ///
-/// This is the crate's lock policy, and every lock site goes through it: the
-/// FTL's own lock in [`PageFtlLock`] and the collector's stop set in
-/// `page_core`. C has no poisoning concept, so a thread that died mid operation
-/// left the mutex free and the next caller carried on. The port keeps that
-/// behaviour rather than turning one panic into a panic in every later caller:
-/// a poisoned guard is logged and recovered, and the mapping a panicked pass
-/// may have torn is dropped with its checkpoint by `page_core::close`, so the
-/// next `open` starts from an empty mapping instead of from state nothing can
-/// vouch for.
+/// This is the crate's lock policy. Every lock site goes through it: the FTL's
+/// own lock in [`PageFtlLock`] and the collector's stop set in `page_core`. C
+/// has no poisoning concept, so a thread that died mid operation left the mutex
+/// free and the next caller carried on. The port keeps that behaviour rather
+/// than turning one panic into a panic in every later caller. A poisoned guard
+/// is logged and recovered, and the mapping a panicked pass may have torn is
+/// dropped with its checkpoint by `page_core::close`, so the next `open` starts
+/// from an empty mapping instead of from state nothing can vouch for.
 ///
 /// A panic inside a guarded operation cannot reach the caller anyway when it
 /// unwinds through an `extern "C"` entry point, which aborts. What this covers

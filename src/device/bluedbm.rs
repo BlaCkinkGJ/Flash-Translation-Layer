@@ -1,13 +1,13 @@
 //! BlueDBM backend, the Rust port of `device/bluedbm/bluedbm.c`.
 //!
 //! [`Bluedbm`] drives a Flash Board Tester through libmemio, kept one to one
-//! with the C: the same geometry, the same order of operations, the same DMA
-//! buffer ownership and free ordering, and the same return values and error
-//! codes. The C ABI layer keeps the C entry points with the `ffi_` prefix
+//! with the C. The geometry, the order of operations, the DMA buffer ownership
+//! and free ordering, the return values and the error codes are all the same.
+//! The C ABI layer keeps the C entry points with the `ffi_` prefix
 //! (`ffi_bluedbm_device_init` / `ffi_bluedbm_device_exit` /
 //! `ffi_bluedbm_close`). `src/device/mod.rs` installs the backend through the
-//! init and exit pair, and `ffi_bluedbm_close` is the C close entry, reachable
-//! as before and dispatched through `dev->d_op` like the ramdisk's.
+//! init and exit pair. `ffi_bluedbm_close` is the C close entry, reachable as
+//! before and dispatched through `dev->d_op` like the ramdisk's.
 //! `device/bluedbm/bluedbm.c` is gone.
 //!
 //! libmemio is bound by hand below with `extern "C"` plus
@@ -45,8 +45,8 @@
 //!   run puts the segment field of a `device_address` at bit 13.
 //! - `struct bluedbm`'s fields become `Cell`s behind `&self`, because
 //!   [`DeviceOperations`] hands out `&self` and `open` / `close` mutate the
-//!   handle in place, exactly as C mutates `dev->d_private`. `o_flags` stays
-//!   (C reads it in the `O_CREAT` check). `size` is dropped: C stores
+//!   handle in place. C mutates `dev->d_private` the same way. `o_flags` stays,
+//!   because C reads it in the `O_CREAT` check. `size` is dropped. C stores
 //!   `device_get_total_size` in it and never reads it back, and neither does
 //!   the port.
 //! - C reaches `struct bluedbm` by casting `dev->d_private`. The port holds it
@@ -57,8 +57,8 @@
 //!   per-device structure through. They are `AtomicPtr<AtomicI32>` where C has
 //!   `gint *`, and the `g_atomic_int_*` calls become the matching
 //!   [`AtomicI32`] operations.
-//! - `bluedbm_open` is split at the `memio_open` call: [`Bluedbm::open`] fills
-//!   the geometry and opens the handle, [`Bluedbm::open_storage`] takes the
+//! - `bluedbm_open` is split at the `memio_open` call. [`Bluedbm::open`] fills
+//!   the geometry and opens the handle. [`Bluedbm::open_storage`] takes the
 //!   handle and allocates the bitmap and the two counters. The split lets the
 //!   unit tests drive the allocation and the `O_CREAT` check with a non-null
 //!   handle and no libmemio, without changing the order of operations.
@@ -122,8 +122,8 @@ struct memio_t {
 
 /// Mirrors `bluedbm_dma_t` in `include/bluedbm.h`.
 ///
-/// `data` is the DMA buffer `memio_alloc_dma` hands back, `tag` its tag for
-/// `memio_free_dma`, and `d_private` the user `device_request`.
+/// `data` is the DMA buffer `memio_alloc_dma` hands back. `tag` is its tag for
+/// `memio_free_dma`. `d_private` is the user `device_request`.
 #[repr(C)]
 struct BluedbmDma {
     tag: u32,
@@ -154,10 +154,10 @@ struct AsyncBdbmReq {
 // libmemio, bound by hand. The C ABI names are the ones `bluedbm.c` calls.
 //
 // The upstream `libmemio.cpp` declares none of these `extern "C"` and its
-// header is C++ (`std::queue`, `bool`), so if an installed build mangles the
-// names this `extern "C"` block will not link and a narrow C++ wrapper
-// compiled with `g++` would be needed instead. The library is not installed
-// here, so that could not be observed. See the module docs.
+// header is C++ (`std::queue`, `bool`). If an installed build mangles the
+// names, this `extern "C"` block will not link. A narrow C++ wrapper compiled
+// with `g++` would be needed instead. The library is not installed here, so
+// that could not be observed. See the module docs.
 #[link(name = "memio")]
 extern "C" {
     fn memio_open() -> *mut memio_t;
@@ -233,7 +233,7 @@ impl Bluedbm {
         }
     }
 
-    /// The body of C's `bluedbm_open` after `memio_open` succeeds: record the
+    /// The body of C's `bluedbm_open` after `memio_open` succeeds. Record the
     /// handle and the flags, allocate the bad segment bitmap and the two
     /// counters, and clear the board when `O_CREAT` is set.
     ///
@@ -568,10 +568,10 @@ unsafe extern "C" fn erase_end_request(segnum: u64, is_bad: u8) {
     }
 }
 
-/// Wait for the erase of `nr_segments` segments starting at `segnum` to finish,
-/// mirroring C's `bluedbm_wait_erase_finish`. Marks a segment bad when its bad
-/// counter is non-zero, and clears the erase counter once every block in the
-/// segment has been erased. Sleeps one second between polls, as C does.
+/// Wait for the erase of `nr_segments` segments starting at `segnum` to finish.
+/// Mirrors C's `bluedbm_wait_erase_finish`. A segment is marked bad when its
+/// bad counter is non-zero, and its erase counter is cleared once every block
+/// in the segment has been erased. Sleeps one second between polls, as C does.
 ///
 /// # Safety
 /// `dev` is the device this backend was installed into and both counter
@@ -600,9 +600,9 @@ unsafe fn wait_erase_finish(dev: *mut device, segnum: usize, nr_segments: usize)
 
 /// The read/write completion callback, mirroring C's `bluedbm_end_rw_request`.
 ///
-/// A write frees its DMA write buffer, a read copies the DMA buffer back into
-/// the user request first, then both free the DMA and request structures and
-/// run the user's `end_rq`.
+/// A write frees its DMA write buffer. A read copies the DMA buffer back into
+/// the user request first, then frees its DMA read buffer. Both then free the
+/// DMA and request structures and run the user's `end_rq`.
 unsafe extern "C" fn end_rw_request(rw_req: *mut AsyncBdbmReq) {
     if rw_req.is_null() {
         pr_warn!("NULL rw_req detected");
@@ -820,7 +820,7 @@ mod tests {
                 -(libc::EINVAL as isize)
             );
 
-            // A null hande fails before any argument check.
+            // A null handle fails before any argument check.
             let bare = Bluedbm::new();
             assert_eq!(
                 bare.write(&mut dev, request.as_ptr()),

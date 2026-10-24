@@ -42,7 +42,7 @@ struct flash_device {
 };
 
 /**
- * @brief generic interface for communicate with the flash
+ * @brief generic interface for talking to the flash
  *
  * @note
  * `struct flash_device *` means flash control information
@@ -105,7 +105,7 @@ FLASH_STATIC_ASSERT(sizeof(struct flash_operations) == 5 * sizeof(void *),
 
 /*
  * Task 16: `src/flash.rs` is the only implementation. `interface/flash.c` and
- * its `flash_module_init` / `flash_module_exit` pair are gone, so a handle
+ * its `flash_module_init` / `flash_module_exit` pair are gone. A handle now
  * comes from here and goes back here, which keeps the free in
  * `ffi_flash_module_exit` matched to the allocation. The assertions above still
  * pin the layout C and Rust share through this header, which is what lets

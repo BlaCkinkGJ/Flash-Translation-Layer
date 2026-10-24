@@ -1,13 +1,12 @@
-//! Logging facade over the [`log`] crate. Macros mirror the
-//! `pr_info!` / `pr_warn!` / `pr_err!` / `pr_debug!` names from
-//! `include/log.h` so Rust call sites match the C convention. When
-//! the `silent` cargo feature is on, the macros expand to no-ops
-//! (C `-DENABLE_LOG_SILENT` equivalent).
+//! Logging facade over the [`log`] crate. The macros keep the `pr_info!`,
+//! `pr_warn!`, `pr_err!` and `pr_debug!` names from `include/log.h`, so Rust
+//! call sites match the C convention. With the `silent` cargo feature on, they
+//! expand to no-ops, C's `-DENABLE_LOG_SILENT` equivalent.
 //!
-//! Level filtering via `RUST_LOG` (e.g. `RUST_LOG=debug` to enable
-//! `pr_debug!` in release). Output is one JSON object per line
-//! (Loki-compatible). Swap `env_logger` for a Loki / OpenTelemetry
-//! exporter later without touching call sites.
+//! `RUST_LOG` sets the level, e.g. `RUST_LOG=debug` enables `pr_debug!` in
+//! release. Output is one JSON object per line, Loki-compatible. Swap
+//! `env_logger` for a Loki / OpenTelemetry exporter later without touching
+//! call sites.
 
 use std::io::Write;
 

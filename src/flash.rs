@@ -1,6 +1,6 @@
 //! Flash control layer ported from `include/flash.h` + `interface/flash.c`.
 //!
-//! `flash_device` is the handle `module_init` hands to a caller: it carries the
+//! `flash_device` is the handle `module_init` hands to a caller. It carries the
 //! vtable of the submodule that took over the flash (`f_op`), that submodule's
 //! private data (`f_private`) and its teardown (`f_submodule_exit`). The struct
 //! is a `#[repr(C)]` mirror, so the field order and offsets are the contract.
@@ -53,13 +53,15 @@ pub struct flash_device {
 /// `open` / `write` / `read` / `close` are the byte oriented interface the
 /// examples and `integration-test.rs` drive. The C header declares `ioctl`
 /// variadic (`include/flash.h:59-60`) and the page FTL implements it for
-/// `PAGE_FTL_IOCTL_TRIM`, but no call site in this repository ever passes a
-/// variadic argument: `integration-test.rs:322` and `example/rw_example.rs:97`
-/// both pass the request alone. Stable Rust cannot define a variadic function,
-/// so the slot is narrowed to that one shape, which keeps C's pointer sized
-/// field in place (`layout_matches_c`) and lets the Rust page FTL implement
-/// `ioctl` like the other four. C built tables keep their variadic pointer and
-/// the C callers keep reaching it, since only Rust defines the type.
+/// `PAGE_FTL_IOCTL_TRIM`, but no call site in this repository passes a variadic
+/// argument: `integration-test.rs:322` and `example/rw_example.rs:97` both pass
+/// the request alone.
+///
+/// Stable Rust cannot define a variadic function, so the slot is narrowed to
+/// that one shape. The narrowing keeps C's pointer sized field in place
+/// (`layout_matches_c`) and lets the Rust page FTL implement `ioctl` like the
+/// other four. C built tables keep their variadic pointer and the C callers
+/// keep reaching it, since only Rust defines the type.
 #[repr(C)]
 pub struct flash_operations {
     pub open: Option<unsafe extern "C" fn(*mut flash_device, *const c_char, c_int) -> c_int>,

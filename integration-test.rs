@@ -1,23 +1,24 @@
-//! End to end test of the C ABI over the ramdisk backend, the Rust port of
-//! `integration-test.c`.
+//! End to end test of the C ABI over the ramdisk backend. It is the Rust port
+//! of `integration-test.c`.
 //!
 //! C brings the ramdisk and the page FTL up with
 //! `ffi_module_init(PAGE_FTL_MODULE, &flash, RAMDISK_MODULE)`
-//! (`integration-test.c:184-190`), opens the device with `O_CREAT | O_RDWR`
-//! (`:192`), runs two writers, two readers, one overwriter and one forced erase
-//! thread over that one handle (`:193-235`), closes it and tears the module down
-//! (`:237-238`), then reports on the blocks the readers got back (`:240-252`).
-//! This program keeps that scenario in that order.
+//! (`integration-test.c:184-190`), then opens the device with
+//! `O_CREAT | O_RDWR` (`:192`). It runs two writers, two readers, one
+//! overwriter and one forced erase thread over that one handle (`:193-235`). It
+//! closes the handle and tears the module down (`:237-238`), then reports on
+//! the blocks the readers got back (`:240-252`). This program keeps that
+//! scenario in that order.
 //!
-//! The point of a binary is the consumer side of the exported symbols:
+//! The point of a binary is the consumer side of the exported symbols.
 //! `tests/integration.rs` drives the same entry points from inside the crate,
 //! while `make integration-test` links this program against the crate the way a
 //! C consumer does and runs it. The entry points are `ffi_module_init` and
-//! `ffi_module_exit` for the module pair, `ffi_flash_read` and `ffi_flash_write`
-//! for the data path, and the `flash->f_op` slots for `open`, `ioctl` and
-//! `close`, which have no `ffi_` wrapper. C spells the data path
+//! `ffi_module_exit` for the module pair, and `ffi_flash_read` and
+//! `ffi_flash_write` for the data path. The `flash->f_op` slots cover `open`,
+//! `ioctl` and `close`, which have no `ffi_` wrapper. C spells the data path
 //! `flash->f_op->read` (`:58`) and `flash->f_op->write` (`:95`) rather than the
-//! wrapper pair, which is the one place this port calls a different symbol to
+//! wrapper pair. That is the one place this port calls a different symbol to
 //! reach the same operation.
 //!
 //! Deliberate deviations from `integration-test.c`:
@@ -26,25 +27,25 @@
 //!   `BLUEDBM_MODULE` or `RASPBERRY_MODULE` out of `DEVICE_USE_*`
 //!   (`integration-test.c:183-190`) and halves `WRITE_SIZE` for the raspberry.
 //!   This program is the ramdisk one the `make integration-test` target and CI
-//!   run, so it passes `DeviceModule::Ramdisk` alone, which is also the only
+//!   run, so it passes `DeviceModule::Ramdisk` alone. That is also the only
 //!   backend an in-repo run can use.
 //! - The `USE_DEBUG_PRINT` and `USE_FORCE_ERASE` blocks are gone with the
-//!   switches. The debug prints were commented in, so they never printed, and
-//!   the erase step they guarded is kept.
+//!   switches. The debug prints were commented in, so they never printed. The
+//!   erase step they guarded is kept.
 //! - The pthread plumbing is `std::thread`. C reports a failed
-//!   `pthread_create` with `perror` and `exit(errno)` (`:193-228`), and `std`
+//!   `pthread_create` with `perror` and `exit(errno)` (`:193-228`). `std`
 //!   panics from inside `spawn` instead, which still ends the program non zero.
 //! - The wait jitter is deterministic. C seeds `srand()` from `time(NULL)`
 //!   inside every loop (`:55`, `:91`, `:129`) and then draws `rand() % 500` for
 //!   a 100, 1000 or 500 microsecond base (`:74`, `:107`, `:145`). Each worker
-//!   here owns a fixed stream seeded from a constant and draws the same ranges,
-//!   so the workers still drift apart the way C's wall clock seeds made them,
+//!   here owns a fixed stream seeded from a constant and draws the same ranges.
+//!   The workers still drift apart the way C's wall clock seeds made them,
 //!   without depending on the clock. Nothing outside those sleeps is random and
 //!   no verification depends on them.
 //! - A reader gives up after `READ_DEADLINE` on one offset. C spins forever
 //!   (`:60-65`), which for a CI step means a job that hangs until it times out.
 //!   A healthy offset advances in milliseconds, so the deadline only fires on
-//!   real data loss, which then fails the target instead of stalling it.
+//!   real data loss. It then fails the target instead of stalling it.
 //! - A block value outside the swept range is rejected. C indexes `is_check`
 //!   with whatever the device returned (`:71`), which is out of bounds for a
 //!   stray one.
@@ -112,9 +113,9 @@ static IS_OVERWRITE: AtomicBool = AtomicBool::new(false);
 /// The flash handle every worker shares, the Rust form of the `void *data` C
 /// hands to `pthread_create`.
 ///
-/// The page FTL hooks take `pgftl->mutex` for the whole transfer, so one handle
-/// is callable from every thread, which is the contract C relies on when six
-/// threads share one `struct flash_device *`.
+/// The page FTL hooks take `pgftl->mutex` for the whole transfer. One handle is
+/// therefore callable from every thread, which is the contract C relies on when
+/// six threads share one `struct flash_device *`.
 #[derive(Clone, Copy)]
 struct SharedFlash(*mut flash_device);
 
@@ -205,8 +206,8 @@ fn read_thread(flash: SharedFlash, seed: u64) {
         };
         let first = i64::from_ne_bytes(buffer[..8].try_into().expect("8 bytes"));
 
-        // C retries the same offset on a device error and on a zero first word
-        // past offset 0, which is how a reader waits for a writer
+        // C retries the same offset on a device error, and on a zero first word
+        // past offset 0. That retry is how a reader waits for a writer
         // (`integration-test.c:60-62`).
         if ret < 0 || (offset > 0 && first == 0) {
             assert!(

@@ -1,28 +1,28 @@
 //! Page FTL garbage collection, ported from `ftl/page/page-gc.c`.
 //!
-//! [`do_gc`] mirrors C's `page_ftl_do_gc`: it picks the queued segment with the
+//! C's `page_ftl_do_gc` is [`do_gc`]. It picks the queued segment with the
 //! fewest valid pages, copies those pages into free pages elsewhere, erases the
-//! segment and reinitializes its metadata. [`gc_from_list`] mirrors
-//! `page_ftl_gc_from_list`, the loop that runs `do_gc` up to
-//! `gc_ratio * nr_segments` times. [`erase_end_rq`], [`pick_gc_target`],
+//! segment, and reinitializes its metadata. C's `page_ftl_gc_from_list` is
+//! [`gc_from_list`], the loop that runs `do_gc` up to `gc_ratio * nr_segments`
+//! times. The file's static helpers are [`erase_end_rq`], [`pick_gc_target`],
 //! [`segment_erase`], [`read_valid_page`], [`write_valid_page`] and
-//! [`valid_page_copy`] mirror the file's static helpers. The C-ABI entry points
-//! are [`ffi_page_ftl_do_gc`] and [`ffi_page_ftl_gc_from_list`]. C's
-//! `page_ftl_gc_list_cmp`, which `page_ftl_pick_gc_target` sorted the queue
-//! with, is the sort key [`pick_gc_target`] uses instead.
+//! [`valid_page_copy`]. The C-ABI entry points are [`ffi_page_ftl_do_gc`] and
+//! [`ffi_page_ftl_gc_from_list`].
 //!
-//! The loop's request dispatch is
-//! [`crate::ftl::page_core::submit_request`], C's `page_ftl_submit_request`,
-//! which lives in `page-core.c`. The segment reset the erase step runs is
-//! [`crate::ftl::page_core::segment_data_init`] for the same reason.
+//! C's `page_ftl_gc_list_cmp`, which `page_ftl_pick_gc_target` sorted the queue
+//! with, becomes the sort key that [`pick_gc_target`] uses instead.
 //!
-//! The flow is the C flow. The GC list is sorted by valid page count and its
-//! head taken, the victim's free page count is zeroed so the copy cannot
-//! allocate back into it, every LPN on the victim's list is read from its
-//! current page and rewritten (which is what moves the mapping and drains the
-//! list, since the write path invalidates the old mapping), the segment is
-//! erased through `d_op->erase`, and the segment metadata and its
-//! `gc_seg_bits` bit are reset.
+//! The loop's request dispatch is [`crate::ftl::page_core::submit_request`],
+//! C's `page_ftl_submit_request`, which lives in `page-core.c`. The segment
+//! reset the erase step runs is [`crate::ftl::page_core::segment_data_init`],
+//! for the same reason.
+//!
+//! The flow matches C's. Sort the GC list by valid page count and take its
+//! head. Zero the victim's free page count, so the copy cannot allocate back
+//! into it. Read every LPN on the victim's list from its current page and
+//! rewrite it. That is what moves the mapping and drains the list, since the
+//! write path invalidates the old mapping. Erase the segment through
+//! `d_op->erase`, then reset the segment metadata and its `gc_seg_bits` bit.
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
@@ -58,7 +58,7 @@ unsafe extern "C" fn erase_end_rq(request: *mut device_request) {
 /// Returns the index of the victim segment, or `None` when the list is empty.
 /// C's list holds a pointer to the segment and orders the nodes by
 /// `page_ftl_gc_list_cmp`, a stable ascending comparison over the valid page
-/// count, so `sort_by_key` here is that sort and the head is the best victim.
+/// count. `sort_by_key` here is that sort, and the head is the best victim.
 fn pick_gc_target(pgftl: &mut PageFtl) -> Option<usize> {
     if pgftl.gc_list.is_empty() {
         return None;
@@ -86,10 +86,10 @@ fn pick_gc_target(pgftl: &mut PageFtl) -> Option<usize> {
 /// C's `page_ftl_segment_erase`: hand an erase request for `paddr` to the
 /// device.
 ///
-/// The request is owned by its completion callback, `erase_end_rq`, once the
-/// backend accepts it. A backend that fails without running the callback
-/// leaves the request to this function, which is why the failure path releases
-/// it (C leaks it there).
+/// Once the backend accepts the request, its completion callback `erase_end_rq`
+/// owns it. A backend that fails without running the callback leaves the
+/// request to this function, which is why the failure path releases it. C leaks
+/// it there.
 fn segment_erase(pgftl: &PageFtl, paddr: device_address) -> io::Result<()> {
     let dev = pgftl.dev;
 
@@ -119,14 +119,15 @@ fn segment_erase(pgftl: &PageFtl, paddr: device_address) -> io::Result<()> {
     Ok(())
 }
 
-/// C's `page_ftl_read_valid_page`: read the whole page `lpn` is mapped to.
+/// Read the whole page `lpn` is mapped to. C's `page_ftl_read_valid_page` does
+/// the same.
 ///
 /// The buffer is zeroed first, because the read path only fills the whole page
-/// when the LPN is mapped, and the copy then writes whatever it got back.
+/// when the LPN is mapped. The copy then writes whatever it got back.
 ///
 /// # Errors
-/// `ENOMEM` when the read request cannot be allocated, and `EFAULT` for every
-/// failure of the read itself and for a short read, which is the collapse C
+/// `ENOMEM` when the read request cannot be allocated. `EFAULT` for every
+/// failure of the read itself, and for a short read, which is the collapse C
 /// makes.
 fn read_valid_page(pgftl: &mut PageFtl, lpn: usize) -> io::Result<Vec<u8>> {
     let page_size = pgftl.dev().page_size();
@@ -161,12 +162,12 @@ fn read_valid_page(pgftl: &mut PageFtl, lpn: usize) -> io::Result<Vec<u8>> {
 /// C's `page_ftl_write_valid_page`: write `buffer` to a fresh page as `lpn`.
 ///
 /// The write path allocates the page, remaps `lpn` to it and invalidates the
-/// old mapping, so this is the step that both moves the payload and unlinks
-/// `lpn` from the victim segment's list.
+/// old mapping. That makes this the step that both moves the payload and
+/// unlinks `lpn` from the victim segment's list.
 ///
 /// # Errors
-/// `ENOMEM` when the write request cannot be allocated, and `EFAULT` for every
-/// failure of the write itself and for a short write, which is the collapse C
+/// `ENOMEM` when the write request cannot be allocated. `EFAULT` for every
+/// failure of the write itself, and for a short write, which is the collapse C
 /// makes.
 fn write_valid_page(pgftl: &mut PageFtl, lpn: usize, buffer: &mut [u8]) -> io::Result<()> {
     let page_size = pgftl.dev().page_size();
@@ -201,9 +202,9 @@ fn write_valid_page(pgftl: &mut PageFtl, lpn: usize, buffer: &mut [u8]) -> io::R
 /// C's `page_ftl_valid_page_copy`: move every valid page of `segment` to a free
 /// page elsewhere.
 ///
-/// The walk reads the head of the LPN list each turn, because the copy's write
-/// path invalidates the mapping it replaces and that unlinks the LPN the walk
-/// is sitting on (`ftl/page/page-write.c:40-41`), so the entry that follows it
+/// The walk reads the head of the LPN list each turn. The copy's write path
+/// invalidates the mapping it replaces, and that unlinks the LPN the walk is
+/// sitting on (`ftl/page/page-write.c:40-41`), so the entry that follows it
 /// becomes the head. C captures the next node before each copy to the same
 /// effect. The entry only stays when the write failed, and that path returns
 /// below.
@@ -239,10 +240,10 @@ fn valid_page_copy(pgftl: &mut PageFtl, segnum: usize) -> io::Result<()> {
 /// `gc_seg_bits`. An empty GC list is not an error: C logs and returns 0.
 ///
 /// # Errors
-/// The copy's error when a valid page cannot be relocated, and the erase's
-/// error when the device fails, which is C's order. Both leave the victim
-/// unlinked from the GC list and its `gc_seg_bits` bit set, as C does, because
-/// the bit is only cleared after the erase.
+/// The copy's error when a valid page cannot be relocated. The erase's error
+/// when the device fails, which is C's order. Both leave the victim unlinked
+/// from the GC list and its `gc_seg_bits` bit set, as C does, because the bit
+/// is only cleared after the erase.
 pub fn do_gc(pgftl: &mut PageFtl) -> io::Result<()> {
     let Some(segnum) = pick_gc_target(pgftl) else {
         pr_debug!("gc target segment doesn't exist");
@@ -271,8 +272,8 @@ pub fn do_gc(pgftl: &mut PageFtl) -> io::Result<()> {
 /// C's `page_ftl_gc_from_list`: garbage collect up to `gc_ratio * nr_segments`
 /// segments, stopping early once the GC list is empty.
 ///
-/// The return value is C's, and it has two quirks worth naming because the
-/// tests pin them:
+/// The return value is C's. It has two quirks worth naming, because the tests
+/// pin them:
 ///
 /// - The loop `break`s as soon as the list is empty, *before* the counter
 ///   increments (`ftl/page/page-gc.c:317-321`), so a call that drains the list
@@ -309,7 +310,7 @@ pub fn gc_from_list(
     Ok(idx as isize)
 }
 
-/// C-ABI entry point for [`do_gc`], mirroring C's `page_ftl_do_gc`.
+/// The C-ABI entry point for [`do_gc`], and the mirror of C's `page_ftl_do_gc`.
 ///
 /// # Safety
 /// `pgftl` is `NULL` or a live page FTL with its `segments`, `gc_list` and
@@ -328,7 +329,7 @@ pub unsafe extern "C" fn ffi_page_ftl_do_gc(pgftl: *mut PageFtl) -> isize {
     }
 }
 
-/// C-ABI entry point for [`gc_from_list`], mirroring C's
+/// The C-ABI entry point for [`gc_from_list`], and the mirror of C's
 /// `page_ftl_gc_from_list`.
 ///
 /// # Safety
@@ -367,8 +368,8 @@ mod tests {
     /// destination segment and one segment left free.
     const NR_SEGMENTS: usize = 4;
     const PAGES_PER_SEGMENT: usize = 4;
-    /// The LPNs [`two_queued_victims`] overwrites, and with them the pages whose
-    /// first eight bytes differ from the tag the fill step wrote.
+    /// The LPNs [`two_queued_victims`] overwrites, and with them the pages
+    /// whose first eight bytes differ from the tag the fill step wrote.
     const OVERWRITTEN: [usize; 4] = [0, 4, 5, 6];
     /// Payload length every write uses. Position dependent tags make a copy
     /// that reads or writes the wrong page show up as a mismatched byte.

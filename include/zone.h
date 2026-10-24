@@ -13,11 +13,10 @@
 #include "device.h"
 
 /*
- * Task 108: `device/zone/zone.c` is gone, so its prototypes, the
- * `struct zone_meta` they were written against and the libzbd include they
- * needed go with it. `src/device/zone.rs` keeps its own state and binds libzbd
- * by hand, and the init and exit routines below are what the device module
- * installs.
+ * Task 108: `device/zone/zone.c` is gone, so its prototypes went with it. So
+ * did the `struct zone_meta` they were written against, and the libzbd include
+ * it needed. `src/device/zone.rs` keeps its own state and binds libzbd by
+ * hand. The init and exit routines below are what the device module installs.
  */
 #ifdef __cplusplus
 extern "C" {

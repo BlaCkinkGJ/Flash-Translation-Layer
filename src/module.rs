@@ -1,5 +1,5 @@
-//! Module dispatch ported from `interface/module.c`, deleted in Task 16, and
-//! the `include/module.h` that still declares the C surface.
+//! Module dispatch ported from `interface/module.c`, which was deleted in
+//! Task 16, plus the `include/module.h` that still declares the C surface.
 //!
 //! [`ffi_module_init`] is the library's public entry point: it builds the flash
 //! handle, then hands it to the submodule selected by `modnum`. In this repo

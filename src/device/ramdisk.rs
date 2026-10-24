@@ -1,27 +1,27 @@
 //! Ramdisk device backend ported from `device/ramdisk/ramdisk.c` +
 //! `include/ramdisk.h`.
 //!
-//! [`Ramdisk`] is an in-memory flash store with flash semantics: a page can be
-//! written at most once between erases and an erase clears a whole segment back
-//! to zero. It is the default backend and the one the C tests exercise.
+//! [`Ramdisk`] is an in-memory flash store with flash semantics. A page can be
+//! written at most once between erases. An erase clears a whole segment back
+//! to zero. This is the default backend, and the one the C tests exercise.
 //!
 //! The C ABI layer keeps the C symbol names with the `ffi_` prefix
 //! (`ffi_ramdisk_*`). `device/ramdisk/ramdisk.c` is gone (Task 16a), so
-//! [`DeviceOperations`] holds the logic and `ffi_ramdisk_device_init` installs
-//! it through the shared backend machinery in [`crate::device`]: one vtable and
+//! [`DeviceOperations`] holds the logic. `ffi_ramdisk_device_init` installs it
+//! through the shared backend machinery in [`crate::device`]: one vtable and
 //! one owner.
 //!
 //! Deliberate deviations from the C original:
 //!
 //! - C's `struct ramdisk` (`size`, `buffer`, `is_used`, `o_flags`) is not
-//!   mirrored. Nothing outside `ramdisk.c` reads it, `buffer` and `is_used`
-//!   become owning `Vec`s, and `size` is `buffer.len()`. `o_flags` is dead in C
-//!   (stored, never read) and is dropped. No `_Static_assert` is needed because
-//!   there is no shared layout.
+//!   mirrored. Nothing outside `ramdisk.c` reads it. `buffer` and `is_used`
+//!   become owning `Vec`s, and `size` is `buffer.len()`. `o_flags` is dead in
+//!   C, stored and never read, so it is dropped. No `_Static_assert` is
+//!   needed, because there is no shared layout.
 //! - The `is_used` bitmap is sized `total_pages.div_ceil(64)`. C's
 //!   `BITS_TO_UINT64_ALIGN` over-allocates by one `u64`, which no accessor
 //!   reaches.
-//! - `open` cannot fail with `-ENOMEM` on the page buffer: `vec!` aborts on
+//! - `open` cannot fail with `-ENOMEM` on the page buffer. `vec!` aborts on
 //!   OOM, as `Box` does in the rest of the port. The small `badseg_bitmap`
 //!   `calloc` keeps the `-ENOMEM` path, because `fd->badseg_bitmap` is a raw C
 //!   pointer that C still reads (`ftl/page/page-map.c`).
@@ -29,7 +29,7 @@
 //!   overwrites `ramdisk->buffer` and `dev->badseg_bitmap` and leaks both.
 //! - `ffi_ramdisk_close` dispatches through `dev->d_op` instead of
 //!   reinterpreting `dev->d_private`. C's free functions assume `d_private` is
-//!   a `struct ramdisk`, which is wrong for a device C built itself, and right
+//!   a `struct ramdisk`. That is wrong for a device C built itself, and right
 //!   for a Rust one. Dispatching through the vtable is correct for both while
 //!   the two implementations are linked. It also accepts `NULL` and reports
 //!   `-EINVAL`, where C dereferences it.
@@ -40,9 +40,9 @@
 //! - `read` drops C's `pr_debug` line that dereferences `request->rq_private`
 //!   as a `struct device_request`. It only existed to print a mutex address.
 //! - A `paddr.lpn` or block past the end of the store panics on the `Vec` and
-//!   slice bounds checks, where C reads or writes past the buffer. The panic
-//!   aborts if it crosses the `extern "C"` shim, which is a defined outcome
-//!   where C corrupts the heap.
+//!   slice bounds checks. C reads or writes past the buffer. The panic aborts
+//!   if it crosses the `extern "C"` shim, which is a defined outcome where C
+//!   corrupts the heap.
 //! - C's ramdisk has no locking and neither does this port: concurrent requests
 //!   to one device are the caller's responsibility, exactly as in C. The
 //!   `unsafe impl Sync` below records that contract for Rust callers.
@@ -231,8 +231,9 @@ impl DeviceOperations for Ramdisk {
         data_len as isize
     }
 
-    /// Erase one segment: zero its pages and clear their used bits. Mirrors C's
-    /// `ramdisk_erase`, including its `uint16_t` truncation of the block number.
+    /// Erase one segment. Zero its pages and clear their used bits. Mirrors C's
+    /// `ramdisk_erase`, including its `uint16_t` truncation of the block
+    /// number.
     ///
     /// # Safety
     /// `dev` is the device this backend was installed into and `request` is a

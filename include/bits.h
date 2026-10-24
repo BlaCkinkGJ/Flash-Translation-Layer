@@ -21,11 +21,11 @@
 #define BITS_TO_UINT64(x) ((uint64_t)x / BITS_PER_UINT64)
 
 /*
- * The bitmap helpers live in Rust (`src/bits.rs`), which has been the only
- * implementation since the cutover.
- * They are header-only in C, so there is no C symbol to drop and no call site
- * to rename: the helpers below are one-line forwards to the `ffi_` entry
- * points, and they keep the published names this header has always declared.
+ * The bitmap helpers live in Rust (`src/bits.rs`), the only implementation
+ * since the cutover. They are header-only in C, so there is no C symbol to
+ * drop and no call site to rename. The helpers below are one-line forwards to
+ * the `ffi_` entry points, and they keep the published names this header has
+ * always declared.
  */
 #ifdef __cplusplus
 extern "C" {
