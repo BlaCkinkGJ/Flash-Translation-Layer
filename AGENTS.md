@@ -37,8 +37,10 @@ Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
 `USE_RASPBERRY_DEVICE=1` needs `libnand` and `wiringPi`. The backends bind
 those libraries by hand, so a consumer of that build links them too.
 `make check` needs `cppcheck`, `flawfinder` and `lizard==1.17.0`,
-`make flow` needs `cflow`, and `make documents` needs `doxygen`. The ramdisk
-backend builds and tests with cargo on the macOS, while Docker
+`make flow` needs `cflow`, and `make documents` needs `doxygen`.
+`make config` and `make check-config` run `python3`, and `make check` reaches
+it through `lizard`, so install Python before either. The ramdisk backend
+builds and tests with cargo on the macOS, while Docker
 (`make docker-builder`, `make docker-make-test`) covers the Linux-only parts.
 
 ```bash

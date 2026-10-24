@@ -30,6 +30,28 @@ Three documents cover the parts this README does not:
 - [docs/guards.md](docs/guards.md): which header guard, cargo feature, `USE_*`
   switch and CI job guards what, and what breaks without it.
 
+[AGENTS.md](AGENTS.md) is the machine-readable guide, and it holds the
+authoritative repository layout. Read it before sending a patch: it names the
+build and test targets and the conventions a change has to follow.
+
+The tree, in one table:
+
+| Path | What is there |
+| --- | --- |
+| `Makefile` | every target and every `USE_*` switch, the authoritative list |
+| `Cargo.toml` | the crate manifest, the cargo features the switches map to |
+| `src/` | the crate: the device layer, the four backends and the page FTL |
+| `src/ftl_config.rs` | generated from `ftl.yaml`, do not edit |
+| `include/` | the C ABI headers, the only C surface left |
+| `include/ftl-config.h` | generated from `ftl.yaml`, do not edit |
+| `ftl.yaml` | the GC tuning and the per-backend geometry |
+| `tools/` | the generator from `ftl.yaml`, and its tests |
+| `tests/` | the cargo integration test |
+| `example/` | a small cargo example, `rw_example` |
+| `docs/` | the three documents above |
+| `benchmark.rs` | a cargo bin, the benchmark, at the crate root |
+| `integration-test.rs` | a cargo bin, the end-to-end test, at the crate root |
+
 ## Build
 
 > These instructions are based on the Ubuntu(>=16.04) environments
@@ -48,22 +70,35 @@ The Rust toolchain is required as well: install it from
 [rustup](https://rustup.rs/) so `cargo` is on `PATH`. `gcc` is only used by
 `make consumer-check`, the one C compile left in the tree.
 
+`python3` is needed by `make config` and `make check-config`, which regenerate
+the two committed config files from `ftl.yaml` and check them for drift, and by
+`make check`, because `lizard` is a Python program. No other target runs it, so
+a plain `make` or `cargo build` needs no Python at all.
+
+A backend that talks to hardware binds its library by hand, so build and link
+against the one you enable. The default build needs none of them.
+
+- zone: [libzbd](https://github.com/westerndigitalcorporation/libzbd)
+- bluedbm: [libmemio](https://github.com/pnuoslab/Flash-Board-Tester)
+- raspberry: `libnand` and `wiringPi`
+
 After you download the packages, you must receive this project code using
 `git clone` like below.
 
 ```bash
 git clone https://github.com/BlaCkinkGJ/Flash-Translation-Layer.git
+cd Flash-Translation-Layer
 ```
 
-Now you move to this repository's project directory root by using `cd`, and
-`make` builds the Rust archive and the two cargo programs. The `USE_*`
-switches select cargo features: `USE_ZONE_DEVICE=1`, `USE_BLUEDBM_DEVICE=1`
-and `USE_RASPBERRY_DEVICE=1` pick the matching device backend,
-`USE_LOG_SILENT=1` silences the info logs (`silent`) and
-`USE_LEGACY_RANDOM=1` selects the legacy random generator (`legacy-random`).
-
-> If you want to use a module like the Zoned Block Device module, you must
-> set the value of the `USE_ZONE_DEVICE` variable to 1 in the `Makefile`.
+Now you are in the project directory root, and `make` builds the Rust archive
+and the two cargo programs. The `USE_*` switches select cargo features:
+`USE_ZONE_DEVICE=1`, `USE_BLUEDBM_DEVICE=1` and `USE_RASPBERRY_DEVICE=1` pick
+the matching device backend, `USE_LOG_SILENT=1` silences the info, warning and
+error logs (`silent`), `USE_LEGACY_RANDOM=1` selects the legacy random
+generator (`legacy-random`) and `USE_DEBUG=1` builds the debug cargo profile
+instead of the release one. Pass them on the command line, for example
+`make USE_ZONE_DEVICE=1`. The `Makefile` reads them and is the authoritative
+list, and `docs/guards.md` has the table of what each one enables.
 
 ### Tuning and geometry
 
@@ -73,27 +108,28 @@ geometry of each backend (`ramdisk`, `zone`, `bluedbm`, `raspberry` and
 `default`). A geometry section holds `bus_bits`, `chip_bits`, `page_bits`,
 `block_bits` and `page_size`.
 
-`make config` regenerates `src/ftl_config.rs` and `include/ftl-config.h`, and
-writes nothing when they are already current. Both files are committed, so
-`make` and a plain `cargo build` need no Python. `make check-config` is the
-drift gate: it exits non-zero with a diff when either generated file differs
-from the YAML, and it runs the generator's tests.
+`make config` runs `tools/gen_config.py`, which reads that file and writes
+`src/ftl_config.rs` and `include/ftl-config.h`. It writes nothing when they are
+already current. Both files are committed, so `make` and a plain `cargo build`
+need no Python. `make check-config` is the drift gate: it exits non-zero with a
+diff when either generated file differs from the YAML, and it runs the
+generator's own tests. Do not edit the two generated files by hand, because the
+next `make config` would undo it.
 
 A `USE_*_DEVICE` switch selects the matching geometry section together with the
 cargo feature. For a C consumer the Makefile passes one `-DFTL_BACKEND_<NAME>`
 (`RAMDISK`, `ZONE`, `BLUEDBM` or `RASPBERRY`) to select the section in
 `include/ftl-config.h`, and an explicit `-DDEVICE_NR_*` on the consumer's own
 compile line still wins. With no `-DFTL_BACKEND_*` the header keeps its
-historical default, the bluedbm set. `PAGE_FTL_CACHE_SIZE` and
-`PAGE_FTL_USE_GLOBAL_RWLOCK` are gone with the C port, so they are not keys in
-`ftl.yaml`.
+historical default, the bluedbm set, which is not the geometry the default
+archive is built with. `PAGE_FTL_CACHE_SIZE` and `PAGE_FTL_USE_GLOBAL_RWLOCK`
+are gone with the C port, so they are not keys in `ftl.yaml`.
 
-Additionally, you must install a valid library for each module. Each module's
-requirements are as follows.
-
-- zone: [libzbd](https://github.com/westerndigitalcorporation/libzbd)
-- bluedbm: [libmemio](https://github.com/pnuoslab/Flash-Board-Tester)
-- raspberry: `libnand` and `wiringPi`
+The generator parses a small YAML subset and rejects anything outside it: two
+space indentation, `key: value`, `#` comments, integers and plain decimals. That
+subset is spelled out in the file's own header comment. A typo therefore fails
+`make config` and the `make check-config` gate instead of quietly changing a
+compiled constant.
 
 > Moreover, before you run the Zoned Block Device-based program, you must
 > check that you give the super-user privileges to run it.
@@ -104,16 +140,10 @@ emulate one and `make zone-smoke` runs the zoned backend against it (see
 loads the module with `sudo`, needs libzbd, and prints why it skipped and
 exits 0 when it cannot create a device.
 
-### Test
+### Tests and static analysis
 
-Before you run `make check`, you must install the below tools.
-
-- [flawfinder](https://dwheeler.com/flawfinder/)
-- [cppcheck](https://cppcheck.sourceforge.io/)
-- [lizard](https://github.com/terryyin/lizard)
-
-You can check the source code status by using `make check`. The unit and
-integration tests are Rust and driven by cargo, so run the suite with:
+The unit and integration tests are Rust and driven by cargo, so the suite needs
+nothing but the toolchain above:
 
 ```bash
 make test USE_LOG_SILENT=1
@@ -126,10 +156,25 @@ make test USE_LOG_SILENT=1
 `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
 have run.
 
+`make check` is a separate gate. It reads the headers in `include/`, not the
+Rust sources, so `make cargo-clippy` is what covers the implementation. Install
+these three first:
+
+- [flawfinder](https://dwheeler.com/flawfinder/)
+- [cppcheck](https://cppcheck.sourceforge.io/)
+- [lizard](https://github.com/terryyin/lizard), version 1.17.0
+
+The `build-and-test-x86_64` job runs `make check` as its own step before it
+builds. `make format` runs `clang-format` over the same headers with the
+repository's `.clang-format`, and `clang-format` is not in the apt list above,
+so install it separately. CI does not run it. The headers are hand wrapped to
+80 columns rather than formatter output, so `make format` currently rewrites a
+few of them, and running it is a choice a change makes deliberately.
+
 ### Execution
 
-Suppose you want to build and run the end-to-end test in the
-`integration-test.rs`, then you must execute the below commands.
+Suppose you want to build and run the end-to-end test in
+`integration-test.rs`, then you must execute the below command.
 
 ```bash
 make clean && make -j$(nproc) integration-test
@@ -137,7 +182,10 @@ make clean && make -j$(nproc) integration-test
 
 That target builds `integration-test.out` out of the `integration-test`
 cargo bin and runs it over the ramdisk backend, so a single command builds
-the Rust library, the program and the test.
+the Rust library, the program and the test. A feature switch alone does not
+need the `make clean`. Switching `USE_DEBUG` moves the archive to another
+profile directory, where the artifact can look newer than the archive it
+should have been linked from, so clean when you change that one.
 
 ### Installation
 
@@ -159,7 +207,22 @@ sudo make install
 where root's `PATH` and rustup environment reach the toolchain, or use
 `make install DESTDIR=<dir>` to stage the same tree without root.
 
-## For building in the macOS
+A hand-written consumer compiles against the installed tree like this, with one
+`-DFTL_BACKEND_<NAME>` naming the geometry the archive was built with:
+
+```bash
+gcc -I/usr/local/include/ftl -DFTL_BACKEND_RAMDISK consumer.c \
+    -L/usr/local/lib -lftl_rust -lm -lpthread
+```
+
+Pass the macro for the build you link: `FTL_BACKEND_RAMDISK` for the default
+archive, `FTL_BACKEND_ZONE`, `FTL_BACKEND_BLUEDBM` or `FTL_BACKEND_RASPBERRY`
+for the others. Leaving it out gives you the header's historical default, the
+bluedbm geometry, which is not what the default archive uses and would decode
+every device address wrong. `make consumer-check` does exactly this, and is the
+working example to copy.
+
+## Building on macOS
 
 The project targets Linux and does not support the macOS natively. The Rust
 build and the test suite nevertheless run with cargo, so `make test` and the
@@ -285,6 +348,11 @@ make benchmark.out USE_LEGACY_RANDOM=1
 
 ## How to get this project's documents
 
-You can get this program's documentation file by using `make documents`
-(which runs `doxygen -s Doxyfile`). Also, you can get the flow of each
-function using `make flow`. The first needs `doxygen`, the second `cflow`.
+`make documents` runs `doxygen -s Doxyfile` and needs `doxygen`. The
+`Doxyfile` covers the C headers, the Markdown in the repository and the Python
+tool, so the output is the header reference and the prose documents. The Rust
+sources are not in it, and their reference is `cargo doc`.
+
+`make flow` runs `cflow include/*.h` and needs `cflow`. You get the call graph
+of the static inline helpers the headers define, which is all the C left. It
+does not graph the Rust implementation.
