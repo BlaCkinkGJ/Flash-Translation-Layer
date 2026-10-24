@@ -31,8 +31,8 @@ Three documents cover the parts this README does not:
   switch and CI job guards what, and what breaks without it.
 
 [AGENTS.md](AGENTS.md) is the machine-readable guide, and it holds the
-authoritative repository layout. Read it before sending a patch: it lists every
-target and the conventions a change has to follow.
+authoritative repository layout. Read it before sending a patch: it names the
+build and test targets and the conventions a change has to follow.
 
 The tree, in one table:
 
@@ -164,12 +164,12 @@ these three first:
 - [cppcheck](https://cppcheck.sourceforge.io/)
 - [lizard](https://github.com/terryyin/lizard), version 1.17.0
 
-CI runs `make check` before it builds. `make format` runs `clang-format` over
-the same headers with the repository's `.clang-format`, and `clang-format` is
-not in the apt list above, so install it separately. CI does not run it. The
-headers are hand wrapped to 80 columns rather than formatter output, so
-`make format` currently rewrites a few of them, and running it is a choice a
-change makes deliberately.
+The `build-and-test-x86_64` job runs `make check` as its own step before it
+builds. `make format` runs `clang-format` over the same headers with the
+repository's `.clang-format`, and `clang-format` is not in the apt list above,
+so install it separately. CI does not run it. The headers are hand wrapped to
+80 columns rather than formatter output, so `make format` currently rewrites a
+few of them, and running it is a choice a change makes deliberately.
 
 ### Execution
 
@@ -177,13 +177,15 @@ Suppose you want to build and run the end-to-end test in
 `integration-test.rs`, then you must execute the below command.
 
 ```bash
-make -j$(nproc) integration-test
+make clean && make -j$(nproc) integration-test
 ```
 
 That target builds `integration-test.out` out of the `integration-test`
 cargo bin and runs it over the ramdisk backend, so a single command builds
-the Rust library, the program and the test. Switching a `USE_*` value rebuilds
-both, because the archive is newer than the artifact that links it.
+the Rust library, the program and the test. A feature switch alone does not
+need the `make clean`. Switching `USE_DEBUG` moves the archive to another
+profile directory, where the artifact can look newer than the archive it
+should have been linked from, so clean when you change that one.
 
 ### Installation
 
@@ -209,8 +211,8 @@ A hand-written consumer compiles against the installed tree like this, with one
 `-DFTL_BACKEND_<NAME>` naming the geometry the archive was built with:
 
 ```bash
-gcc -I"$PREFIX/include/ftl" -DFTL_BACKEND_RAMDISK consumer.c \
-    -L"$PREFIX/lib" -lftl_rust -lm -lpthread
+gcc -I/usr/local/include/ftl -DFTL_BACKEND_RAMDISK consumer.c \
+    -L/usr/local/lib -lftl_rust -lm -lpthread
 ```
 
 Pass the macro for the build you link: `FTL_BACKEND_RAMDISK` for the default
