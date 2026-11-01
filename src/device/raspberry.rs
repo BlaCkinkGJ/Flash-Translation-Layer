@@ -100,9 +100,8 @@ use crate::bits::{set_bit, BITS_PER_UINT64};
 use crate::device::{
     device, device_request, DeviceDirection, DeviceOperations,
     DEVICE_NR_BLOCKS_BITS as NR_BLOCKS_BITS, DEVICE_NR_BUS_BITS as NR_BUS_BITS,
-    DEVICE_NR_CHIPS_BITS as NR_CHIPS_BITS,
-    DEVICE_NR_PAGES_BITS as NR_PAGES_BITS, DEVICE_PAGE_SIZE as PAGE_SIZE,
-    PADDR_EMPTY,
+    DEVICE_NR_CHIPS_BITS as NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS as NR_PAGES_BITS,
+    DEVICE_PAGE_SIZE as PAGE_SIZE, PADDR_EMPTY,
 };
 use crate::{pr_err, pr_info, pr_warn};
 
@@ -270,12 +269,7 @@ impl DeviceOperations for Raspberry {
     ///
     /// # Safety
     /// `dev` is the device this backend was installed into.
-    unsafe fn open(
-        &self,
-        dev: *mut device,
-        _name: *const c_char,
-        _flags: c_int,
-    ) -> c_int {
+    unsafe fn open(&self, dev: *mut device, _name: *const c_char, _flags: c_int) -> c_int {
         (*dev).info.nr_bus = 1usize << NR_BUS_BITS;
         (*dev).info.nr_chips = 1usize << NR_CHIPS_BITS;
         (*dev).info.package.block.nr_pages = 1usize << NR_PAGES_BITS;
@@ -321,11 +315,7 @@ impl DeviceOperations for Raspberry {
     /// # Safety
     /// `dev` is the device this backend was installed into and `request` is a
     /// live request whose `data` points at `data_len` readable bytes.
-    unsafe fn write(
-        &self,
-        dev: *mut device,
-        request: *mut device_request,
-    ) -> isize {
+    unsafe fn write(&self, dev: *mut device, request: *mut device_request) -> isize {
         // C checks `request->paddr.lpn`, the raw word, and fills `addr`, its
         // own masked copy. `raspberry.c` builds it through the
         // `raspberry_converter` view: four field-by-field copies of
@@ -385,11 +375,7 @@ impl DeviceOperations for Raspberry {
     /// # Safety
     /// `dev` is the device this backend was installed into and `request` is a
     /// live request whose `data` points at `data_len` writable bytes.
-    unsafe fn read(
-        &self,
-        dev: *mut device,
-        request: *mut device_request,
-    ) -> isize {
+    unsafe fn read(&self, dev: *mut device, request: *mut device_request) -> isize {
         // Same `addr` construction as `write`, and the same split between the
         // raw `request->paddr.lpn` the checks use and the masked copy libnand
         // is called with.
@@ -447,11 +433,7 @@ impl DeviceOperations for Raspberry {
     /// # Safety
     /// `dev` is the device this backend was installed into and `request` is a
     /// live request.
-    unsafe fn erase(
-        &self,
-        dev: *mut device,
-        request: *mut device_request,
-    ) -> c_int {
+    unsafe fn erase(&self, dev: *mut device, request: *mut device_request) -> c_int {
         if (*request).direction() != Some(DeviceDirection::Erase) {
             pr_err!(
                 "request type is not matched (expected: {}, current: {})",
@@ -518,10 +500,7 @@ pub unsafe extern "C" fn ffi_raspberry_close(dev: *mut device) -> c_int {
 /// # Safety
 /// `dev` is `NULL` or a live device with no backend installed yet.
 #[no_mangle]
-pub unsafe extern "C" fn ffi_raspberry_device_init(
-    dev: *mut device,
-    _flags: u64,
-) -> c_int {
+pub unsafe extern "C" fn ffi_raspberry_device_init(dev: *mut device, _flags: u64) -> c_int {
     if dev.is_null() {
         return -libc::EINVAL;
     }
@@ -568,9 +547,7 @@ pub unsafe extern "C" fn ffi_raspberry_device_exit(dev: *mut device) -> c_int {
 mod tests {
     use super::*;
     use core::mem::MaybeUninit;
-    use core::sync::atomic::{
-        AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering,
-    };
+    use core::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
     use crate::bits::get_bit;
     use crate::device::{device_address, Request};
@@ -648,11 +625,7 @@ mod tests {
         }
     }
 
-    unsafe extern "C" fn fake_write(
-        buffer: *mut c_char,
-        block: c_uint,
-        page: c_uint,
-    ) -> c_int {
+    unsafe extern "C" fn fake_write(buffer: *mut c_char, block: c_uint, page: c_uint) -> c_int {
         WRITE_CALLS.fetch_add(1, Ordering::SeqCst);
         WRITE_ADDRESS.store(pack(block, page), Ordering::SeqCst);
         if !buffer.is_null() {
@@ -661,11 +634,7 @@ mod tests {
         WRITE_RESULT.load(Ordering::SeqCst)
     }
 
-    unsafe extern "C" fn fake_read(
-        buffer: *mut c_char,
-        block: c_uint,
-        page: c_uint,
-    ) -> c_int {
+    unsafe extern "C" fn fake_read(buffer: *mut c_char, block: c_uint, page: c_uint) -> c_int {
         READ_CALLS.fetch_add(1, Ordering::SeqCst);
         READ_ADDRESS.store(pack(block, page), Ordering::SeqCst);
         if !buffer.is_null() {
@@ -710,11 +679,7 @@ mod tests {
         dev
     }
 
-    fn request(
-        direction: DeviceDirection,
-        lpn: u32,
-        data: *mut c_void,
-    ) -> Request {
+    fn request(direction: DeviceDirection, lpn: u32, data: *mut c_void) -> Request {
         let mut request = Request::new().expect("allocate a request");
         request.flag = direction.into();
         request.paddr = device_address { lpn };
@@ -952,10 +917,7 @@ mod tests {
 
         // The read error message, both the library's string and a NULL.
         unsafe {
-            assert_eq!(
-                raspberry.nand.error_message(libc::EIO),
-                "fake read error"
-            );
+            assert_eq!(raspberry.nand.error_message(libc::EIO), "fake read error");
             assert_eq!(raspberry.nand.error_message(0), "(null)");
         }
     }
@@ -1020,8 +982,7 @@ mod tests {
         ));
 
         ERASE_FAILS_FROM.store(0, Ordering::SeqCst);
-        let mut request =
-            request(DeviceDirection::Erase, 4 << VIEW_BITS, ptr::null_mut());
+        let mut request = request(DeviceDirection::Erase, 4 << VIEW_BITS, ptr::null_mut());
         unsafe {
             assert_eq!(raspberry.erase(&mut dev, request.as_ptr()), libc::EIO);
         }
@@ -1032,7 +993,9 @@ mod tests {
         ));
 
         // C stores the block in a `uint16_t`, so 0x1_0000 arrives as 0.
-        request.paddr = device_address { lpn: 0x1_0000 << VIEW_BITS };
+        request.paddr = device_address {
+            lpn: 0x1_0000 << VIEW_BITS,
+        };
         unsafe {
             assert_eq!(raspberry.erase(&mut dev, request.as_ptr()), libc::EIO);
         }
@@ -1046,10 +1009,7 @@ mod tests {
         request.flag = DeviceDirection::Write.into();
         let calls = ERASE_CALLS.load(Ordering::SeqCst);
         unsafe {
-            assert_eq!(
-                raspberry.erase(&mut dev, request.as_ptr()),
-                -libc::EINVAL
-            );
+            assert_eq!(raspberry.erase(&mut dev, request.as_ptr()), -libc::EINVAL);
         }
         assert_eq!(ERASE_CALLS.load(Ordering::SeqCst), calls);
 
@@ -1058,7 +1018,9 @@ mod tests {
         // fresh `open` clears it, exactly as in C.
         ERASE_FAILS_FROM.store(-1, Ordering::SeqCst);
         request.flag = DeviceDirection::Erase.into();
-        request.paddr = device_address { lpn: 4 << VIEW_BITS };
+        request.paddr = device_address {
+            lpn: 4 << VIEW_BITS,
+        };
         request.end_rq = Some(count_end_rq);
         unsafe {
             assert_eq!(raspberry.erase(&mut dev, request.as_ptr()), 0);
@@ -1097,8 +1059,7 @@ mod tests {
         let raspberry = Raspberry::new(fake_api());
         let mut dev = open_device(&raspberry);
         ERASE_FAILS_FROM.store(0, Ordering::SeqCst);
-        let request =
-            request(DeviceDirection::Erase, 1024 << VIEW_BITS, ptr::null_mut());
+        let request = request(DeviceDirection::Erase, 1024 << VIEW_BITS, ptr::null_mut());
 
         unsafe { raspberry.erase(&mut dev, request.as_ptr()) };
     }
@@ -1159,10 +1120,7 @@ mod tests {
     #[test]
     fn ffi_entry_points_accept_a_null_device() {
         unsafe {
-            assert_eq!(
-                ffi_raspberry_device_init(ptr::null_mut(), 0),
-                -libc::EINVAL
-            );
+            assert_eq!(ffi_raspberry_device_init(ptr::null_mut(), 0), -libc::EINVAL);
             assert_eq!(ffi_raspberry_device_exit(ptr::null_mut()), 0);
             assert_eq!(ffi_raspberry_close(ptr::null_mut()), -libc::EINVAL);
 

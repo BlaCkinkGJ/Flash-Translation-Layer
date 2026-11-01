@@ -67,9 +67,7 @@ impl Fixture {
         pgftl.dev = dev;
         pgftl.trans_map = vec![PADDR_EMPTY; nr_segments * pages_per_segment + 1];
         pgftl.segments = (0..nr_segments)
-            .map(|_| {
-                PageFtlSegment::empty(vec![0u64; WORDS_PER_SEGMENT], pages_per_segment as i32)
-            })
+            .map(|_| PageFtlSegment::empty(vec![0u64; WORDS_PER_SEGMENT], pages_per_segment as i32))
             .collect();
         pgftl.gc_seg_bits = vec![0u64; nr_segments.div_ceil(64)];
 

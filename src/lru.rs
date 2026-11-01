@@ -162,10 +162,7 @@ unsafe fn evict(cache: &mut lru_cache, nr_evict: usize) -> c_int {
 /// # Safety
 /// `deallocate` is `NULL` or a callback valid for the whole cache lifetime.
 #[no_mangle]
-pub unsafe extern "C" fn ffi_lru_init(
-    capacity: usize,
-    deallocate: LruDeallocFn,
-) -> *mut lru_cache {
+pub unsafe extern "C" fn ffi_lru_init(capacity: usize, deallocate: LruDeallocFn) -> *mut lru_cache {
     if capacity == 0 {
         pr_err!("capacity is zero");
         return ptr::null_mut();
@@ -201,11 +198,7 @@ pub unsafe extern "C" fn ffi_lru_init(
 /// # Safety
 /// `cache` was returned by `ffi_lru_init` and not yet freed.
 #[no_mangle]
-pub unsafe extern "C" fn ffi_lru_put(
-    cache: *mut lru_cache,
-    key: u64,
-    value: usize,
-) -> c_int {
+pub unsafe extern "C" fn ffi_lru_put(cache: *mut lru_cache, key: u64, value: usize) -> c_int {
     let cache = &mut *cache;
 
     if cache.size >= cache.capacity {
@@ -303,8 +296,7 @@ mod tests {
     /// callback allocation- and lock-free.
     const MAX_RECORDED: usize = 8;
     static DRAIN_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static DRAIN_KEYS: [AtomicU64; MAX_RECORDED] =
-        [const { AtomicU64::new(0) }; MAX_RECORDED];
+    static DRAIN_KEYS: [AtomicU64; MAX_RECORDED] = [const { AtomicU64::new(0) }; MAX_RECORDED];
 
     unsafe extern "C" fn draining_dealloc(key: u64, _value: usize) -> c_int {
         let n = DRAIN_CALLS.fetch_add(1, Ordering::SeqCst);
@@ -316,7 +308,9 @@ mod tests {
     fn drained_keys() -> Vec<u64> {
         let n = DRAIN_CALLS.load(Ordering::SeqCst);
         assert!(n <= MAX_RECORDED, "recording buffer overflow");
-        (0..n).map(|i| DRAIN_KEYS[i].load(Ordering::SeqCst)).collect()
+        (0..n)
+            .map(|i| DRAIN_KEYS[i].load(Ordering::SeqCst))
+            .collect()
     }
 
     fn reset_drain() {

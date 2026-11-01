@@ -324,10 +324,7 @@ mod tests {
             request.data = page.as_mut_ptr() as *mut c_void;
             request.end_rq = None;
             let write = (*(*f.dev).d_op).write.expect("ramdisk vtable has write");
-            assert_eq!(
-                write(f.dev, request.as_ptr()),
-                DEVICE_PAGE_SIZE as isize
-            );
+            assert_eq!(write(f.dev, request.as_ptr()), DEVICE_PAGE_SIZE as isize);
             update_map(&mut f.pgftl, lpn * DEVICE_PAGE_SIZE, ppn).unwrap();
         }
     }

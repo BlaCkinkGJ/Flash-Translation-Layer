@@ -244,8 +244,7 @@ mod tests {
 
     #[test]
     fn init_rejects_an_out_of_range_module_number() {
-        let table: [Option<SubmoduleInitFn>; MODULE_COUNT] =
-            [Some(mock_submodule_init::<RANGE>)];
+        let table: [Option<SubmoduleInitFn>; MODULE_COUNT] = [Some(mock_submodule_init::<RANGE>)];
         let mut flash: *mut flash_device = ptr::null_mut();
 
         let ret = unsafe { module_init_with(&table, MODULE_COUNT as c_int, &mut flash, 0) };
@@ -316,12 +315,14 @@ mod tests {
         use crate::ftl::page_interface::PAGE_FOPS;
 
         let mut flash: *mut flash_device = ptr::null_mut();
-        let ret = unsafe {
-            ffi_module_init(PAGE_FTL_MODULE, &mut flash, DeviceModule::Ramdisk as u64)
-        };
+        let ret =
+            unsafe { ffi_module_init(PAGE_FTL_MODULE, &mut flash, DeviceModule::Ramdisk as u64) };
         assert_eq!(ret, 0);
         unsafe {
-            assert_eq!((*flash).f_op, &PAGE_FOPS as *const crate::flash::flash_operations);
+            assert_eq!(
+                (*flash).f_op,
+                &PAGE_FOPS as *const crate::flash::flash_operations
+            );
             assert!(!(*flash).f_private.is_null());
             assert!((*flash).f_submodule_exit.is_some());
         }

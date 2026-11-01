@@ -55,8 +55,8 @@ use std::cell::UnsafeCell;
 
 use crate::bits::{get_bit, reset_bit, set_bit, BITS_PER_UINT64};
 use crate::device::{
-    device, device_address, device_request, DeviceDirection, DeviceOperations, PADDR_EMPTY,
-    DEVICE_NR_BUS_BITS, DEVICE_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS, DEVICE_PAGE_SIZE,
+    device, device_address, device_request, DeviceDirection, DeviceOperations, DEVICE_NR_BUS_BITS,
+    DEVICE_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS, DEVICE_PAGE_SIZE, PADDR_EMPTY,
 };
 use crate::{pr_err, pr_info};
 
@@ -115,10 +115,8 @@ impl DeviceOperations for Ramdisk {
             libc::free((*dev).badseg_bitmap as *mut c_void);
             (*dev).badseg_bitmap = ptr::null_mut();
         }
-        let badseg = libc::calloc(
-            nr_segments.div_ceil(BITS_PER_UINT64),
-            size_of::<u64>(),
-        ) as *mut u64;
+        let badseg =
+            libc::calloc(nr_segments.div_ceil(BITS_PER_UINT64), size_of::<u64>()) as *mut u64;
         if badseg.is_null() {
             pr_err!("memory allocation failed");
             return -libc::ENOMEM;
@@ -334,7 +332,7 @@ pub unsafe extern "C" fn ffi_ramdisk_device_exit(dev: *mut device) -> c_int {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::{ffi_device_module_init, ffi_device_module_exit, DeviceModule, Request};
+    use crate::device::{ffi_device_module_exit, ffi_device_module_init, DeviceModule, Request};
     use core::sync::atomic::{AtomicUsize, Ordering};
 
     fn init_device() -> *mut device {
@@ -385,7 +383,12 @@ mod tests {
         dev_write(dev, request.as_ptr())
     }
 
-    unsafe fn read_page(dev: *mut device, request: &mut Request, page: &mut [u8], lpn: u32) -> isize {
+    unsafe fn read_page(
+        dev: *mut device,
+        request: &mut Request,
+        page: &mut [u8],
+        lpn: u32,
+    ) -> isize {
         request.paddr = device_address::from(lpn);
         request.data_len = page.len();
         request.flag = DeviceDirection::Read.into();
@@ -407,15 +410,11 @@ mod tests {
             assert_eq!((*dev).nr_segments(), RAMDISK_NR_BLOCKS);
             assert_eq!(
                 (*dev).pages_per_segment(),
-                1 << (DEVICE_NR_BUS_BITS
-                    + DEVICE_NR_CHIPS_BITS
-                    + DEVICE_NR_PAGES_BITS)
+                1 << (DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS + DEVICE_NR_PAGES_BITS)
             );
             assert_eq!(
                 (*dev).total_size(),
-                RAMDISK_NR_BLOCKS
-                    * (*dev).pages_per_segment()
-                    * DEVICE_PAGE_SIZE
+                RAMDISK_NR_BLOCKS * (*dev).pages_per_segment() * DEVICE_PAGE_SIZE
             );
             assert!(!(*dev).badseg_bitmap.is_null());
 
@@ -554,34 +553,22 @@ mod tests {
             request.data_len = page_size;
             request.flag = DeviceDirection::Write.into();
             request.paddr = device_address::from(0u32);
-            assert_eq!(
-                dev_write(dev, request.as_ptr()),
-                -(libc::ENODATA as isize)
-            );
+            assert_eq!(dev_write(dev, request.as_ptr()), -(libc::ENODATA as isize));
 
             // Wrong direction.
             request.data = page.as_mut_ptr() as *mut c_void;
             request.flag = DeviceDirection::Read.into();
-            assert_eq!(
-                dev_write(dev, request.as_ptr()),
-                -(libc::EINVAL as isize)
-            );
+            assert_eq!(dev_write(dev, request.as_ptr()), -(libc::EINVAL as isize));
 
             // Unassigned physical address.
             request.flag = DeviceDirection::Write.into();
             request.paddr = device_address::from(PADDR_EMPTY);
-            assert_eq!(
-                dev_write(dev, request.as_ptr()),
-                -(libc::EINVAL as isize)
-            );
+            assert_eq!(dev_write(dev, request.as_ptr()), -(libc::EINVAL as isize));
 
             // Short write.
             request.paddr = device_address::from(0u32);
             request.data_len = page_size - 1;
-            assert_eq!(
-                dev_write(dev, request.as_ptr()),
-                -(libc::EINVAL as isize)
-            );
+            assert_eq!(dev_write(dev, request.as_ptr()), -(libc::EINVAL as isize));
 
             assert_eq!(ffi_ramdisk_close(dev), 0);
             assert_eq!(ffi_device_module_exit(dev), 0);
@@ -611,18 +598,12 @@ mod tests {
                 request.flag = DeviceDirection::Write.into();
                 request.data = page.as_mut_ptr() as *mut c_void;
                 request.end_rq = Some(count_end_rq);
-                assert_eq!(
-                    dev_write(dev, request.as_ptr()),
-                    page_size as isize
-                );
+                assert_eq!(dev_write(dev, request.as_ptr()), page_size as isize);
             }
 
             // A rejected write does not call the callback.
             request.paddr = device_address::from(0u32);
-            assert_eq!(
-                dev_write(dev, request.as_ptr()),
-                -(libc::EINVAL as isize)
-            );
+            assert_eq!(dev_write(dev, request.as_ptr()), -(libc::EINVAL as isize));
             assert_eq!(END_RQ_CALLS.load(Ordering::SeqCst), 3);
 
             for lpn in 0u32..3 {
