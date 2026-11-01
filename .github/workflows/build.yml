@@ -65,6 +65,10 @@ jobs:
       run: make clean && make test USE_LOG_SILENT=1
     - name: make cargo-clippy
       run: make cargo-clippy
+    # The runner image ships rustfmt, so this gate needs no install step of its
+    # own, unlike the zone job's `rustup component add llvm-tools-preview`.
+    - name: make cargo-fmt
+      run: make cargo-fmt
     # The bluedbm and raspberry geometry arms in `src/ftl_config.rs` are
     # compiled nowhere else, and a lib build needs the feature but not the
     # hardware library.
@@ -104,10 +108,14 @@ jobs:
       run: |
         uname -r
         # The runner ships a trimmed module set, so install the rest before
-        # either emulator can be loaded.
+        # either emulator can be loaded. The image can be newer than the
+        # published modules package for its kernel, so the install is best
+        # effort: the probes below already tolerate a module that is not there,
+        # and the final `test -n` is what fails this step.
         sudo apt-get update -y
         sudo apt-get install --no-install-recommends -y \
-          linux-modules-extra-$(uname -r)
+          linux-modules-extra-$(uname -r) || \
+          echo "no linux-modules-extra for $(uname -r), trying the modules anyway"
         dev=""
         # zloop first: a host-managed device of 4 zones of 16 MiB, backed by
         # regular files. It has to be told to create no conventional zone,

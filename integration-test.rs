@@ -261,7 +261,10 @@ fn write_thread(flash: SharedFlash, seed: u64) {
                 offset as off_t,
             )
         };
-        assert_eq!(ret, BLOCK_SIZE as ssize_t, "write failed (offset: {offset})");
+        assert_eq!(
+            ret, BLOCK_SIZE as ssize_t,
+            "write failed (offset: {offset})"
+        );
 
         offset += BLOCK_SIZE;
         thread::sleep(rng.wait(100, 500));
@@ -294,8 +297,7 @@ fn overwrite_thread(flash: SharedFlash) {
             )
         };
         assert_eq!(
-            ret,
-            BLOCK_SIZE as ssize_t,
+            ret, BLOCK_SIZE as ssize_t,
             "overwrite failed (offset: {offset})"
         );
 
@@ -330,9 +332,7 @@ fn main() {
 
     // Safety: `flash` is a writable out parameter and `DeviceModule::Ramdisk`
     // is C's `RAMDISK_MODULE` (`integration-test.c:190`).
-    let ret = unsafe {
-        ffi_module_init(PAGE_FTL_MODULE, &mut flash, DeviceModule::Ramdisk as u64)
-    };
+    let ret = unsafe { ffi_module_init(PAGE_FTL_MODULE, &mut flash, DeviceModule::Ramdisk as u64) };
     assert_eq!(ret, 0, "module init failed");
     assert!(!flash.is_null(), "module init left no handle");
 

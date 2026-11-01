@@ -165,8 +165,7 @@ mod tests {
     use super::*;
     use crate::bits::set_bit;
     use crate::device::{
-        device, DEVICE_NR_BUS_BITS, DEVICE_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS,
-        DEVICE_PAGE_SIZE,
+        device, DEVICE_NR_BUS_BITS, DEVICE_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS, DEVICE_PAGE_SIZE,
     };
     use crate::ftl::PageFtlSegment;
     use core::mem::MaybeUninit;
@@ -236,9 +235,7 @@ mod tests {
         assert_eq!(second.block(), 1);
         assert_eq!(
             second.lpn,
-            1 << (DEVICE_NR_BUS_BITS
-                + DEVICE_NR_CHIPS_BITS
-                + DEVICE_NR_PAGES_BITS)
+            1 << (DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS + DEVICE_NR_PAGES_BITS)
         );
         assert_eq!(f.pgftl.alloc_segnum, 1);
 

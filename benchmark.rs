@@ -52,9 +52,7 @@
 
 use core::ffi::{c_char, c_int};
 use core::mem::size_of;
-use core::sync::atomic::{
-    AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering,
-};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::io::{self, Write};
 use std::ptr;
 use std::thread;
@@ -374,16 +372,10 @@ fn parse_arguments(argv: &[String]) -> Outcome {
                 None => return Outcome::Failed(unexpected_argument(&name)),
             },
             Opt::Value(b'j', value) => nr_jobs = c_atoi(&value),
-            Opt::Value(b'b', value) => {
-                block_sz = c_atoi(&value) as usize * size_suffix(&value)
-            }
-            Opt::Value(b'n', value) => {
-                nr_blocks = c_atoi(&value) as usize * size_suffix(&value)
-            }
+            Opt::Value(b'b', value) => block_sz = c_atoi(&value) as usize * size_suffix(&value),
+            Opt::Value(b'n', value) => nr_blocks = c_atoi(&value) as usize * size_suffix(&value),
             Opt::Value(b'p', value) => device_path = truncated_path(&value),
-            Opt::Error(flag, kind) => {
-                return Outcome::Failed(flag_failure(argv0, flag, kind))
-            }
+            Opt::Error(flag, kind) => return Outcome::Failed(flag_failure(argv0, flag, kind)),
             // Every option letter is either argument free and handled above or
             // argument taking and handled above, which is C's `default:
             // abort();`.
@@ -576,10 +568,7 @@ fn get_random_seed() -> u64 {
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
     // Safety: `pthread_self` takes no argument and returns the calling thread.
     let thread = unsafe { libc::pthread_self() } as u64;
-    let mut seed = (now.tv_sec as u64)
-        .wrapping_mul(SEC_TO_NS)
-        ^ (now.tv_nsec as u64)
-        ^ thread;
+    let mut seed = (now.tv_sec as u64).wrapping_mul(SEC_TO_NS) ^ (now.tv_nsec as u64) ^ thread;
     if seed == 0 {
         seed = 1;
     }
@@ -698,11 +687,7 @@ fn pin_to_core(thread_id: usize) {
     let rc = unsafe {
         libc::CPU_ZERO(&mut set);
         libc::CPU_SET(thread_id % cores as usize, &mut set);
-        pthread_setaffinity_np(
-            libc::pthread_self(),
-            size_of::<libc::cpu_set_t>(),
-            &set,
-        )
+        pthread_setaffinity_np(libc::pthread_self(), size_of::<libc::cpu_set_t>(), &set)
     };
     if rc != 0 {
         eprintln!("Warning: pthread_setaffinity_np failed for thread {thread_id}");
@@ -728,10 +713,8 @@ fn sweep(shared: &Shared, workload: Workload, thread_id: usize) -> Vec<u64> {
         // The buffer is filled outside the timed window on both paths, as in C.
         if workload.is_write() {
             fill_buffer_random(&mut buffer, &mut seed);
-            let sum =
-                crc32(buffer.as_ptr().cast(), shared.block_sz, CRC32_INIT);
-            shared.crc32_list[offset as usize / shared.block_sz]
-                .store(sum, Ordering::SeqCst);
+            let sum = crc32(buffer.as_ptr().cast(), shared.block_sz, CRC32_INIT);
+            shared.crc32_list[offset as usize / shared.block_sz].store(sum, Ordering::SeqCst);
         } else {
             buffer.fill(0);
         }
@@ -767,8 +750,7 @@ fn sweep(shared: &Shared, workload: Workload, thread_id: usize) -> Vec<u64> {
         shared.wp[thread_id].store(index, Ordering::SeqCst);
 
         if workload.is_read() {
-            let sum =
-                crc32(buffer.as_ptr().cast(), shared.block_sz, CRC32_INIT);
+            let sum = crc32(buffer.as_ptr().cast(), shared.block_sz, CRC32_INIT);
             let block = offset as usize / shared.block_sz;
             if sum != shared.crc32_list[block].load(Ordering::SeqCst) {
                 shared.crc32_is_match[block].store(false, Ordering::SeqCst);
@@ -806,7 +788,11 @@ fn print_parameters(parm: &Parameters, out: &mut impl Write) {
     print_out!(
         out,
         "\t- warm-up     {}",
-        if parm.do_warm_up { "enabled" } else { "disabled" }
+        if parm.do_warm_up {
+            "enabled"
+        } else {
+            "disabled"
+        }
     );
 }
 
@@ -901,7 +887,11 @@ fn run(parm: Parameters) {
     let open = unsafe { (*(*flash).f_op).open }.expect("the FTL installs open");
     // Safety: `flash` carries the page FTL and `path` is NUL terminated.
     let rc = unsafe {
-        open(flash, path.as_ptr().cast::<c_char>(), libc::O_CREAT | libc::O_RDWR)
+        open(
+            flash,
+            path.as_ptr().cast::<c_char>(),
+            libc::O_CREAT | libc::O_RDWR,
+        )
     };
     check(rc == 0, "open failed");
 
@@ -914,9 +904,7 @@ fn run(parm: Parameters) {
             .map(|index| index.wrapping_mul(parm.block_sz) as off_t)
             .collect(),
         crc32_list: (0..parm.nr_blocks).map(|_| AtomicU32::new(0)).collect(),
-        crc32_is_match: (0..parm.nr_blocks)
-            .map(|_| AtomicBool::new(true))
-            .collect(),
+        crc32_is_match: (0..parm.nr_blocks).map(|_| AtomicBool::new(true)).collect(),
         wp: (0..jobs).map(|_| AtomicUsize::new(0)).collect(),
         total_time: (0..jobs).map(|_| AtomicU64::new(0)).collect(),
         next_thread_id: AtomicI32::new(0),
@@ -971,8 +959,7 @@ fn run(parm: Parameters) {
             }
             let seconds = seconds(total_time);
             let percent = wp as f64 / parm.nr_blocks.wrapping_sub(1) as f64 * 100.0;
-            let bandwidth =
-                wp as f64 * parm.block_sz as f64 / (seconds * MIB as f64);
+            let bandwidth = wp as f64 * parm.block_sz as f64 / (seconds * MIB as f64);
             let _ = write!(
                 out,
                 "\rProcessing: {}% [{} MiB/s]",
@@ -1071,11 +1058,7 @@ mod tests {
     }
 
     /// The report text of a run.
-    fn report(
-        parm: &Parameters,
-        latencies: &[Vec<u64>],
-        crc32_is_match: &[AtomicBool],
-    ) -> String {
+    fn report(parm: &Parameters, latencies: &[Vec<u64>], crc32_is_match: &[AtomicBool]) -> String {
         let mut text = Vec::new();
         report_result(parm, latencies, crc32_is_match, &mut text);
         String::from_utf8(text).expect("the report is UTF-8")
@@ -1285,19 +1268,13 @@ mod tests {
              -p <device path> [-w]\n"
         ));
         assert!(text.contains("\t- modules     [pgftl]\n"));
-        assert!(text.contains(
-            "\t- devices     [ramdisk, bluedbm, zone, raspberry]\n"
-        ));
-        assert!(text.contains(
-            "\t- workloads   [write, read, randwrite, randread]\n"
-        ));
+        assert!(text.contains("\t- devices     [ramdisk, bluedbm, zone, raspberry]\n"));
+        assert!(text.contains("\t- workloads   [write, read, randwrite, randread]\n"));
         assert!(text.contains("\t- jobs        (default: 0)\n"));
         assert!(text.contains("\t- block size  (default: 4096)\n"));
         assert!(text.contains("\t- # of block  (default: 0)\n"));
         assert!(text.contains("\t- path        (default: (null))\n"));
-        assert!(text.contains(
-            "\t- w           disable warm-up phase (default: enabled)\n"
-        ));
+        assert!(text.contains("\t- w           disable warm-up phase (default: enabled)\n"));
     }
 
     #[test]
@@ -1341,8 +1318,7 @@ mod tests {
     #[test]
     fn the_workload_names_round_trip() {
         for name in WORKLOAD_STR {
-            let workload =
-                Workload::from_name(name).expect("a listed name parses");
+            let workload = Workload::from_name(name).expect("a listed name parses");
             assert_eq!(workload.name(), name);
         }
         assert!(Workload::from_name("write ").is_none());
@@ -1373,8 +1349,7 @@ mod tests {
 
     #[test]
     fn shuffling_is_a_permutation() {
-        let mut sequence: Vec<off_t> =
-            (0..64).map(|index| index * 4096).collect();
+        let mut sequence: Vec<off_t> = (0..64).map(|index| index * 4096).collect();
         let original = sequence.clone();
         shuffling(&mut sequence);
         sequence.sort_unstable();
@@ -1482,9 +1457,7 @@ mod tests {
 
         // A write workload never reads the flags back, so it always passes.
         let write = parsed(&["b", "-t", "write", "-n", "2"]);
-        assert!(
-            report(&write, &latencies, &mixed).contains("crc check success")
-        );
+        assert!(report(&write, &latencies, &mixed).contains("crc check success"));
     }
 
     #[test]

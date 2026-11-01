@@ -109,7 +109,10 @@ unsafe extern "C" fn page_ftl_write_interface(
     let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
     let pgftl = lock.get();
 
-    if !matches!(pgftl.o_flags & libc::O_ACCMODE, libc::O_WRONLY | libc::O_RDWR) {
+    if !matches!(
+        pgftl.o_flags & libc::O_ACCMODE,
+        libc::O_WRONLY | libc::O_RDWR
+    ) {
         pr_err!(
             "cannot find the valid write flags (flags: 0x{:x})",
             pgftl.o_flags
@@ -214,7 +217,10 @@ unsafe extern "C" fn page_ftl_read_interface(
     let mut lock = unsafe { PageFtlLock::acquire(pgftl) };
     let pgftl = lock.get();
 
-    if !matches!(pgftl.o_flags & libc::O_ACCMODE, libc::O_RDONLY | libc::O_RDWR) {
+    if !matches!(
+        pgftl.o_flags & libc::O_ACCMODE,
+        libc::O_RDONLY | libc::O_RDWR
+    ) {
         pr_err!(
             "cannot find the valid read flags (flags: 0x{:x})",
             pgftl.o_flags
@@ -474,7 +480,7 @@ pub unsafe extern "C" fn ffi_flash_read(
 mod tests {
     use super::*;
     use crate::bits::set_bit;
-    use crate::device::{device_address, DeviceModule, PADDR_EMPTY, DEVICE_PAGE_SIZE};
+    use crate::device::{device_address, DeviceModule, DEVICE_PAGE_SIZE, PADDR_EMPTY};
     use crate::ftl::test_support::Fixture;
     use crate::module::{ffi_module_exit, ffi_module_init, PAGE_FTL_MODULE};
     use core::sync::atomic::Ordering;
@@ -880,7 +886,10 @@ mod tests {
         );
 
         assert_eq!(f.pgftl.segments[0].free_pages(), 0);
-        assert_eq!(f.pgftl.segments[1].free_pages(), PAGES_PER_SEGMENT as i32 - 1);
+        assert_eq!(
+            f.pgftl.segments[1].free_pages(),
+            PAGES_PER_SEGMENT as i32 - 1
+        );
         assert_eq!(
             f.pgftl.trans_map[PAGES_PER_SEGMENT],
             device_address::from_segment_page(1, 0).lpn

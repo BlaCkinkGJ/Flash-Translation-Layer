@@ -390,7 +390,11 @@ fn checkpoint_crc(before_crc: &[u8], body: &[u8]) -> u32 {
         before_crc.len(),
         CRC32_INIT,
     );
-    crc32(body.as_ptr() as *const c_void, body.len(), crc ^ 0xFFFF_FFFF)
+    crc32(
+        body.as_ptr() as *const c_void,
+        body.len(),
+        crc ^ 0xFFFF_FFFF,
+    )
 }
 
 /// Load the checkpoint at `path` into `pgftl`.
@@ -941,10 +945,7 @@ mod tests {
     /// pages each.
     fn opened_fixture() -> CoreFixture {
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, ptr::null(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, ptr::null(), FLAGS) }, 0);
         f
     }
 
@@ -959,10 +960,7 @@ mod tests {
         let dev = f.dev;
         let key = f.pgftl.as_ref() as *const PageFtl as usize;
 
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, ptr::null(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, ptr::null(), FLAGS) }, 0);
 
         // The device is open: its backend filled the store, the bad segment
         // bitmap and the geometry the FTL then read.
@@ -977,10 +975,7 @@ mod tests {
         assert!(!pgftl.trans_map.is_empty());
         assert_eq!(pgftl.map_entries(), NR_SEGMENTS * PAGES_PER_SEGMENT + 1);
         assert_eq!(pgftl.trans_map[0], PADDR_EMPTY);
-        assert_eq!(
-            pgftl.trans_map[pgftl.map_entries() - 1],
-            PADDR_EMPTY
-        );
+        assert_eq!(pgftl.trans_map[pgftl.map_entries() - 1], PADDR_EMPTY);
         assert!(!pgftl.segments.is_empty());
         assert!(!pgftl.gc_seg_bits.is_empty());
         assert!(pgftl.gc_list.is_empty());
@@ -1010,10 +1005,7 @@ mod tests {
         // A second lifecycle on the same structure, this time without
         // `O_CREAT`, which C warns about and accepts. The open reinitializes
         // everything the close released.
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, ptr::null(), libc::O_RDWR) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, ptr::null(), libc::O_RDWR) }, 0);
         let pgftl = f.pgftl.as_mut();
         assert_eq!(pgftl.o_flags, libc::O_RDWR);
         assert!(!pgftl.trans_map.is_empty());
@@ -1077,10 +1069,7 @@ mod tests {
         std::fs::write(&file, &image).unwrap();
 
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         assert_ne!(f.pgftl.trans_map[0], PADDR_EMPTY, "the mapping is loaded");
 
         // The open's own collector is stopped and joined, and the handle left
@@ -1110,10 +1099,7 @@ mod tests {
 
         // The next open finds no file, so the mapping is empty rather than the
         // one the checkpoint held before the panic.
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         assert!(
             f.pgftl.trans_map.iter().all(|&entry| entry == PADDR_EMPTY),
             "the next open starts from an empty mapping"
@@ -1126,10 +1112,7 @@ mod tests {
     #[test]
     fn segment_and_bitmap_allocation_matches_c() {
         let mut f = CoreFixture::new(NR_SEGMENTS + 1, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, ptr::null(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, ptr::null(), FLAGS) }, 0);
 
         let pgftl = f.pgftl.as_mut();
         let mut bitmaps = Vec::new();
@@ -1179,10 +1162,7 @@ mod tests {
             device_address::from_segment_page(0, 0).lpn
         );
         assert_eq!(pgftl.segments[0].free_pages(), PAGES_PER_SEGMENT as i32 - 1);
-        assert_eq!(
-            pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst),
-            1
-        );
+        assert_eq!(pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst), 1);
 
         // A read of the same logical page comes back through the read path.
         let mut buf = vec![0u8; LEN];
@@ -1194,10 +1174,7 @@ mod tests {
         let mut erase_rq = request(DeviceDirection::Erase, 0, &mut []);
         assert_eq!(submit_request(pgftl, &mut erase_rq).unwrap(), 0);
         assert_eq!(pgftl.segments[0].free_pages(), PAGES_PER_SEGMENT as i32 - 1);
-        assert_eq!(
-            pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst),
-            1
-        );
+        assert_eq!(pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst), 1);
 
         // An undefined flag is C's `-EINVAL` (`page-core.c:372-374`), and it
         // crosses the ABI the same way.
@@ -1234,10 +1211,7 @@ mod tests {
 
         // The write landed on a fresh page of the same segment.
         assert_eq!(pgftl.segments[0].free_pages(), PAGES_PER_SEGMENT as i32 - 2);
-        assert_eq!(
-            pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst),
-            2
-        );
+        assert_eq!(pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst), 2);
     }
 
     #[test]
@@ -1249,11 +1223,7 @@ mod tests {
         // lands in the second segment and the invalidation queues the first one.
         for lpn in 0..PAGES_PER_SEGMENT {
             let mut payload = vec![0x40 + lpn as u8; LEN];
-            let mut rq = request(
-                DeviceDirection::Write,
-                lpn * DEVICE_PAGE_SIZE,
-                &mut payload,
-            );
+            let mut rq = request(DeviceDirection::Write, lpn * DEVICE_PAGE_SIZE, &mut payload);
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         }
         let mut payload = vec![0xa0u8; LEN];
@@ -1281,11 +1251,7 @@ mod tests {
         assert_eq!(other.nr_valid_pages.load(Ordering::SeqCst), 4);
         for lpn in 0..PAGES_PER_SEGMENT {
             let mut buf = vec![0u8; LEN];
-            let mut rq = request(
-                DeviceDirection::Read,
-                lpn * DEVICE_PAGE_SIZE,
-                &mut buf,
-            );
+            let mut rq = request(DeviceDirection::Read, lpn * DEVICE_PAGE_SIZE, &mut buf);
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
             if lpn == 0 {
                 assert_eq!(buf, vec![0xa0u8; LEN], "the overwritten page");
@@ -1304,10 +1270,7 @@ mod tests {
         const FILL: usize = SEGMENTS * PAGES_PER_SEGMENT - 8;
 
         let mut f = CoreFixture::new(SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, ptr::null(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, ptr::null(), FLAGS) }, 0);
 
         // The exit request stops the loop before the pass, so an FTL with a
         // fully free device never reaches the collection path.
@@ -1326,11 +1289,7 @@ mod tests {
         // under the threshold, so the pass runs.
         for lpn in 0..FILL {
             let mut payload = vec![0x11u8; LEN];
-            let mut rq = request(
-                DeviceDirection::Write,
-                lpn * DEVICE_PAGE_SIZE,
-                &mut payload,
-            );
+            let mut rq = request(DeviceDirection::Write, lpn * DEVICE_PAGE_SIZE, &mut payload);
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         }
         let mut payload = vec![0x22u8; LEN];
@@ -1365,9 +1324,7 @@ mod tests {
                 .nr_free_pages
                 .store(0, Ordering::SeqCst);
         }
-        assert!(!unsafe {
-            f.with_failing_read(|f| gc_thread_iteration(f.pgftl.as_mut(), false))
-        });
+        assert!(!unsafe { f.with_failing_read(|f| gc_thread_iteration(f.pgftl.as_mut(), false)) });
 
         // The pass stopped where it failed: the victim was unlinked and its
         // free count pinned, its gc bit is still raised for the next pass, and
@@ -1375,9 +1332,7 @@ mod tests {
         assert!(f.pgftl.gc_list.is_empty());
         assert_eq!(f.pgftl.gc_seg_bits[0] & 1, 1, "the gc bit stays raised");
         assert_eq!(
-            f.pgftl.segments[0]
-                .nr_free_pages
-                .load(Ordering::SeqCst),
+            f.pgftl.segments[0].nr_free_pages.load(Ordering::SeqCst),
             0,
             "the victim's free pages stay pinned"
         );
@@ -1392,11 +1347,7 @@ mod tests {
         let pgftl = f.pgftl.as_mut();
         for lpn in 0..PAGES_PER_SEGMENT {
             let mut payload = vec![0x40 + lpn as u8; LEN];
-            let mut rq = request(
-                DeviceDirection::Write,
-                lpn * DEVICE_PAGE_SIZE,
-                &mut payload,
-            );
+            let mut rq = request(DeviceDirection::Write, lpn * DEVICE_PAGE_SIZE, &mut payload);
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         }
         let mut payload = vec![0xa0u8; LEN];
@@ -1423,7 +1374,10 @@ mod tests {
                 -libc::EINVAL,
                 "a page FTL without a device"
             );
-            assert_eq!(ffi_page_ftl_submit_request(ptr::null_mut(), request.as_ptr()), -libc::EINVAL as isize);
+            assert_eq!(
+                ffi_page_ftl_submit_request(ptr::null_mut(), request.as_ptr()),
+                -libc::EINVAL as isize
+            );
             assert_eq!(
                 ffi_page_ftl_submit_request(f.pgftl.as_mut(), ptr::null_mut()),
                 -(libc::EINVAL as isize)
@@ -1465,11 +1419,7 @@ mod tests {
             erase: real.erase,
             close: real.close,
         };
-        let ret = unsafe {
-            f.with_ops(&failing, |f| {
-                open(&mut f.pgftl, ptr::null(), FLAGS)
-            })
-        };
+        let ret = unsafe { f.with_ops(&failing, |f| open(&mut f.pgftl, ptr::null(), FLAGS)) };
         assert_eq!(ret, -libc::EINVAL, "C maps every device failure to EINVAL");
         assert!(f.pgftl.trans_map.is_empty());
         assert!(f.pgftl.segments.is_empty());
@@ -1484,11 +1434,7 @@ mod tests {
             erase: None,
             close: None,
         };
-        let ret = unsafe {
-            f.with_ops(&empty, |f| {
-                open(&mut f.pgftl, ptr::null(), FLAGS)
-            })
-        };
+        let ret = unsafe { f.with_ops(&empty, |f| open(&mut f.pgftl, ptr::null(), FLAGS)) };
         assert_eq!(ret, -libc::EINVAL);
         assert!(f.pgftl.trans_map.is_empty());
         assert!(f.pgftl.segments.is_empty());
@@ -1521,24 +1467,14 @@ mod tests {
 
         // Two writes through the dispatch, then a close that saves the mapping.
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         let pgftl = f.pgftl.as_mut();
         for lpn in 0..2 {
             let mut payload = vec![0x30 + lpn as u8; LEN];
-            let mut rq = request(
-                DeviceDirection::Write,
-                lpn * DEVICE_PAGE_SIZE,
-                &mut payload,
-            );
+            let mut rq = request(DeviceDirection::Write, lpn * DEVICE_PAGE_SIZE, &mut payload);
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         }
-        let saved_map = [
-            pgftl.trans_map[0],
-            pgftl.trans_map[1],
-        ];
+        let saved_map = [pgftl.trans_map[0], pgftl.trans_map[1]];
         let saved_segnum = pgftl.alloc_segnum;
         let saved = &pgftl.segments[0];
         let (saved_free, saved_valid, saved_list) = (
@@ -1552,10 +1488,7 @@ mod tests {
         // A fresh FTL on the same name starts from the checkpoint: the mapping
         // and the segment metadata carried with it come back.
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         let pgftl = f.pgftl.as_mut();
         assert_eq!(pgftl.trans_map[0], saved_map[0]);
         assert_eq!(pgftl.trans_map[1], saved_map[1]);
@@ -1569,20 +1502,13 @@ mod tests {
         // The recovered accounting is live: the next write takes a fresh page
         // instead of one the mapping already holds.
         let mut payload = vec![0x99u8; LEN];
-        let mut rq = request(
-            DeviceDirection::Write,
-            2 * DEVICE_PAGE_SIZE,
-            &mut payload,
-        );
+        let mut rq = request(DeviceDirection::Write, 2 * DEVICE_PAGE_SIZE, &mut payload);
         assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         assert_eq!(
             pgftl.trans_map[2],
             device_address::from_segment_page(0, 2).lpn
         );
-        assert_eq!(
-            pgftl.segments[0].free_pages(),
-            PAGES_PER_SEGMENT as i32 - 3
-        );
+        assert_eq!(pgftl.segments[0].free_pages(), PAGES_PER_SEGMENT as i32 - 3);
         assert_eq!(
             pgftl.segments[0].nr_valid_pages.load(Ordering::SeqCst),
             saved_valid + 1
@@ -1606,10 +1532,7 @@ mod tests {
         let _ = std::fs::remove_file(&file);
 
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         let pgftl = f.pgftl.as_mut();
 
         // Fill the first segment, then overwrite its first page: the new copy
@@ -1617,27 +1540,22 @@ mod tests {
         // with one of them no longer mapped.
         for lpn in 0..PAGES_PER_SEGMENT {
             let mut payload = vec![0x40 + lpn as u8; LEN];
-            let mut rq = request(
-                DeviceDirection::Write,
-                lpn * DEVICE_PAGE_SIZE,
-                &mut payload,
-            );
+            let mut rq = request(DeviceDirection::Write, lpn * DEVICE_PAGE_SIZE, &mut payload);
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         }
         let mut payload = vec![0xa0u8; LEN];
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
         assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
-        assert_eq!(pgftl.trans_map[0], device_address::from_segment_page(1, 0).lpn);
+        assert_eq!(
+            pgftl.trans_map[0],
+            device_address::from_segment_page(1, 0).lpn
+        );
 
         // Fill the second segment so no page is free, which is what makes the
         // stale page the only candidate a wrong rebuild could offer.
         for lpn in PAGES_PER_SEGMENT..2 * PAGES_PER_SEGMENT - 1 {
             let mut payload = vec![0x60 + lpn as u8; LEN];
-            let mut rq = request(
-                DeviceDirection::Write,
-                lpn * DEVICE_PAGE_SIZE,
-                &mut payload,
-            );
+            let mut rq = request(DeviceDirection::Write, lpn * DEVICE_PAGE_SIZE, &mut payload);
             assert_eq!(submit_request(pgftl, &mut rq).unwrap(), LEN as isize);
         }
         let first = &pgftl.segments[0];
@@ -1651,10 +1569,7 @@ mod tests {
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
 
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         let pgftl = f.pgftl.as_mut();
 
         // The used bits and the free counts come back as they were, and the
@@ -1720,18 +1635,11 @@ mod tests {
         std::fs::write(&file, &image).unwrap();
 
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
 
         let pgftl = f.pgftl.as_mut();
         assert_eq!(pgftl.trans_map[1], shared, "the first entry stays");
-        assert_eq!(
-            pgftl.trans_map[2],
-            PADDR_EMPTY,
-            "the repeat is dropped"
-        );
+        assert_eq!(pgftl.trans_map[2], PADDR_EMPTY, "the repeat is dropped");
         let segment = &pgftl.segments[0];
         assert_eq!(segment.nr_valid_pages.load(Ordering::SeqCst), 1);
         assert_eq!(segment.free_pages(), 2, "the free count stays as it came");
@@ -1753,13 +1661,13 @@ mod tests {
 
         // A checkpoint the 1 x 8 device wrote itself.
         let mut f = CoreFixture::new(1, 8);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         let mut payload = vec![0x77u8; LEN];
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
-        assert_eq!(submit_request(f.pgftl.as_mut(), &mut rq).unwrap(), LEN as isize);
+        assert_eq!(
+            submit_request(f.pgftl.as_mut(), &mut rq).unwrap(),
+            LEN as isize
+        );
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         assert!(std::path::Path::new(&file).exists());
 
@@ -1767,10 +1675,7 @@ mod tests {
         // only the geometry check can refuse this file: the sizes differ too,
         // but the geometry is read from the header and checked first.
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         let pgftl = f.pgftl.as_mut();
         for lpn in 0..pgftl.map_entries() {
             assert_eq!(pgftl.trans_map[lpn], PADDR_EMPTY);
@@ -1794,16 +1699,10 @@ mod tests {
         std::fs::write(&file, &image).unwrap();
 
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         assert_eq!(f.pgftl.trans_map[1], PADDR_EMPTY);
         assert_eq!(f.pgftl.alloc_segnum, 0);
-        assert_eq!(
-            f.pgftl.segments[0].free_pages(),
-            PAGES_PER_SEGMENT as i32
-        );
+        assert_eq!(f.pgftl.segments[0].free_pages(), PAGES_PER_SEGMENT as i32);
 
         let _ = std::fs::remove_file(&file);
     }
@@ -1872,18 +1771,13 @@ mod tests {
                 std::fs::write(&file, case).unwrap();
             }
             let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-            assert_eq!(
-                unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-                0
-            );
+            assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
             let pgftl = f.pgftl.as_mut();
             for lpn in 0..pgftl.map_entries() {
                 assert_eq!(
-                    pgftl.trans_map[lpn],
-                    PADDR_EMPTY,
+                    pgftl.trans_map[lpn], PADDR_EMPTY,
                     "case {} entry {}",
-                    index,
-                    lpn
+                    index, lpn
                 );
             }
             assert_eq!(pgftl.alloc_segnum, 0, "case {index}");
@@ -1899,13 +1793,13 @@ mod tests {
         // checksum, and a flipped byte in the header by the same field, which
         // covers the allocation cursor as well as the mapping.
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         let mut payload = vec![0x77u8; LEN];
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
-        assert_eq!(submit_request(f.pgftl.as_mut(), &mut rq).unwrap(), LEN as isize);
+        assert_eq!(
+            submit_request(f.pgftl.as_mut(), &mut rq).unwrap(),
+            LEN as isize
+        );
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         let whole = std::fs::read(&file).unwrap();
 
@@ -1915,10 +1809,7 @@ mod tests {
             std::fs::write(&file, &damaged).unwrap();
 
             let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-            assert_eq!(
-                unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-                0
-            );
+            assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
             assert_eq!(f.pgftl.trans_map[0], PADDR_EMPTY, "byte {offset}");
             assert_eq!(f.pgftl.alloc_segnum, 0, "byte {offset}");
         }
@@ -1957,26 +1848,20 @@ mod tests {
         std::fs::write(&file, &image).unwrap();
 
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
 
         let pgftl = f.pgftl.as_mut();
         assert_eq!(pgftl.trans_map[1], inside, "the mapping is applied");
         assert_eq!(
-            pgftl.trans_map[2],
-            PADDR_EMPTY,
+            pgftl.trans_map[2], PADDR_EMPTY,
             "an entry on a page that is not programmed is dropped"
         );
         assert_eq!(
-            pgftl.trans_map[3],
-            PADDR_EMPTY,
+            pgftl.trans_map[3], PADDR_EMPTY,
             "an entry outside the device is dropped"
         );
         assert_eq!(
-            pgftl.trans_map[4],
-            PADDR_EMPTY,
+            pgftl.trans_map[4], PADDR_EMPTY,
             "an entry that repeats a page is dropped"
         );
         assert_eq!(pgftl.trans_map[0], PADDR_EMPTY);
@@ -2011,13 +1896,13 @@ mod tests {
         let _ = std::fs::remove_dir(&temporary);
 
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         let mut payload = vec![0x12u8; LEN];
         let mut rq = request(DeviceDirection::Write, 0, &mut payload);
-        assert_eq!(submit_request(f.pgftl.as_mut(), &mut rq).unwrap(), LEN as isize);
+        assert_eq!(
+            submit_request(f.pgftl.as_mut(), &mut rq).unwrap(),
+            LEN as isize
+        );
         let saved_entry = f.pgftl.trans_map[0];
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         let saved = std::fs::read(&file).unwrap();
@@ -2026,10 +1911,7 @@ mod tests {
         // directory.
         std::fs::create_dir(&temporary).unwrap();
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         assert_eq!(f.pgftl.trans_map[0], saved_entry, "the load worked");
 
         // Give this FTL state that differs from the saved file, so a save that
@@ -2047,10 +1929,7 @@ mod tests {
         // it still loads.
         assert_eq!(std::fs::read(&file).unwrap(), saved);
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         assert_eq!(f.pgftl.trans_map[0], saved_entry);
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
 
@@ -2069,29 +1948,20 @@ mod tests {
         );
         let name_c = std::ffi::CString::new(name).unwrap();
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
 
         // A name that is not valid UTF-8 has no checkpoint path at all.
         let raw = std::ffi::CString::new(vec![0x80u8, 0xffu8]).unwrap();
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, raw.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, raw.as_ptr(), FLAGS) }, 0);
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
 
         // An empty name names no checkpoint either, so the port does not write
         // a `.ckpt` beside the device it was handed.
         let empty = std::ffi::CString::new("").unwrap();
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, empty.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, empty.as_ptr(), FLAGS) }, 0);
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         assert!(!std::path::Path::new(".ckpt").exists());
 
@@ -2103,10 +1973,7 @@ mod tests {
         let file = format!("{name}.ckpt");
         std::fs::create_dir(&file).unwrap();
         let mut f = CoreFixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT);
-        assert_eq!(
-            unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) },
-            0
-        );
+        assert_eq!(unsafe { open(&mut f.pgftl, name_c.as_ptr(), FLAGS) }, 0);
         assert_eq!(f.pgftl.trans_map[0], PADDR_EMPTY);
         assert_eq!(unsafe { close(&mut f.pgftl) }, 0);
         std::fs::remove_dir(&file).unwrap();

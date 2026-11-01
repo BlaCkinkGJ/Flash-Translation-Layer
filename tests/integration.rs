@@ -204,8 +204,8 @@ fn read_thread(flash: SharedFlash, seed: u64) {
         assert_eq!(ret, BLOCK_SIZE as ssize_t, "short read (offset: {offset})");
         attempt_started = std::time::Instant::now();
 
-        let block = usize::try_from(first).expect("the read returned a negative block index")
-            / BLOCK_SIZE;
+        let block =
+            usize::try_from(first).expect("the read returned a negative block index") / BLOCK_SIZE;
         assert!(
             block < NR_BLOCKS,
             "the read at offset {offset} returned block {block}, past the range"
@@ -239,7 +239,10 @@ fn write_thread(flash: SharedFlash, seed: u64) {
                 offset as off_t,
             )
         };
-        assert_eq!(ret, BLOCK_SIZE as ssize_t, "write failed (offset: {offset})");
+        assert_eq!(
+            ret, BLOCK_SIZE as ssize_t,
+            "write failed (offset: {offset})"
+        );
 
         offset += BLOCK_SIZE;
         thread::sleep(rng.wait(100, 500));
@@ -271,8 +274,7 @@ fn overwrite_thread(flash: SharedFlash) {
             )
         };
         assert_eq!(
-            ret,
-            BLOCK_SIZE as ssize_t,
+            ret, BLOCK_SIZE as ssize_t,
             "overwrite failed (offset: {offset})"
         );
 

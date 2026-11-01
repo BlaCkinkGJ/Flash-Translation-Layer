@@ -55,6 +55,7 @@ make consumer-check                       # C consumer vs a staging install
 sudo make install                         # archive + headers under /usr/local
 make documents | make flow | make check   # docs, call graph, static analysis
 make cargo-clippy   # = cargo clippy --all-targets -- -D warnings
+make cargo-fmt      # = cargo fmt --all -- --check
 make cargo-coverage # cargo llvm-cov --lcov (llvm-tools + cargo-llvm-cov)
 ```
 
@@ -109,7 +110,9 @@ with the port and are not keys.
   `-Werror` policy now that no C source is compiled here.
 - Every C-visible symbol sits in an `extern "C"` function beside the native code
   it wraps, and documents its safety contract.
-- Never run `cargo fmt`: the tree is hand wrapped to 80 columns.
+- Rust formatting is rustfmt's, at its default width of 100 columns.
+  `make cargo-fmt` runs `cargo fmt --all -- --check` and is a build blocker, so
+  run `cargo fmt --all` instead of wrapping by hand.
 
 ## Testing
 
@@ -211,4 +214,11 @@ checks are green, the findings are settled and the coverage gate holds.
   exported ABI headers in `include/`. New C ABI symbols carry the `ffi_` prefix,
   dead C sources and the declarations of deleted symbols are deleted with them.
 - No semicolons and no em dashes in prose, comments, or commit messages.
+- Run the `humanizer` skill over anything a person reads before posting it: pull
+  request descriptions, pull request and issue comments, and the prose blocks of
+  code comments. It names the patterns that make text read as generated.
+- Do not hard wrap a pull request description or a comment. The only 80 column
+  rule here is `clang-format`'s, for `include/*.h`, and GitHub soft wraps
+  anyway, so a hard wrap only turns a one sentence edit into a diff of the
+  whole block.
 - Never force-push `main`, and never merge a pull request whose checks are red.

@@ -151,7 +151,9 @@ make test USE_LOG_SILENT=1
 
 `make test` runs `cargo test --all-targets` with the feature flags the
 `USE_*` switches derive, so `USE_LOG_SILENT=1` selects the `silent` feature.
-`make cargo-clippy` lints the crate with warnings as errors, and
+`make cargo-clippy` lints the crate with warnings as errors.
+`make cargo-fmt` checks the tree against rustfmt at its default width, which is
+100 columns, and needs `rustup component add rustfmt`.
 `make cargo-coverage` writes an LCOV report once
 `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov`
 have run.

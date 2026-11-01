@@ -162,8 +162,16 @@ pub unsafe extern "C" fn ffi_list_sort(
 
     let last = nodes.len() - 1;
     for (i, node) in nodes.iter().enumerate() {
-        (**node).prev = if i == 0 { std::ptr::null_mut() } else { nodes[i - 1] };
-        (**node).next = if i == last { std::ptr::null_mut() } else { nodes[i + 1] };
+        (**node).prev = if i == 0 {
+            std::ptr::null_mut()
+        } else {
+            nodes[i - 1]
+        };
+        (**node).next = if i == last {
+            std::ptr::null_mut()
+        } else {
+            nodes[i + 1]
+        };
     }
 
     nodes[0]
@@ -309,7 +317,10 @@ mod tests {
             let list = make_int_list(&mut values);
             assert_eq!(ffi_list_length(list), 3);
             assert_eq!((*list).data as *const i32, &values[0] as *const i32);
-            assert_eq!((*ffi_list_last(list)).data as *const i32, &values[2] as *const i32);
+            assert_eq!(
+                (*ffi_list_last(list)).data as *const i32,
+                &values[2] as *const i32
+            );
             assert!((*list).prev.is_null());
             assert!((*(*list).next).prev == list, "backward link broken");
             ffi_list_free(list);

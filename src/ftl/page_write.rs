@@ -395,7 +395,10 @@ mod tests {
         assert_eq!(f.gc_list_len(), 1);
         assert!(f.gc_bit(0));
         assert!(!f.gc_bit(1));
-        assert_eq!(f.pgftl.trans_map[0], device_address::from_segment_page(1, 0).lpn);
+        assert_eq!(
+            f.pgftl.trans_map[0],
+            device_address::from_segment_page(1, 0).lpn
+        );
         assert_eq!(f.valid(0), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(f.lpn_list_len(0), PAGES_PER_SEGMENT - 1);
         assert_eq!(f.free(1), PAGES_PER_SEGMENT as i32 - 1);

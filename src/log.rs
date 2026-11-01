@@ -13,17 +13,12 @@ use std::io::Write;
 /// Install `env_logger` with JSON output. Safe to call repeatedly.
 /// `try_init` no-ops after the first successful install.
 pub fn init() {
-    let _ = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .format(json_format)
-    .try_init();
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(json_format)
+        .try_init();
 }
 
-fn json_format(
-    buf: &mut env_logger::fmt::Formatter,
-    record: &log::Record,
-) -> std::io::Result<()> {
+fn json_format(buf: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
     writeln!(
         buf,
         r#"{{"ts":"{}","level":"{}","target":"{}","msg":"{}"}}"#,

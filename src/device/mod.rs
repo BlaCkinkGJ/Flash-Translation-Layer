@@ -99,8 +99,8 @@ pub const DEVICE_DEFAULT_REQUEST: u64 = 0;
 /// `make config` regenerates the values and `make check-config` fails when
 /// they are stale.
 pub use crate::ftl_config::{
-    DEVICE_NR_BLOCKS_BITS, DEVICE_NR_BUS_BITS, DEVICE_NR_CHIPS_BITS,
-    DEVICE_NR_PAGES_BITS, DEVICE_PAGE_SIZE,
+    DEVICE_NR_BLOCKS_BITS, DEVICE_NR_BUS_BITS, DEVICE_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS,
+    DEVICE_PAGE_SIZE,
 };
 
 const BUS_SHIFT: u32 = 0;
@@ -335,7 +335,10 @@ impl device_request {
         if self.data.is_null() {
             return None;
         }
-        Some(slice::from_raw_parts_mut(self.data as *mut u8, self.data_len))
+        Some(slice::from_raw_parts_mut(
+            self.data as *mut u8,
+            self.data_len,
+        ))
     }
 }
 
@@ -860,11 +863,7 @@ mod tests {
                 | (4 << (DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS))
                 | (3 << BLOCK_SHIFT)
         );
-        #[cfg(not(any(
-            feature = "zone",
-            feature = "bluedbm",
-            feature = "raspberry"
-        )))]
+        #[cfg(not(any(feature = "zone", feature = "bluedbm", feature = "raspberry")))]
         assert_eq!(addr.lpn, 6213);
         #[cfg(feature = "zone")]
         assert_eq!(addr.lpn, 6409);
@@ -935,9 +934,7 @@ mod tests {
         );
         assert_eq!(
             dev.pages_per_segment(),
-            1 << (DEVICE_NR_BUS_BITS
-                + DEVICE_NR_CHIPS_BITS
-                + DEVICE_NR_PAGES_BITS)
+            1 << (DEVICE_NR_BUS_BITS + DEVICE_NR_CHIPS_BITS + DEVICE_NR_PAGES_BITS)
         );
         assert_eq!(dev.page_size(), DEVICE_PAGE_SIZE);
         assert_eq!(
@@ -991,8 +988,7 @@ mod tests {
         );
         assert_eq!(
             offset_of!(device_request, data),
-            (offset_of!(device_request, paddr) + size_of::<device_address>())
-                .next_multiple_of(PTR)
+            (offset_of!(device_request, paddr) + size_of::<device_address>()).next_multiple_of(PTR)
         );
         assert_eq!(
             offset_of!(device_request, end_rq),
@@ -1013,8 +1009,7 @@ mod tests {
         );
         assert_eq!(
             offset_of!(device_request, rq_private),
-            (offset_of!(device_request, cond) + size_of::<pthread_cond_t>())
-                .next_multiple_of(PTR)
+            (offset_of!(device_request, cond) + size_of::<pthread_cond_t>()).next_multiple_of(PTR)
         );
         assert_eq!(
             size_of::<device_request>(),
@@ -1088,30 +1083,14 @@ mod tests {
         let addr = device_address::new(1, 1, 3, 4);
         assert_eq!(u32::from(addr), addr.lpn);
         assert_eq!(device_address::from(addr.lpn), addr);
-        #[cfg(not(any(
-            feature = "zone",
-            feature = "bluedbm",
-            feature = "raspberry"
-        )))]
-        assert_eq!(
-            addr.to_string(),
-            "bus 1 chip 1 block 3 page 4 (lpn 0x1845)"
-        );
+        #[cfg(not(any(feature = "zone", feature = "bluedbm", feature = "raspberry")))]
+        assert_eq!(addr.to_string(), "bus 1 chip 1 block 3 page 4 (lpn 0x1845)");
         #[cfg(feature = "zone")]
-        assert_eq!(
-            addr.to_string(),
-            "bus 1 chip 1 block 3 page 4 (lpn 0x1909)"
-        );
+        assert_eq!(addr.to_string(), "bus 1 chip 1 block 3 page 4 (lpn 0x1909)");
         #[cfg(feature = "bluedbm")]
-        assert_eq!(
-            addr.to_string(),
-            "bus 1 chip 1 block 3 page 4 (lpn 0x6109)"
-        );
+        assert_eq!(addr.to_string(), "bus 1 chip 1 block 3 page 4 (lpn 0x6109)");
         #[cfg(feature = "raspberry")]
-        assert_eq!(
-            addr.to_string(),
-            "bus 1 chip 1 block 3 page 4 (lpn 0xd3)"
-        );
+        assert_eq!(addr.to_string(), "bus 1 chip 1 block 3 page 4 (lpn 0xd3)");
 
         assert_eq!(DeviceDirection::from_flag(0), Some(DeviceDirection::Write));
         assert_eq!(DeviceDirection::from_flag(2), Some(DeviceDirection::Erase));

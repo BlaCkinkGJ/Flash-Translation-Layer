@@ -589,10 +589,7 @@ mod tests {
 
         // A zero ratio collects nothing, without even looking at the list.
         let mut request = erase_request();
-        assert_eq!(
-            gc_from_list(&mut f.pgftl, &mut request, 0.0).unwrap(),
-            0
-        );
+        assert_eq!(gc_from_list(&mut f.pgftl, &mut request, 0.0).unwrap(), 0);
         assert_eq!(f.gc_list_len(), 2);
         assert_eq!(f.valid(0), 3);
         assert_eq!(f.valid(1), 1);
@@ -792,9 +789,7 @@ mod tests {
             device_address::from_segment_page(1, 0).lpn,
             &mut still_there,
         );
-        assert!(still_there[..LEN]
-            .iter()
-            .all(|byte| *byte == 0x40 + 4));
+        assert!(still_there[..LEN].iter().all(|byte| *byte == 0x40 + 4));
     }
 
     #[test]

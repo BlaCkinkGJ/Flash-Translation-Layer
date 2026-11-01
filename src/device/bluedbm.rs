@@ -88,10 +88,9 @@ use crate::bits::{set_bit, BITS_PER_UINT64};
 // private copy, so this backend and the rest of the crate pack the same
 // address.
 use crate::device::{
-    device, device_request, DeviceOperations,
-    DEVICE_NR_BUS_BITS as BLUEDBM_NR_BUS_BITS,
-    DEVICE_NR_CHIPS_BITS as BLUEDBM_NR_CHIPS_BITS,
-    DEVICE_NR_PAGES_BITS as BLUEDBM_NR_PAGES_BITS, DEVICE_PAGE_SIZE,
+    device, device_request, DeviceOperations, DEVICE_NR_BUS_BITS as BLUEDBM_NR_BUS_BITS,
+    DEVICE_NR_CHIPS_BITS as BLUEDBM_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS as BLUEDBM_NR_PAGES_BITS,
+    DEVICE_PAGE_SIZE,
 };
 use crate::{pr_err, pr_warn};
 
@@ -243,12 +242,7 @@ impl Bluedbm {
     ///
     /// # Safety
     /// `dev` is the device this backend was installed into.
-    unsafe fn open_storage(
-        &self,
-        dev: *mut device,
-        mio: *mut memio_t,
-        flags: c_int,
-    ) -> c_int {
+    unsafe fn open_storage(&self, dev: *mut device, mio: *mut memio_t, flags: c_int) -> c_int {
         // C stores `device_get_total_size` in `bdbm->size` and never reads it.
         self.o_flags.set(flags);
         self.mio.set(mio);
@@ -261,10 +255,8 @@ impl Bluedbm {
             libc::free((*dev).badseg_bitmap as *mut c_void);
             (*dev).badseg_bitmap = ptr::null_mut();
         }
-        let badseg = libc::calloc(
-            nr_segments.div_ceil(BITS_PER_UINT64),
-            size_of::<u64>(),
-        ) as *mut u64;
+        let badseg =
+            libc::calloc(nr_segments.div_ceil(BITS_PER_UINT64), size_of::<u64>()) as *mut u64;
         if badseg.is_null() {
             pr_err!("memory allocation failed");
             return -libc::ENOMEM;
@@ -272,8 +264,7 @@ impl Bluedbm {
         (*dev).badseg_bitmap = badseg;
 
         free_counter(&G_ERASE_COUNTER);
-        let erase_counter =
-            libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32;
+        let erase_counter = libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32;
         if erase_counter.is_null() {
             pr_err!("memory allocation failed");
             return -libc::ENOMEM;
@@ -281,8 +272,7 @@ impl Bluedbm {
         G_ERASE_COUNTER.store(erase_counter, Ordering::SeqCst);
 
         free_counter(&G_BADSEG_COUNTER);
-        let badseg_counter =
-            libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32;
+        let badseg_counter = libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32;
         if badseg_counter.is_null() {
             pr_err!("memory allocation failed");
             return -libc::ENOMEM;
@@ -392,8 +382,7 @@ impl DeviceOperations for Bluedbm {
             data: ptr::null_mut(),
             d_private: ptr::null_mut(),
         }));
-        (*dma).tag =
-            memio_alloc_dma(DMA_WRITE_BUF, ptr::addr_of_mut!((*dma).data)) as u32;
+        (*dma).tag = memio_alloc_dma(DMA_WRITE_BUF, ptr::addr_of_mut!((*dma).data)) as u32;
         (*dma).d_private = request as *mut c_void;
         ptr::copy_nonoverlapping(
             (*request).data as *const u8,
@@ -730,7 +719,7 @@ mod tests {
     use super::*;
     use crate::bits::get_bit;
     use crate::device::{
-        ffi_device_module_exit, ffi_device_module_init, device_address, DeviceDirection,
+        device_address, ffi_device_module_exit, ffi_device_module_init, DeviceDirection,
         DeviceModule, Request, PADDR_EMPTY,
     };
     use core::mem::MaybeUninit;
@@ -978,10 +967,8 @@ mod tests {
                 libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32,
                 Ordering::SeqCst,
             );
-            dev.badseg_bitmap = libc::calloc(
-                nr_segments.div_ceil(BITS_PER_UINT64),
-                size_of::<u64>(),
-            ) as *mut u64;
+            dev.badseg_bitmap =
+                libc::calloc(nr_segments.div_ceil(BITS_PER_UINT64), size_of::<u64>()) as *mut u64;
 
             // A bad segment sets its bit without polling.
             counter_inc(&G_BADSEG_COUNTER, 2);
@@ -990,11 +977,7 @@ mod tests {
             assert!(get_bit(bitmap, 2));
 
             // A fully erased segment has its counter cleared.
-            counter_set(
-                &G_ERASE_COUNTER,
-                3,
-                dev.blocks_per_segment() as c_int,
-            );
+            counter_set(&G_ERASE_COUNTER, 3, dev.blocks_per_segment() as c_int);
             wait_erase_finish(&mut dev, 3, 1);
             assert_eq!(counter_get(&G_ERASE_COUNTER, 3), 0);
 

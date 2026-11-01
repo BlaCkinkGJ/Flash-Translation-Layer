@@ -115,9 +115,8 @@ use std::cell::UnsafeCell;
 use std::io;
 
 use crate::device::{
-    device, device_request, DeviceDirection, DeviceOperations, PADDR_EMPTY,
-    DEVICE_NR_BUS_BITS, DEVICE_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS,
-    DEVICE_PAGE_SIZE,
+    device, device_request, DeviceDirection, DeviceOperations, DEVICE_NR_BUS_BITS,
+    DEVICE_NR_CHIPS_BITS, DEVICE_NR_PAGES_BITS, DEVICE_PAGE_SIZE, PADDR_EMPTY,
 };
 use crate::pr_err;
 
@@ -193,11 +192,7 @@ const _: () = assert!(size_of::<ZbdZone>() == 64);
 extern "C" {
     // `zbd_open` returns a descriptor, or a negative value and leaves `errno`
     // set.
-    fn zbd_open(
-        filename: *const c_char,
-        flags: c_int,
-        info: *mut ZbdInfo,
-    ) -> c_int;
+    fn zbd_open(filename: *const c_char, flags: c_int, info: *mut ZbdInfo) -> c_int;
 
     // `zbd_close` closes a descriptor from `zbd_open` and returns nothing.
     fn zbd_close(fd: c_int);
@@ -215,12 +210,7 @@ extern "C" {
 
     // `zbd_zones_operation` runs `op` on every zone in `[ofst, ofst + len)`.
     // It returns 0, or -1 with `errno` set.
-    fn zbd_zones_operation(
-        fd: c_int,
-        op: c_int,
-        ofst: libc::off_t,
-        len: libc::off_t,
-    ) -> c_int;
+    fn zbd_zones_operation(fd: c_int, op: c_int, ofst: libc::off_t, len: libc::off_t) -> c_int;
 }
 
 /// `errno` as C reads it after a failed call, for C's `ret = -errno`.
@@ -354,12 +344,7 @@ impl DeviceOperations for ZoneBackend {
     ///
     /// # Safety
     /// `dev` is the device this backend was installed into.
-    unsafe fn open(
-        &self,
-        dev: *mut device,
-        name: *const c_char,
-        flags: c_int,
-    ) -> c_int {
+    unsafe fn open(&self, dev: *mut device, name: *const c_char, flags: c_int) -> c_int {
         (*dev).info.nr_bus = 1usize << DEVICE_NR_BUS_BITS;
         (*dev).info.nr_chips = 1usize << DEVICE_NR_CHIPS_BITS;
         (*dev).info.package.block.nr_pages = 1usize << DEVICE_NR_PAGES_BITS;
@@ -383,8 +368,7 @@ impl DeviceOperations for ZoneBackend {
         }
         {
             let state = &mut *self.state.get();
-            state.write_fd =
-                zbd_open(name, libc::O_WRONLY | libc::O_DIRECT, &mut info);
+            state.write_fd = zbd_open(name, libc::O_WRONLY | libc::O_DIRECT, &mut info);
             if state.write_fd < 0 {
                 let ret = -last_errno();
                 pr_err!("zone write file descriptor open failed");
@@ -399,12 +383,7 @@ impl DeviceOperations for ZoneBackend {
         }
         if flags & libc::O_CREAT != 0 {
             let fd = (*self.state.get()).write_fd;
-            let ret = zbd_zones_operation(
-                fd,
-                ZBD_OP_RESET,
-                0,
-                total_size as libc::off_t,
-            );
+            let ret = zbd_zones_operation(fd, ZBD_OP_RESET, 0, total_size as libc::off_t);
             if ret != 0 {
                 pr_err!("zone reset failed");
                 return self.close_after_failed_open(ret);
@@ -471,11 +450,7 @@ impl DeviceOperations for ZoneBackend {
     /// # Safety
     /// `dev` is the device this backend was installed into and `request` is a
     /// live request.
-    unsafe fn write(
-        &self,
-        dev: *mut device,
-        request: *mut device_request,
-    ) -> isize {
+    unsafe fn write(&self, dev: *mut device, request: *mut device_request) -> isize {
         let page_size = (*dev).page_size();
 
         if (*request).data.is_null() {
@@ -508,8 +483,7 @@ impl DeviceOperations for ZoneBackend {
             pr_err!("buffer allocation failed");
             return -(libc::ENOMEM as isize);
         };
-        let payload =
-            slice::from_raw_parts((*request).data as *const u8, data_len);
+        let payload = slice::from_raw_parts((*request).data as *const u8, data_len);
         buffer.as_mut_slice().copy_from_slice(payload);
 
         let lpn = (*request).paddr.lpn;
@@ -581,11 +555,7 @@ impl DeviceOperations for ZoneBackend {
     /// # Safety
     /// `dev` is the device this backend was installed into and `request` is a
     /// live request.
-    unsafe fn read(
-        &self,
-        dev: *mut device,
-        request: *mut device_request,
-    ) -> isize {
+    unsafe fn read(&self, dev: *mut device, request: *mut device_request) -> isize {
         let page_size = (*dev).page_size();
 
         if (*request).data.is_null() {
@@ -645,11 +615,7 @@ impl DeviceOperations for ZoneBackend {
     /// # Safety
     /// `dev` is the device this backend was installed into and `request` is a
     /// live request.
-    unsafe fn erase(
-        &self,
-        _dev: *mut device,
-        request: *mut device_request,
-    ) -> c_int {
+    unsafe fn erase(&self, _dev: *mut device, request: *mut device_request) -> c_int {
         let zone_num = (*request).paddr.block() as u64;
         let state = &mut *self.state.get();
         if zone_num >= state.nr_zones {
@@ -748,10 +714,7 @@ unsafe fn zone_do_rw(
 /// # Safety
 /// `dev` is `NULL` or a live device with no backend installed yet.
 #[no_mangle]
-pub unsafe extern "C" fn ffi_zone_device_init(
-    dev: *mut device,
-    flags: u64,
-) -> c_int {
+pub unsafe extern "C" fn ffi_zone_device_init(dev: *mut device, flags: u64) -> c_int {
     let _ = flags;
     if dev.is_null() {
         return -libc::EINVAL;
@@ -785,8 +748,7 @@ pub unsafe extern "C" fn ffi_zone_device_exit(dev: *mut device) -> c_int {
 mod tests {
     use super::*;
     use crate::device::{
-        device_address, ffi_device_module_init, ffi_device_module_exit,
-        DeviceModule, Request,
+        device_address, ffi_device_module_exit, ffi_device_module_init, DeviceModule, Request,
     };
     use core::sync::atomic::{AtomicUsize, Ordering};
     use std::ffi::CString;
@@ -847,12 +809,9 @@ mod tests {
     /// all `zone_do_rw` needs to run a real transfer. `tag` keeps the tests
     /// that run in parallel off each other's file.
     unsafe fn scratch_file(tag: &str) -> (CString, c_int) {
-        let path = std::env::temp_dir().join(format!(
-            "ftl-zone-test-{}-{tag}",
-            std::process::id()
-        ));
-        let path = CString::new(path.into_os_string().into_encoded_bytes())
-            .expect("temp path has no NUL");
+        let path = std::env::temp_dir().join(format!("ftl-zone-test-{}-{tag}", std::process::id()));
+        let path =
+            CString::new(path.into_os_string().into_encoded_bytes()).expect("temp path has no NUL");
         let fd = libc::open(
             path.as_ptr(),
             libc::O_CREAT | libc::O_RDWR | libc::O_TRUNC,
@@ -926,65 +885,47 @@ mod tests {
             // NULL data pointer.
             request.data = ptr::null_mut();
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::ENODATA as isize)
-
             );
 
             // Wrong direction.
             request.data = page.as_mut_ptr() as *mut c_void;
             request.flag = DeviceDirection::Read.into();
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // Unassigned physical address.
             request.flag = DeviceDirection::Write.into();
             request.paddr = device_address::from(PADDR_EMPTY);
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // Short write.
             request.paddr = device_address::from(0u32);
             request.data_len = PAGE - 1;
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // A zone number past the device.
             request.data_len = PAGE;
             request.paddr = device_address::new(0, 0, 1, 0);
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // A write pointer that does not match the address.
             request.paddr = device_address::from(1u32);
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // A stale index with no cached zone array, which C dereferences.
@@ -993,21 +934,15 @@ mod tests {
             state.zones.clear();
             request.paddr = device_address::from(0u32);
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // An unopened device fails the transfer itself.
             offline_backend(&mut dev, &backend, 1, ZONE);
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::EFAULT as isize)
-
             );
         }
     }
@@ -1036,29 +971,20 @@ mod tests {
             for lpn in 0u32..2 {
                 page[..4].copy_from_slice(&lpn.to_ne_bytes());
                 request.paddr = device_address::from(lpn);
-                assert_eq!(
-                    backend.write(&mut dev, request.as_ptr()),
-                    PAGE as isize
-                );
+                assert_eq!(backend.write(&mut dev, request.as_ptr()), PAGE as isize);
             }
             // The write pointer moved, so the first page is no longer writable.
             request.paddr = device_address::from(0u32);
             assert_eq!(
-
                 backend.write(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             request.flag = DeviceDirection::Read.into();
             for lpn in 0u32..2 {
                 page.fill(0xff);
                 request.paddr = device_address::from(lpn);
-                assert_eq!(
-                    backend.read(&mut dev, request.as_ptr()),
-                    PAGE as isize
-                );
+                assert_eq!(backend.read(&mut dev, request.as_ptr()), PAGE as isize);
                 let stamp = u32::from_ne_bytes(page[..4].try_into().unwrap());
                 assert_eq!(stamp, lpn);
             }
@@ -1096,10 +1022,7 @@ mod tests {
             request.end_rq = None;
 
             request.paddr = device_address::from(0u32);
-            assert_eq!(
-                backend.write(&mut dev, request.as_ptr()),
-                PAGE as isize
-            );
+            assert_eq!(backend.write(&mut dev, request.as_ptr()), PAGE as isize);
             // The scratch file is not a zoned device, so libzbd refuses the
             // finish and the port returns that status. C returns the byte
             // count here (`zone.c:232-240`).
@@ -1130,43 +1053,31 @@ mod tests {
             request.data = ptr::null_mut();
             request.flag = DeviceDirection::Read.into();
             assert_eq!(
-
                 backend.read(&mut dev, request.as_ptr()),
-
                 -(libc::ENODATA as isize)
-
             );
 
             // Short read.
             request.data = page.as_mut_ptr() as *mut c_void;
             request.data_len = PAGE - 1;
             assert_eq!(
-
                 backend.read(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // Unassigned physical address.
             request.data_len = PAGE;
             request.paddr = device_address::from(PADDR_EMPTY);
             assert_eq!(
-
                 backend.read(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // A zone number past the device.
             request.paddr = device_address::new(0, 0, 1, 0);
             assert_eq!(
-
                 backend.read(&mut dev, request.as_ptr()),
-
                 -(libc::EINVAL as isize)
-
             );
 
             // A write flag falls through to the transfer, which fails against
@@ -1207,10 +1118,7 @@ mod tests {
             let mut request = Request::new().expect("allocate a request");
             request.flag = DeviceDirection::Erase.into();
             request.paddr = device_address::new(0, 0, 1, 0);
-            assert_eq!(
-                backend.erase(&mut dev, request.as_ptr()),
-                -libc::EINVAL
-            );
+            assert_eq!(backend.erase(&mut dev, request.as_ptr()), -libc::EINVAL);
 
             // A stale index with no cached zone array.
             {
@@ -1218,10 +1126,7 @@ mod tests {
                 state.zones.clear();
             }
             request.paddr = device_address::new(0, 0, 0, 0);
-            assert_eq!(
-                backend.erase(&mut dev, request.as_ptr()),
-                -libc::EINVAL
-            );
+            assert_eq!(backend.erase(&mut dev, request.as_ptr()), -libc::EINVAL);
 
             // libzbd refuses the reset on an unopened device and returns -1.
             offline_backend(&mut dev, &backend, 1, ZONE);
@@ -1278,8 +1183,7 @@ mod tests {
     #[test]
     #[ignore = "needs the null_blk emulator, run `make zone-smoke`"]
     fn emulator_writes_reads_and_resets_a_zone() {
-        let path = std::env::var("FTL_ZONE_DEVICE")
-            .unwrap_or_else(|_| "/dev/nullb0".to_string());
+        let path = std::env::var("FTL_ZONE_DEVICE").unwrap_or_else(|_| "/dev/nullb0".to_string());
         if !Path::new(&path).exists() {
             println!(
                 "SKIP: {path} is missing. Create the emulator with \
@@ -1318,10 +1222,7 @@ mod tests {
     /// # Safety
     /// `zones` and `reported` come from one [`list_zones`] call and the array
     /// is not freed yet.
-    unsafe fn zones_slice(
-        zones: *mut ZbdZone,
-        reported: c_uint,
-    ) -> &'static [ZbdZone] {
+    unsafe fn zones_slice(zones: *mut ZbdZone, reported: c_uint) -> &'static [ZbdZone] {
         if zones.is_null() {
             &[]
         } else {
@@ -1342,15 +1243,18 @@ mod tests {
         // The geometry the C backend reported, read straight from libzbd.
         let mut info: ZbdInfo = zeroed();
         let probe = zbd_open(name.as_ptr(), libc::O_RDONLY, &mut info);
-        assert!(probe >= 0, "zbd_open({path}) failed, errno {}", last_errno());
+        assert!(
+            probe >= 0,
+            "zbd_open({path}) failed, errno {}",
+            last_errno()
+        );
         println!(
             "emulator {path}: zone_size {} bytes, nr_zones {}, model {}, \
              pblock_size {}",
             info.zone_size, info.nr_zones, info.model, info.pblock_size
         );
         assert_eq!(
-            info.model,
-            ZBD_DM_HOST_MANAGED,
+            info.model, ZBD_DM_HOST_MANAGED,
             "device is not host managed"
         );
         assert_eq!(
@@ -1373,11 +1277,7 @@ mod tests {
         // C's `zone_open` with `O_CREAT` resets every zone before it lists
         // them, so this also clears whatever a previous run left behind.
         assert_eq!(
-            (ops.open.unwrap())(
-                dev,
-                name.as_ptr(),
-                libc::O_CREAT | libc::O_RDWR
-            ),
+            (ops.open.unwrap())(dev, name.as_ptr(), libc::O_CREAT | libc::O_RDWR),
             0
         );
 

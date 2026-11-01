@@ -372,9 +372,7 @@ pub(crate) mod test_support;
 /// The page FTL's GC tuning values, generated from `ftl.yaml` by
 /// `tools/gen_config.py`. `make config` regenerates them and
 /// `make check-config` fails when they are stale.
-pub use crate::ftl_config::{
-    PAGE_FTL_GC_ALL, PAGE_FTL_GC_RATIO, PAGE_FTL_GC_THRESHOLD,
-};
+pub use crate::ftl_config::{PAGE_FTL_GC_ALL, PAGE_FTL_GC_RATIO, PAGE_FTL_GC_THRESHOLD};
 
 /// C's `enum { PAGE_FTL_IOCTL_TRIM = 0 }`, the ioctl C still issues.
 pub const PAGE_FTL_IOCTL_TRIM: core::ffi::c_int = 0;
@@ -526,7 +524,10 @@ impl PageFtl {
 
     /// C's `page_ftl_get_free_pages`: sum of every segment's free-page count.
     pub fn free_pages(&self) -> usize {
-        self.segments.iter().map(|seg| seg.free_pages() as usize).sum()
+        self.segments
+            .iter()
+            .map(|seg| seg.free_pages() as usize)
+            .sum()
     }
 }
 
