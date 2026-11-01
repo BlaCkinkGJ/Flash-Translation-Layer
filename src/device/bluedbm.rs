@@ -66,6 +66,8 @@
 //!   arrays are, so the length lives in [`COUNTER_LEN`] beside the pointers:
 //!   `counter_set` and `counter_inc` drop an index past it and `counter_get`
 //!   reads it as `0`. C indexed its `malloc`ed arrays unchecked (issue #16).
+//! - `wait_erase_finish` returns when its range runs past the counters or
+//!   overflows. C would read the array out of range and then block.
 //! - `bluedbm_open` is split at the `memio_open` call. [`Bluedbm::open`] fills
 //!   the geometry and opens the handle. [`Bluedbm::open_storage`] takes the
 //!   handle and allocates the bitmap and the two counters. The split lets the
