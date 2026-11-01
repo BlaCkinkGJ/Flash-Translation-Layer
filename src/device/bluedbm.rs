@@ -2,7 +2,8 @@
 //!
 //! [`Bluedbm`] drives a Flash Board Tester through libmemio, kept one to one
 //! with the C. The geometry, the order of operations, the DMA buffer ownership
-//! and free ordering, the return values and the error codes are all the same.
+//! and free ordering, the return values and the error codes match, apart from
+//! the deviations listed below.
 //! The C ABI layer keeps the C entry points with the `ffi_` prefix
 //! (`ffi_bluedbm_device_init` / `ffi_bluedbm_device_exit` /
 //! `ffi_bluedbm_close`). `src/device/mod.rs` installs the backend through the
@@ -57,7 +58,11 @@
 //!   per-device structure through. They are `AtomicPtr<AtomicI32>` where C has
 //!   `gint *`, and the `g_atomic_int_*` calls become the matching
 //!   [`AtomicI32`] operations.
-//! - The same callback carries no `struct device` to ask how long the two
+//! - `erase` refuses a segment at or past the board with `-EINVAL` before it
+//!   trims. C computes the segment and hands the address to `memio_trim`, and
+//!   the board answers. The FTL only trims mapped blocks, so this never fires
+//!   on its path.
+//! - The trim callback carries no `struct device` to ask how long the two
 //!   arrays are, so the length lives in [`COUNTER_LEN`] beside the pointers:
 //!   `counter_set` and `counter_inc` drop an index past it and `counter_get`
 //!   reads it as `0`. C indexed its `malloc`ed arrays unchecked (issue #16).
@@ -594,8 +599,9 @@ unsafe extern "C" fn erase_end_request(segnum: u64, is_bad: u8) {
 /// in the segment has been erased. Sleeps one second between polls, as C does.
 ///
 /// # Safety
-/// `dev` is the device this backend was installed into and both counter
-/// globals point at their allocation.
+/// `dev` is the device this backend was installed into. The counters may be
+/// missing or shorter than the range asked for, in which case this returns
+/// without polling.
 unsafe fn wait_erase_finish(dev: *mut device, segnum: usize, nr_segments: usize) {
     // The counters hold one entry per segment, so a range past the bound would
     // poll for an update the callback drops. `erase` derives its segment from a
