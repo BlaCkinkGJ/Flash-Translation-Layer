@@ -289,9 +289,7 @@ def render_rust(config):
         '    all(feature = "zone", feature = "raspberry"),',
         '    all(feature = "bluedbm", feature = "raspberry")',
         "))]",
-        "compile_error!(",
-        '    "enable at most one of zone, bluedbm and raspberry"',
-        ");",
+        'compile_error!("enable at most one of zone, bluedbm and raspberry");',
     ]
 
     tuning = config["tuning"]
