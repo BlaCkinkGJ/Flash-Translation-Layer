@@ -55,6 +55,7 @@ make consumer-check                       # C consumer vs a staging install
 sudo make install                         # archive + headers under /usr/local
 make documents | make flow | make check   # docs, call graph, static analysis
 make cargo-clippy   # = cargo clippy --all-targets -- -D warnings
+make cargo-fmt      # = cargo fmt --all -- --check
 make cargo-coverage # cargo llvm-cov --lcov (llvm-tools + cargo-llvm-cov)
 ```
 
@@ -109,7 +110,9 @@ with the port and are not keys.
   `-Werror` policy now that no C source is compiled here.
 - Every C-visible symbol sits in an `extern "C"` function beside the native code
   it wraps, and documents its safety contract.
-- Never run `cargo fmt`: the tree is hand wrapped to 80 columns.
+- Rust formatting is rustfmt's, at its default width of 100 columns.
+  `make cargo-fmt` runs `cargo fmt --all -- --check` and is a build blocker, so
+  run `cargo fmt --all` instead of wrapping by hand.
 
 ## Testing
 

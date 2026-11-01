@@ -290,8 +290,8 @@ clean:
 	rm -f $(INTEGRATION_TEST_TARGET) $(BENCHMARK_TARGET)
 	cargo clean
 
-.PHONY: build_rust cargo-test cargo-clippy cargo-coverage test consumer-check \
-	config check-config FORCE
+.PHONY: build_rust cargo-test cargo-clippy cargo-fmt cargo-coverage test \
+	consumer-check config check-config FORCE
 
 build_rust: $(RUST_LIB)
 
@@ -303,6 +303,11 @@ cargo-test:
 # `-Werror` policy. Requires `rustup component add clippy`.
 cargo-clippy:
 	cargo clippy --all-targets $(RUST_FEATURE_FLAG) -- -D warnings
+
+# Fail when the sources drift from rustfmt, at its default width of 100
+# columns. Requires `rustup component add rustfmt`.
+cargo-fmt:
+	cargo fmt --all -- --check
 
 # Emit an LCOV coverage report for the Rust crate.
 # Requires: `rustup component add llvm-tools-preview` and
