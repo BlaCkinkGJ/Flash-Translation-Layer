@@ -87,6 +87,28 @@ Verified by `make test` for the Rust half and `make consumer-check` for the C
 half, which compiles the assertions against the consumer compiler's own
 offsets.
 
+## Counter bounds
+
+The BlueDBM backend keeps one erase counter per segment in two process-global
+arrays, and libmemio's trim callback indexes them with a segment number it never
+validates. `COUNTER_LEN` (`src/device/bluedbm.rs:204`) carries the length beside
+the pointers, and `publish_counters` (`:750`) stores it before either pointer so
+a callback cannot pair a fresh array with a stale bound. `close` drops it before
+it frees. `counter_slot` (`:686`) rejects a missing array and an index past the
+bound, which turns an update into the value `counter_get` reports as `0`.
+
+Without the bound the callback writes outside its allocation, which is the
+failure issue #16 reports and the one this backend cannot leave to the
+operating system, because it runs under the board. Two callers close the rest of
+the hole. `wait_erase_finish` (`:593`) returns on a range past the bound instead
+of polling for an update that never arrives, and `erase` (`:527`) refuses a
+segment past `nr_segments` before the trim, so a caller gets `-EINVAL` instead
+of a success for an erase nobody waited for.
+
+Verified by `cargo test --lib --features bluedbm`, which needs libmemio. CI
+compiles the feature with `cargo build --lib --features bluedbm` and runs the
+suite only where the library is installed.
+
 ## Cargo features
 
 Five features gate whole backends or behaviours. A feature that is off
