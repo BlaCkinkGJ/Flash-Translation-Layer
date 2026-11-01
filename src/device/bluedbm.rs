@@ -57,15 +57,15 @@
 //!   `memio_trim`'s `end_req` callback carries no context to reach a
 //!   per-device structure through. They are `AtomicPtr<AtomicI32>` where C has
 //!   `gint *`, and the `g_atomic_int_*` calls become the matching
-//!   [`AtomicI32`] operations.
+//!   [`AtomicI32`] operations. The same missing context means the callback
+//!   cannot ask how long the arrays are, so the length lives in
+//!   [`COUNTER_LEN`] beside the pointers: `counter_set` and `counter_inc` drop
+//!   an index past it and `counter_get` reads it as `0`. C indexed its
+//!   `malloc`ed arrays unchecked (issue #16).
 //! - `erase` refuses a segment at or past the board with `-EINVAL` before it
 //!   trims. C computes the segment and hands the address to `memio_trim`, and
-//!   the board answers. The FTL only trims mapped blocks, so this never fires
-//!   on its path.
-//! - The trim callback carries no `struct device` to ask how long the two
-//!   arrays are, so the length lives in [`COUNTER_LEN`] beside the pointers:
-//!   `counter_set` and `counter_inc` drop an index past it and `counter_get`
-//!   reads it as `0`. C indexed its `malloc`ed arrays unchecked (issue #16).
+//!   the board answers. The FTL trims whole segments whose index is below
+//!   `nr_segments`, so this never fires on its path.
 //! - `wait_erase_finish` returns when its range runs past the counters or
 //!   overflows. C would read the array out of range and then block.
 //! - `bluedbm_open` is split at the `memio_open` call. [`Bluedbm::open`] fills

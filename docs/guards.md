@@ -91,17 +91,17 @@ offsets.
 
 The BlueDBM backend keeps one erase counter per segment in two process-global
 arrays, and libmemio's trim callback indexes them with a segment number it never
-validates. `COUNTER_LEN` (`src/device/bluedbm.rs:204`) carries the length beside
-the pointers, and `publish_counters` (`:750`) stores it before either pointer so
+validates. `COUNTER_LEN` (`src/device/bluedbm.rs:211`) carries the length beside
+the pointers, and `publish_counters` (`:767`) stores it before either pointer so
 a callback cannot pair a fresh array with a stale bound. `close` drops it before
-it frees. `counter_slot` (`:686`) rejects a missing array and an index past the
+it frees. `counter_slot` (`:703`) rejects a missing array and an index past the
 bound, which turns an update into the value `counter_get` reports as `0`.
 
 Without the bound the callback writes outside its allocation, which is the
 failure issue #16 reports and the one this backend cannot leave to the
 operating system, because it runs under the board. Two callers close the rest of
-the hole. `wait_erase_finish` (`:593`) returns on a range past the bound instead
-of polling for an update that never arrives, and `erase` (`:527`) refuses a
+the hole. `wait_erase_finish` (`:607`) returns on a range past the bound instead
+of polling for an update that never arrives, and `erase` (`:534`) refuses a
 segment past `nr_segments` before the trim, so a caller gets `-EINVAL` instead
 of a success for an erase nobody waited for.
 
@@ -158,7 +158,7 @@ raspberry switch also sets the `1/1/4/24` bit counts and a 2048 byte page
 Without that, the two sides would disagree about where the block field starts.
 The Rust constants behind the same geometry are `#[cfg]`-selected in
 `src/device/mod.rs:96-117` for `zone`, while bluedbm and raspberry keep their
-own counts beside their backends (`src/device/bluedbm.rs:100-102`,
+own counts beside their backends (`src/device/bluedbm.rs:109,113`,
 `src/device/raspberry.rs:104-116`).
 
 ## CI jobs
