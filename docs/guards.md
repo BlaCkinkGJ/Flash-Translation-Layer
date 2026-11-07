@@ -90,20 +90,20 @@ offsets.
 ## Counter bounds
 
 The BlueDBM backend keeps one erase counter per segment in two process-global
-arrays, and libmemio's trim callback indexes them with a segment number it never
-validates. `COUNTER_LEN` (`src/device/bluedbm.rs:211`) carries the length beside
-the pointers, and `publish_counters` (`:767`) stores it before either pointer so
-a callback cannot pair a fresh array with a stale bound. `close` drops it before
-it frees. `counter_slot` (`:703`) rejects a missing array and an index past the
-bound, which turns an update into the value `counter_get` reports as `0`.
+arrays, and libmemio's trim callback indexes them with a segment number that
+comes from the device manager. `COUNTER_LEN` (`src/device/bluedbm.rs:211`) holds
+the length beside the pointers, and `publish_counters` (`:767`) stores it before
+either pointer so a callback cannot pair a fresh array with a stale bound.
+`close` drops it before it frees. `counter_slot` (`:703`) rejects a missing
+array and an index past the bound, and `counter_get` reports `0` for the update
+it drops.
 
-Without the bound the callback writes outside its allocation, which is the
-failure issue #16 reports and the one this backend cannot leave to the
-operating system, because it runs under the board. Two callers close the rest of
-the hole. `wait_erase_finish` (`:607`) returns on a range past the bound instead
-of polling for an update that never arrives, and `erase` (`:534`) refuses a
-segment past `nr_segments` before the trim, so a caller gets `-EINVAL` instead
-of a success for an erase nobody waited for.
+The callback runs under the board, so a write past the array has no operating
+system check behind it. That is the failure issue #16 reports. Two callers keep
+the range in bounds as well. `wait_erase_finish` (`:607`) returns on a range
+past the bound, where it used to poll for an update that never arrives, and
+`erase` (`:534`) refuses a segment at or past `nr_segments` before the trim, so
+a caller gets `-EINVAL` rather than a success for an erase nobody waited for.
 
 Verified by `cargo test --lib --features bluedbm`, which needs libmemio. CI
 compiles the feature with `cargo build --lib --features bluedbm` and runs the
