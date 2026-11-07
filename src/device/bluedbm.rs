@@ -63,9 +63,11 @@
 //!   an index past it and `counter_get` reads it as `0`. C indexed its
 //!   `malloc`ed arrays unchecked (issue #16).
 //! - `erase` refuses a segment at or past the board with `-EINVAL` before it
-//!   trims. C computes the segment and hands the address to `memio_trim`, and
-//!   the board answers. The FTL trims whole segments whose index is below
-//!   `nr_segments`, so this never fires on its path.
+//!   trims. C computes the segment and hands the address to `memio_trim`, which
+//!   checks alignment only and returns the byte count it enqueued, so nothing
+//!   below answers for an address outside the board. The FTL trims whole
+//!   segments whose index is below `nr_segments`, so this never fires on its
+//!   path.
 //! - `wait_erase_finish` returns when its range runs past the counters or
 //!   overflows. C would read the array out of range and then block.
 //! - `bluedbm_open` is split at the `memio_open` call. [`Bluedbm::open`] fills
