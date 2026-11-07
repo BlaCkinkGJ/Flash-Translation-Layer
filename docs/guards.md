@@ -87,6 +87,28 @@ Verified by `make test` for the Rust half and `make consumer-check` for the C
 half, which compiles the assertions against the consumer compiler's own
 offsets.
 
+## Counter bounds
+
+The BlueDBM backend keeps one erase counter per segment in two process-global
+arrays, and libmemio's trim callback indexes them with a segment number that
+comes from the device manager. `COUNTER_LEN` (`src/device/bluedbm.rs:211`) holds
+the length beside the pointers, and `publish_counters` (`:767`) stores it before
+either pointer so a callback cannot pair a fresh array with a stale bound.
+`close` drops it before it frees. `counter_slot` (`:703`) rejects a missing
+array and an index past the bound, and `counter_get` reports `0` for the update
+it drops.
+
+The callback runs under the board, so a write past the array has no operating
+system check behind it. That is the failure issue #16 reports. Two callers keep
+the range in bounds as well. `wait_erase_finish` (`:607`) returns on a range
+past the bound, where it used to poll for an update that never arrives, and
+`erase` (`:534`) refuses a segment at or past `nr_segments` before the trim, so
+a caller gets `-EINVAL` rather than a success for an erase nobody waited for.
+
+Verified by `cargo test --lib --features bluedbm`, which needs libmemio. CI
+compiles the feature with `cargo build --lib --features bluedbm` and runs the
+suite only where the library is installed.
+
 ## Cargo features
 
 Five features gate whole backends or behaviours. A feature that is off
@@ -136,7 +158,7 @@ raspberry switch also sets the `1/1/4/24` bit counts and a 2048 byte page
 Without that, the two sides would disagree about where the block field starts.
 The Rust constants behind the same geometry are `#[cfg]`-selected in
 `src/device/mod.rs:96-117` for `zone`, while bluedbm and raspberry keep their
-own counts beside their backends (`src/device/bluedbm.rs:100-102`,
+own counts beside their backends (`src/device/bluedbm.rs:109,113`,
 `src/device/raspberry.rs:104-116`).
 
 ## CI jobs

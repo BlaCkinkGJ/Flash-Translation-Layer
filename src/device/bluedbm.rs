@@ -2,7 +2,8 @@
 //!
 //! [`Bluedbm`] drives a Flash Board Tester through libmemio, kept one to one
 //! with the C. The geometry, the order of operations, the DMA buffer ownership
-//! and free ordering, the return values and the error codes are all the same.
+//! and free ordering, the return values and the error codes match, apart from
+//! the deviations listed below.
 //! The C ABI layer keeps the C entry points with the `ffi_` prefix
 //! (`ffi_bluedbm_device_init` / `ffi_bluedbm_device_exit` /
 //! `ffi_bluedbm_close`). `src/device/mod.rs` installs the backend through the
@@ -56,7 +57,19 @@
 //!   `memio_trim`'s `end_req` callback carries no context to reach a
 //!   per-device structure through. They are `AtomicPtr<AtomicI32>` where C has
 //!   `gint *`, and the `g_atomic_int_*` calls become the matching
-//!   [`AtomicI32`] operations.
+//!   [`AtomicI32`] operations. The same missing context means the callback
+//!   cannot ask how long the arrays are, so the length lives in
+//!   [`COUNTER_LEN`] beside the pointers: `counter_set` and `counter_inc` drop
+//!   an index past it and `counter_get` reads it as `0`. C indexed its
+//!   `malloc`ed arrays unchecked (issue #16).
+//! - `erase` refuses a segment at or past the board with `-EINVAL` before it
+//!   trims. C computes the segment and hands the address to `memio_trim`, which
+//!   checks alignment only and returns the byte count it enqueued, so nothing
+//!   below answers for an address outside the board. The FTL trims whole
+//!   segments whose index is below `nr_segments`, so this never fires on its
+//!   path.
+//! - `wait_erase_finish` returns when its range runs past the counters or
+//!   overflows. C would read the array out of range and then block.
 //! - `bluedbm_open` is split at the `memio_open` call. [`Bluedbm::open`] fills
 //!   the geometry and opens the handle. [`Bluedbm::open_storage`] takes the
 //!   handle and allocates the bitmap and the two counters. The split lets the
@@ -81,7 +94,7 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::size_of;
 use core::ptr;
 use core::slice;
-use core::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicPtr, AtomicUsize, Ordering};
 
 use crate::bits::{set_bit, BITS_PER_UINT64};
 // The geometry is the shared, generated `ftl.yaml` bluedbm section, not a
@@ -192,6 +205,13 @@ static G_ERASE_COUNTER: AtomicPtr<AtomicI32> = AtomicPtr::new(ptr::null_mut());
 /// segment is reported bad.
 static G_BADSEG_COUNTER: AtomicPtr<AtomicI32> = AtomicPtr::new(ptr::null_mut());
 
+/// How many counters each of the two globals above holds.
+///
+/// [`open_storage`](Bluedbm::open_storage) sets it and
+/// [`close`](Bluedbm::close) clears it. The trim callback has no `struct
+/// device` to ask, so the bound has to sit next to the pointers.
+static COUNTER_LEN: AtomicUsize = AtomicUsize::new(0);
+
 /// BlueDBM backend, the Rust form of C's `struct bluedbm`.
 ///
 /// The fields are `Cell`s because [`DeviceOperations`] hands out `&self` and
@@ -269,15 +289,18 @@ impl Bluedbm {
             pr_err!("memory allocation failed");
             return -libc::ENOMEM;
         }
-        G_ERASE_COUNTER.store(erase_counter, Ordering::SeqCst);
 
         free_counter(&G_BADSEG_COUNTER);
         let badseg_counter = libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32;
         if badseg_counter.is_null() {
             pr_err!("memory allocation failed");
+            libc::free(erase_counter as *mut c_void);
             return -libc::ENOMEM;
         }
-        G_BADSEG_COUNTER.store(badseg_counter, Ordering::SeqCst);
+
+        // Both arrays exist, so publish the bound and then the pointers, before
+        // the first trim below can reach the callback.
+        publish_counters(erase_counter, badseg_counter, nr_segments);
 
         if self.o_flags.get() & libc::O_CREAT != 0 {
             let _ = self.clear(dev);
@@ -510,6 +533,14 @@ impl DeviceOperations for Bluedbm {
         let pages_per_segment = (*dev).pages_per_segment() as u32;
         // C's `segnum = addr.format.block` with the BlueDBM bit counts.
         let segnum = (*request).paddr.lpn >> BLUEDBM_BLOCK_SHIFT;
+        if segnum as usize >= (*dev).nr_segments() {
+            pr_err!(
+                "invalid segment detected (segnum: {}, max: {})",
+                segnum,
+                (*dev).nr_segments()
+            );
+            return -libc::EINVAL;
+        }
 
         if let Some(end_rq) = (*request).end_rq {
             end_rq(request);
@@ -534,6 +565,9 @@ impl DeviceOperations for Bluedbm {
             libc::free((*dev).badseg_bitmap as *mut c_void);
             (*dev).badseg_bitmap = ptr::null_mut();
         }
+        // Drop the bound before the arrays go away, so a callback that arrives
+        // late indexes nothing.
+        COUNTER_LEN.store(0, Ordering::SeqCst);
         free_counter(&G_ERASE_COUNTER);
         free_counter(&G_BADSEG_COUNTER);
         0
@@ -551,9 +585,15 @@ unsafe extern "C" fn erase_end_request(segnum: u64, is_bad: u8) {
         pr_err!("NULL pointer detected");
         return;
     }
-    counter_inc(&G_ERASE_COUNTER, segnum as usize);
+    // A 32 bit target truncates a `usize` cast, which would turn a segment far
+    // outside the board into a small in range one.
+    let Ok(segnum) = usize::try_from(segnum) else {
+        pr_err!("segment number does not fit an index ({})", segnum);
+        return;
+    };
+    counter_inc(&G_ERASE_COUNTER, segnum);
     if is_bad != 0 {
-        counter_inc(&G_BADSEG_COUNTER, segnum as usize);
+        counter_inc(&G_BADSEG_COUNTER, segnum);
     }
 }
 
@@ -563,10 +603,34 @@ unsafe extern "C" fn erase_end_request(segnum: u64, is_bad: u8) {
 /// in the segment has been erased. Sleeps one second between polls, as C does.
 ///
 /// # Safety
-/// `dev` is the device this backend was installed into and both counter
-/// globals point at their allocation.
+/// `dev` is the device this backend was installed into. The counters may be
+/// missing or shorter than the range asked for, in which case this returns
+/// without polling.
 unsafe fn wait_erase_finish(dev: *mut device, segnum: usize, nr_segments: usize) {
-    let end_segment = segnum + nr_segments;
+    // The counters hold one entry per segment, so a range past the bound would
+    // poll for an update the callback drops. `erase` derives its segment from a
+    // caller's address, which is how it gets here.
+    // `open_storage` publishes the counter length and sizes the bad segment
+    // bitmap from the same `nr_segments`, so the smaller of the two is the
+    // range both of them can take.
+    let len = (*dev).nr_segments().min(COUNTER_LEN.load(Ordering::SeqCst));
+    let Some(end_segment) = segnum.checked_add(nr_segments) else {
+        pr_err!(
+            "erase wait overflows (segnum: {}, segments: {})",
+            segnum,
+            nr_segments
+        );
+        return;
+    };
+    if end_segment > len {
+        pr_err!(
+            "erase wait past the counters (segnum: {}, segments: {}, counters: {})",
+            segnum,
+            nr_segments,
+            len
+        );
+        return;
+    }
     let blocks_per_segment = (*dev).blocks_per_segment();
     let mut segnum = segnum;
     while segnum < end_segment {
@@ -627,31 +691,85 @@ unsafe extern "C" fn end_rw_request(rw_req: *mut AsyncBdbmReq) {
     }
 }
 
+/// Resolve the counter for `segnum`, or `NULL` when the array is not
+/// allocated or the index falls past it.
+///
+/// The trim callback is handed a segment number by libmemio and nothing else,
+/// so this is the one place that decides whether the index is safe to
+/// dereference. An index out of range is logged and dropped, the way a failed
+/// counter update is treated for any other reason.
+///
+/// # Safety
+/// Nothing releases the array behind `counter` while this call or the pointer it
+/// returns is in use.
+unsafe fn counter_slot(counter: &AtomicPtr<AtomicI32>, segnum: usize) -> *mut AtomicI32 {
+    let base = counter.load(Ordering::SeqCst);
+    if base.is_null() {
+        pr_err!("counter array is not allocated (segnum: {})", segnum);
+        return ptr::null_mut();
+    }
+    let len = COUNTER_LEN.load(Ordering::SeqCst);
+    if segnum >= len {
+        pr_err!(
+            "counter index out of range (segnum: {}, counters: {})",
+            segnum,
+            len
+        );
+        return ptr::null_mut();
+    }
+    base.add(segnum)
+}
+
 /// Read the atomic counter for `segnum`, C's `g_atomic_int_get`.
 ///
 /// # Safety
-/// `counter` points at its allocation, which holds at least `segnum + 1`
-/// counters.
+/// Nothing releases the array behind `counter` for the duration of the call. An
+/// index past the bound reads as `0`.
 unsafe fn counter_get(counter: &AtomicPtr<AtomicI32>, segnum: usize) -> c_int {
-    (*counter.load(Ordering::SeqCst).add(segnum)).load(Ordering::SeqCst)
+    let slot = counter_slot(counter, segnum);
+    if slot.is_null() {
+        return 0;
+    }
+    (*slot).load(Ordering::SeqCst)
 }
 
 /// Store the atomic counter for `segnum`, C's `g_atomic_int_set`.
 ///
 /// # Safety
-/// `counter` points at its allocation, which holds at least `segnum + 1`
-/// counters.
+/// Nothing releases the array behind `counter` for the duration of the call. An
+/// index past the bound is dropped.
 unsafe fn counter_set(counter: &AtomicPtr<AtomicI32>, segnum: usize, value: c_int) {
-    (*counter.load(Ordering::SeqCst).add(segnum)).store(value, Ordering::SeqCst);
+    let slot = counter_slot(counter, segnum);
+    if !slot.is_null() {
+        (*slot).store(value, Ordering::SeqCst);
+    }
 }
 
 /// Increment the atomic counter for `segnum`, C's `g_atomic_int_inc`.
 ///
 /// # Safety
-/// `counter` points at its allocation, which holds at least `segnum + 1`
-/// counters.
+/// Nothing releases the array behind `counter` for the duration of the call. An
+/// index past the bound is dropped.
 unsafe fn counter_inc(counter: &AtomicPtr<AtomicI32>, segnum: usize) {
-    (*counter.load(Ordering::SeqCst).add(segnum)).fetch_add(1, Ordering::SeqCst);
+    let slot = counter_slot(counter, segnum);
+    if !slot.is_null() {
+        (*slot).fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Publish both counter arrays and the bound they share.
+///
+/// The bound goes first. A reader that picks up a new pointer then also reads
+/// the length that belongs to it, where the other order lets a callback pair a
+/// fresh array with the previous length and drop a valid update.
+///
+/// # Safety
+/// `erase` and `badseg` each hold `nr_segments` counters and are unpublished,
+/// so no callback can be using them yet.
+unsafe fn publish_counters(erase: *mut AtomicI32, badseg: *mut AtomicI32, nr_segments: usize) {
+    COUNTER_LEN.store(nr_segments, Ordering::SeqCst);
+    G_ERASE_COUNTER.store(erase, Ordering::SeqCst);
+    G_BADSEG_COUNTER.store(badseg, Ordering::SeqCst);
 }
 
 /// Release a counter global the way C's `free` does in `bluedbm_close`, and
@@ -660,10 +778,11 @@ unsafe fn counter_inc(counter: &AtomicPtr<AtomicI32>, segnum: usize) {
 /// # Safety
 /// The pointer, when non-null, came from `calloc` and no callback is using it.
 unsafe fn free_counter(counter: &AtomicPtr<AtomicI32>) {
-    let ptr = counter.load(Ordering::SeqCst);
+    // Clear the global first. A reader that loads the pointer must never reach
+    // a block this call has already handed back.
+    let ptr = counter.swap(ptr::null_mut(), Ordering::SeqCst);
     if !ptr.is_null() {
         libc::free(ptr as *mut c_void);
-        counter.store(ptr::null_mut(), Ordering::SeqCst);
     }
 }
 
@@ -742,6 +861,20 @@ mod tests {
             mio: Cell::new(NonNull::<memio_t>::dangling().as_ptr()),
             o_flags: Cell::new(0),
         }
+    }
+
+    /// Install both counter arrays with `nr_segments` entries and publish the
+    /// bound, the way [`Bluedbm::open_storage`] does without libmemio.
+    ///
+    /// # Safety
+    /// The caller holds [`GLOBALS`].
+    unsafe fn install_counters(nr_segments: usize) {
+        free_counter(&G_ERASE_COUNTER);
+        free_counter(&G_BADSEG_COUNTER);
+        let erase = libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32;
+        let badseg = libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32;
+        assert!(!erase.is_null() && !badseg.is_null());
+        publish_counters(erase, badseg, nr_segments);
     }
 
     #[test]
@@ -883,6 +1016,12 @@ mod tests {
             request.paddr = device_address::from(PADDR_EMPTY);
             assert_eq!(backend.erase(&mut dev, request.as_ptr()), -libc::EINVAL);
 
+            // A segment past the board would trim nothing and wait for a count
+            // the callback drops, so `erase` refuses it.
+            let past_the_board = ((dev.nr_segments() as u64) << BLUEDBM_BLOCK_SHIFT) as u32;
+            request.paddr = device_address::from(past_the_board);
+            assert_eq!(backend.erase(&mut dev, request.as_ptr()), -libc::EINVAL);
+
             let bare = Bluedbm::new();
             assert_eq!(bare.erase(&mut dev, request.as_ptr()), -libc::EFAULT);
             assert_eq!(bare.clear(&mut dev), -libc::EINVAL);
@@ -925,16 +1064,7 @@ mod tests {
         let _globals = GLOBALS.lock().unwrap();
         unsafe {
             let nr_segments = 4usize;
-            free_counter(&G_ERASE_COUNTER);
-            free_counter(&G_BADSEG_COUNTER);
-            G_ERASE_COUNTER.store(
-                libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32,
-                Ordering::SeqCst,
-            );
-            G_BADSEG_COUNTER.store(
-                libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32,
-                Ordering::SeqCst,
-            );
+            install_counters(nr_segments);
 
             erase_end_request(2, 0);
             erase_end_request(2, 1);
@@ -950,6 +1080,59 @@ mod tests {
     }
 
     #[test]
+    fn counters_ignore_an_index_past_the_allocation() {
+        let _globals = GLOBALS.lock().unwrap();
+        unsafe {
+            install_counters(3);
+
+            // One past the end is dropped, and the counters in range still
+            // count.
+            counter_inc(&G_ERASE_COUNTER, 3);
+            counter_set(&G_ERASE_COUNTER, 3, 7);
+            assert_eq!(counter_get(&G_ERASE_COUNTER, 3), 0);
+            counter_inc(&G_ERASE_COUNTER, 2);
+            assert_eq!(counter_get(&G_ERASE_COUNTER, 2), 1);
+
+            // The trim callback takes the same guard.
+            erase_end_request(3, 1);
+            assert_eq!(counter_get(&G_BADSEG_COUNTER, 3), 0);
+            assert_eq!(counter_get(&G_BADSEG_COUNTER, 0), 0);
+
+            // A bound with no array behind it indexes nothing either.
+            free_counter(&G_ERASE_COUNTER);
+            counter_inc(&G_ERASE_COUNTER, 0);
+            assert_eq!(counter_get(&G_ERASE_COUNTER, 0), 0);
+
+            free_counter(&G_BADSEG_COUNTER);
+            COUNTER_LEN.store(0, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn open_and_close_publish_and_drop_the_counter_bound() {
+        let _globals = GLOBALS.lock().unwrap();
+        let mut dev = zeroed_device();
+        unsafe { configure_geometry(&mut dev) };
+        let backend = Bluedbm::new();
+
+        unsafe {
+            assert_eq!(
+                backend.open_storage(&mut dev, NonNull::<memio_t>::dangling().as_ptr(), 0),
+                0
+            );
+            assert_eq!(COUNTER_LEN.load(Ordering::SeqCst), dev.nr_segments());
+
+            // `close` must drop the bound before the arrays, so an index that
+            // was valid a moment ago touches nothing.
+            backend.mio.set(ptr::null_mut());
+            assert_eq!(backend.close(&mut dev), 0);
+            assert_eq!(COUNTER_LEN.load(Ordering::SeqCst), 0);
+            counter_inc(&G_ERASE_COUNTER, 0);
+            assert_eq!(counter_get(&G_ERASE_COUNTER, 0), 0);
+        }
+    }
+
+    #[test]
     fn wait_erase_finish_marks_bad_and_clears_erased_segments() {
         let _globals = GLOBALS.lock().unwrap();
         let mut dev = zeroed_device();
@@ -957,16 +1140,7 @@ mod tests {
         let nr_segments = dev.nr_segments();
 
         unsafe {
-            free_counter(&G_ERASE_COUNTER);
-            free_counter(&G_BADSEG_COUNTER);
-            G_ERASE_COUNTER.store(
-                libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32,
-                Ordering::SeqCst,
-            );
-            G_BADSEG_COUNTER.store(
-                libc::calloc(nr_segments, size_of::<c_int>()) as *mut AtomicI32,
-                Ordering::SeqCst,
-            );
+            install_counters(nr_segments);
             dev.badseg_bitmap =
                 libc::calloc(nr_segments.div_ceil(BITS_PER_UINT64), size_of::<u64>()) as *mut u64;
 
@@ -980,6 +1154,12 @@ mod tests {
             counter_set(&G_ERASE_COUNTER, 3, dev.blocks_per_segment() as c_int);
             wait_erase_finish(&mut dev, 3, 1);
             assert_eq!(counter_get(&G_ERASE_COUNTER, 3), 0);
+
+            // A range past the counters returns instead of polling for an
+            // update the callback drops, and a range that cannot be counted
+            // returns instead of overflowing.
+            wait_erase_finish(&mut dev, nr_segments, 1);
+            wait_erase_finish(&mut dev, usize::MAX, 1);
 
             libc::free(dev.badseg_bitmap as *mut c_void);
             free_counter(&G_ERASE_COUNTER);
