@@ -262,6 +262,10 @@ impl Bluedbm {
 
     /// The context handed to `memio_trim`, which is how the completion callback
     /// reaches this board's counters.
+    ///
+    /// It stays valid while the backend is installed, which is the window in
+    /// which libmemio can call the erase callback: [`Bluedbm::close`] calls
+    /// `memio_close` first, and that waits for the requests it issued.
     fn context(&self) -> *mut c_void {
         (self as *const Self).cast_mut().cast::<c_void>()
     }
@@ -298,10 +302,22 @@ impl Bluedbm {
         (*dev).badseg_bitmap = badseg;
 
         // One counter per segment, replaced rather than reused on a re-open so
-        // the counts from the previous open cannot leak into this one.
+        // the counts from the previous open cannot leak into this one. Both
+        // buffers are reserved first, so a failed allocation reports `-ENOMEM`
+        // rather than aborting the process the way `vec!` would.
+        let mut erase = Vec::new();
+        let mut badseg_counters = Vec::new();
+        if erase.try_reserve_exact(nr_segments).is_err()
+            || badseg_counters.try_reserve_exact(nr_segments).is_err()
+        {
+            pr_err!("memory allocation failed");
+            return -libc::ENOMEM;
+        }
+        erase.resize_with(nr_segments, || AtomicI32::new(0));
+        badseg_counters.resize_with(nr_segments, || AtomicI32::new(0));
         *self.counters.get() = EraseCounters {
-            erase: (0..nr_segments).map(|_| AtomicI32::new(0)).collect(),
-            badseg: (0..nr_segments).map(|_| AtomicI32::new(0)).collect(),
+            erase,
+            badseg: badseg_counters,
         };
 
         if self.o_flags.get() & libc::O_CREAT != 0 {
@@ -631,9 +647,10 @@ impl DeviceOperations for Bluedbm {
             libc::free((*dev).badseg_bitmap as *mut c_void);
             (*dev).badseg_bitmap = ptr::null_mut();
         }
-        // Drop the counters with the board, so a callback that arrives late
-        // finds an empty vector and drops the update.
-        *self.counters.get() = EraseCounters::default();
+        // The counters stay allocated. `wait_erase_finish` leaves a segment as
+        // soon as one block reports bad, so up to `blocks_per_segment - 1`
+        // callbacks for it can still be in flight, and they index these
+        // vectors. They go with the backend, at uninstall.
         0
     }
 }
@@ -974,11 +991,12 @@ mod tests {
             );
 
             // Clear the handle so close never hands the dangling pointer to
-            // memio_close, then close releases the bitmap and the counters.
+            // memio_close, then close releases the bitmap. The counters stay,
+            // because a block erase of a bad segment can still complete.
             backend.mio.set(ptr::null_mut());
             assert_eq!(backend.close(&mut dev), 0);
             assert!(dev.badseg_bitmap.is_null());
-            assert_eq!((&*backend.counters.get()).erase.len(), 0);
+            assert_eq!((&*backend.counters.get()).erase.len(), dev.nr_segments());
         }
     }
 
@@ -1024,10 +1042,11 @@ mod tests {
     }
 
     #[test]
-    fn close_drops_the_counters() {
+    fn close_keeps_the_counters_for_a_late_callback() {
         let mut dev = zeroed_device();
         unsafe { configure_geometry(&mut dev) };
         let backend = Bluedbm::new();
+        let nr_segments = dev.nr_segments();
 
         unsafe {
             assert_eq!(
@@ -1036,11 +1055,16 @@ mod tests {
             );
             backend.mio.set(ptr::null_mut());
             assert_eq!(backend.close(&mut dev), 0);
-            assert_eq!((&*backend.counters.get()).erase.len(), 0);
 
-            // A callback that arrives after close indexes nothing.
+            // The wait leaves a bad segment while its other blocks are still
+            // in flight, so a callback can arrive after close. It must find the
+            // arrays it indexed before.
+            assert_eq!((&*backend.counters.get()).erase.len(), nr_segments);
             erase_end_request(0, 0, backend.context());
-            assert_eq!((&*backend.counters.get()).erase.len(), 0);
+            assert_eq!(
+                (&*backend.counters.get()).erase[0].load(Ordering::SeqCst),
+                1
+            );
         }
     }
 

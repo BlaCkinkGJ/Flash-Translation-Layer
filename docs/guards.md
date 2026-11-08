@@ -96,12 +96,14 @@ them with a segment number that comes from the device manager, so
 update. The callback reaches the backend through the `ctx` that `memio_trim`
 hands back, which is why the arrays are no longer process globals.
 
-The callback runs under the board, so a write past the array has no operating
-system check behind it. That is the failure issue #16 reports. Two callers keep
-the range in bounds as well. The wait returns on a range past the counters,
-where it used to poll for an update that never arrives, and `erase` refuses a
-segment at or past `nr_segments` before the trim, so a caller gets `-EINVAL`
-rather than a success for an erase nobody waited for.
+The arrays stay allocated for the life of the backend, because the wait leaves
+a bad segment while up to `blocks_per_segment - 1` of its callbacks can still
+arrive. The callback runs under the board, so a write past the array has no
+operating system check behind it. That is the failure issue #16 reports. Two
+callers keep the range in bounds as well. The wait returns on a range past the
+counters, where it used to poll for an update that never arrives, and `erase`
+refuses a segment at or past `nr_segments` before the trim, so a caller gets
+`-EINVAL` rather than a success for an erase nobody waited for.
 
 Verified by `cargo test --lib --features bluedbm`, which needs libmemio at
 `afb9e5a` or later for the `memio_trim` context argument. CI compiles the
