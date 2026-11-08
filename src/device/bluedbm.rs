@@ -56,11 +56,13 @@
 //! - C reaches `struct bluedbm` by casting `dev->d_private`. The port holds it
 //!   as `self`, the backend the vtable was built from, so the type behind the
 //!   vtable can never disagree with it.
-//! - The two counters are [`EraseCounters`] fields of [`Bluedbm`], where C has
-//!   process globals (`gint *` sized by `calloc`). `memio_trim` hands the
-//!   `ctx` it was given back to the erase callback, so the callback reaches
-//!   the board it was issued from and the bound it checks is the vector's
-//!   length. The `g_atomic_int_*` calls become the matching [`AtomicI32`]
+//! - The two counters are one [`EraseCounters`] allocation reached through the
+//!   `ctx` that `memio_trim` hands back, where C has process globals (`gint *`
+//!   sized by `calloc`). The allocation is never freed, because libmemio can
+//!   deliver a trim completion after `memio_close` returns, and the callback
+//!   must not land on freed memory. C had the same window and covered it by
+//!   nulling the globals. The bound the callback checks is the vector's
+//!   length, and the `g_atomic_int_*` calls become the matching [`AtomicI32`]
 //!   operations. C indexed its arrays unchecked (issue #16).
 //! - `erase` refuses a segment at or past the board with `-EINVAL` before it
 //!   trims. C computes the segment and hands the address to `memio_trim`, which
@@ -70,6 +72,13 @@
 //!   path.
 //! - `wait_erase_finish` returns when its range runs past the counters or
 //!   overflows. C would read the array out of range and then block.
+//! - The seven libmemio calls go through [`MemioApi`], a struct of function
+//!   pointers filled from the `extern "C"` block, where C names the symbols
+//!   directly. That is the same seam `raspberry` uses, and without it no test
+//!   can drive `clear` or `erase`, because libmemio is absent from every machine
+//!   here. The signatures and the call order are C's. The completion callback
+//!   has no backend to ask, so the DMA structure carries the one entry point it
+//!   needs.
 //! - `bluedbm_open` is split at the `memio_open` call. [`Bluedbm::open`] fills
 //!   the geometry and opens the handle. [`Bluedbm::open_storage`] takes the
 //!   handle and allocates the bitmap and the two counters. The split lets the
@@ -79,8 +88,8 @@
 //!   `Box` aborts on OOM, as in [`crate::device::ramdisk`]. C's `-errno`
 //!   (write) and `-ENOMEM` (read) returns for that allocation go with it.
 //! - On a re-open, C overwrites `dev->badseg_bitmap` and the two counter
-//!   globals and leaks the old buffers. The port releases them first, the way
-//!   [`Bluedbm::close`] does, so the two paths cannot disagree.
+//!   globals and leaks the old buffers. The port frees the bitmap and clears
+//!   the counters in place, so the two paths cannot disagree.
 //! - When `memio_write` / `memio_read` returns a negative value, C returns it
 //!   and leaks the DMA and request structures. The port does the same: libmemio
 //!   may have run `end_rw_request` before returning, so freeing them here could
@@ -89,7 +98,7 @@
 //!   and C's `(uint32_t)` cast of `device_get_pages_per_segment` is kept for
 //!   the `erase_size` product.
 
-use core::cell::{Cell, UnsafeCell};
+use core::cell::Cell;
 use core::ffi::{c_char, c_int, c_void};
 use core::mem::size_of;
 use core::ptr;
@@ -141,6 +150,9 @@ struct BluedbmDma {
     tag: u32,
     data: *mut c_char,
     d_private: *mut c_void,
+    /// The completion callback has no backend to ask, so the one entry point it
+    /// needs travels with the request.
+    free_dma: unsafe extern "C" fn(c_int, c_int),
 }
 
 /// Signature of `memio_trim`'s `end_req` callback, C's
@@ -204,18 +216,72 @@ extern "C" {
     fn memio_free_dma(type_: c_int, dma_tag: c_int);
 }
 
+/// The libmemio entry points the backend calls, as a table of function
+/// pointers.
+///
+/// C names the symbols directly. The port routes them through this struct so a
+/// unit test can stand in for the board, the way [`crate::device::raspberry`]
+/// does with its `NandApi`. The signatures and the call order are C's.
+#[derive(Clone, Copy)]
+struct MemioApi {
+    open: unsafe extern "C" fn() -> *mut memio_t,
+    close: unsafe extern "C" fn(*mut memio_t),
+    read: unsafe extern "C" fn(*mut memio_t, u32, u64, *mut u8, c_int, *mut c_void, c_int) -> c_int,
+    write:
+        unsafe extern "C" fn(*mut memio_t, u32, u64, *mut u8, c_int, *mut c_void, c_int) -> c_int,
+    trim: unsafe extern "C" fn(*mut memio_t, u32, u64, EraseEndReqFn, *mut c_void) -> c_int,
+    alloc_dma: unsafe extern "C" fn(c_int, *mut *mut c_char) -> c_int,
+    free_dma: unsafe extern "C" fn(c_int, c_int),
+}
+
+impl MemioApi {
+    /// The library entry points, the direct calls C makes.
+    fn system() -> Self {
+        Self {
+            open: memio_open,
+            close: memio_close,
+            read: memio_read,
+            write: memio_write,
+            trim: memio_trim,
+            alloc_dma: memio_alloc_dma,
+            free_dma: memio_free_dma,
+        }
+    }
+}
+
 /// Erase bookkeeping for one board, one counter per segment.
 ///
 /// C kept both arrays in process globals, because `memio_trim`'s callback
-/// carried no context. The callback now receives the backend the trim was
-/// issued from, so the arrays live with that backend, and their length is the
-/// bound the callback checks.
-#[derive(Default)]
+/// carried no context. The callback now receives the address of this
+/// structure, so its length is the bound the callback checks.
 struct EraseCounters {
     /// Blocks erased per segment since the counter was last cleared.
     erase: Vec<AtomicI32>,
     /// Non-zero once the segment is reported bad.
     badseg: Vec<AtomicI32>,
+}
+
+impl EraseCounters {
+    /// Zeroed counters for `nr_segments` segments, or `None` when an
+    /// allocation fails. Both buffers are reserved before they grow, so the
+    /// caller can report `-ENOMEM` the way the `calloc` it replaced did.
+    fn try_new(nr_segments: usize) -> Option<Self> {
+        let mut erase = Vec::new();
+        let mut badseg = Vec::new();
+        erase.try_reserve_exact(nr_segments).ok()?;
+        badseg.try_reserve_exact(nr_segments).ok()?;
+        erase.resize_with(nr_segments, || AtomicI32::new(0));
+        badseg.resize_with(nr_segments, || AtomicI32::new(0));
+        Some(Self { erase, badseg })
+    }
+
+    /// Clear every counter without moving the buffers, so a callback that is
+    /// still indexing them keeps reading a live allocation.
+    fn reset(&self) {
+        for counter in self.erase.iter().chain(self.badseg.iter()) {
+            counter.store(0, Ordering::SeqCst);
+        }
+    }
 }
 
 /// BlueDBM backend, the Rust form of C's `struct bluedbm`.
@@ -225,7 +291,9 @@ struct EraseCounters {
 pub struct Bluedbm {
     mio: Cell<*mut memio_t>,
     o_flags: Cell<c_int>,
-    counters: UnsafeCell<EraseCounters>,
+    api: MemioApi,
+    /// Never freed, see [`Bluedbm::context`].
+    counters: Cell<*mut EraseCounters>,
 }
 
 // The backend contract in [`DeviceOperations`] says an implementation is
@@ -253,21 +321,33 @@ impl Bluedbm {
     /// A backend with no memio handle, the state C's `memset(bdbm, 0, ...)`
     /// leaves behind.
     fn new() -> Self {
+        Self::with_api(MemioApi::system())
+    }
+
+    /// A backend that calls `api` instead of libmemio, so the unit tests can
+    /// drive `clear` and `erase` without the board.
+    fn with_api(api: MemioApi) -> Self {
         Self {
             mio: Cell::new(ptr::null_mut()),
             o_flags: Cell::new(0),
-            counters: UnsafeCell::new(EraseCounters::default()),
+            api,
+            counters: Cell::new(ptr::null_mut()),
         }
     }
 
-    /// The context handed to `memio_trim`, which is how the completion callback
+    /// The context handed to `memio_trim`, which is how the erase callback
     /// reaches this board's counters.
     ///
-    /// It stays valid while the backend is installed, which is the window in
-    /// which libmemio can call the erase callback: [`Bluedbm::close`] calls
-    /// `memio_close` first, and that waits for the requests it issued.
+    /// It points at the counters, and those are never freed. `memio_close` does
+    /// not drain the erase requests it issued (its wait tests
+    /// `mio->rr[i].done`, which is never initialised), so a trim completion can
+    /// land after [`Bluedbm::close`] returns and after the backend itself is
+    /// uninstalled. One allocation per board is the price of a callback that
+    /// cannot land on freed memory. Before the first open the pointer is null,
+    /// and the callback logs the update and drops it, which is what C's null
+    /// check did.
     fn context(&self) -> *mut c_void {
-        (self as *const Self).cast_mut().cast::<c_void>()
+        self.counters.get().cast::<c_void>()
     }
 
     /// The body of C's `bluedbm_open` after `memio_open` succeeds. Record the
@@ -301,24 +381,28 @@ impl Bluedbm {
         }
         (*dev).badseg_bitmap = badseg;
 
-        // One counter per segment, replaced rather than reused on a re-open so
-        // the counts from the previous open cannot leak into this one. Both
-        // buffers are reserved first, so a failed allocation reports `-ENOMEM`
-        // rather than aborting the process the way `vec!` would.
-        let mut erase = Vec::new();
-        let mut badseg_counters = Vec::new();
-        if erase.try_reserve_exact(nr_segments).is_err()
-            || badseg_counters.try_reserve_exact(nr_segments).is_err()
-        {
-            pr_err!("memory allocation failed");
-            return -libc::ENOMEM;
+        // One counter per segment, cleared rather than reallocated on a
+        // re-open so a callback that is still indexing them keeps a live
+        // buffer.
+        let installed = self.counters.get();
+        if installed.is_null() {
+            let Some(fresh) = EraseCounters::try_new(nr_segments) else {
+                pr_err!("memory allocation failed");
+                return -libc::ENOMEM;
+            };
+            self.counters.set(Box::into_raw(Box::new(fresh)));
+        } else if (*installed).erase.len() == nr_segments {
+            (*installed).reset();
+        } else {
+            // The geometry changed, so the old arrays are too small. They are
+            // left alone rather than freed, for the same reason as in
+            // `context`.
+            let Some(fresh) = EraseCounters::try_new(nr_segments) else {
+                pr_err!("memory allocation failed");
+                return -libc::ENOMEM;
+            };
+            self.counters.set(Box::into_raw(Box::new(fresh)));
         }
-        erase.resize_with(nr_segments, || AtomicI32::new(0));
-        badseg_counters.resize_with(nr_segments, || AtomicI32::new(0));
-        *self.counters.get() = EraseCounters {
-            erase,
-            badseg: badseg_counters,
-        };
 
         if self.o_flags.get() & libc::O_CREAT != 0 {
             let _ = self.clear(dev);
@@ -346,7 +430,7 @@ impl Bluedbm {
         // segment sits at bit 13.
         for segnum in 0..(*dev).nr_segments() {
             let lpn = (segnum as u32) << BLUEDBM_BLOCK_SHIFT;
-            memio_trim(
+            (self.api.trim)(
                 mio,
                 lpn,
                 erase_size as u64,
@@ -368,7 +452,10 @@ impl Bluedbm {
     /// shorter than the range asked for, in which case this returns without
     /// polling.
     unsafe fn wait_erase_finish(&self, dev: *mut device, segnum: usize, nr_segments: usize) {
-        let counters = &*self.counters.get();
+        let Some(counters) = self.counters.get().as_ref() else {
+            pr_err!("erase wait has no counters (segnum: {})", segnum);
+            return;
+        };
         // `open_storage` sizes the counters and the bad segment bitmap from the
         // same `nr_segments`, so the smaller of the two is the range both take.
         let len = (*dev).nr_segments().min(counters.erase.len());
@@ -418,7 +505,7 @@ impl DeviceOperations for Bluedbm {
     unsafe fn open(&self, dev: *mut device, _name: *const c_char, flags: c_int) -> c_int {
         configure_geometry(dev);
 
-        let mio = memio_open();
+        let mio = (self.api.open)();
         if mio.is_null() {
             pr_err!("memio open failed");
             let ret = -libc::EFAULT;
@@ -480,8 +567,9 @@ impl DeviceOperations for Bluedbm {
             tag: 0,
             data: ptr::null_mut(),
             d_private: ptr::null_mut(),
+            free_dma: self.api.free_dma,
         }));
-        (*dma).tag = memio_alloc_dma(DMA_WRITE_BUF, ptr::addr_of_mut!((*dma).data)) as u32;
+        (*dma).tag = (self.api.alloc_dma)(DMA_WRITE_BUF, ptr::addr_of_mut!((*dma).data)) as u32;
         (*dma).d_private = request as *mut c_void;
         ptr::copy_nonoverlapping(
             (*request).data as *const u8,
@@ -495,7 +583,7 @@ impl DeviceOperations for Bluedbm {
             private_data: dma as *mut c_void,
         }));
 
-        let ret = memio_write(
+        let ret = (self.api.write)(
             mio,
             lpn,
             page_size as u64,
@@ -555,8 +643,9 @@ impl DeviceOperations for Bluedbm {
             tag: 0,
             data: ptr::null_mut(),
             d_private: ptr::null_mut(),
+            free_dma: self.api.free_dma,
         }));
-        (*dma).tag = memio_alloc_dma(DMA_READ_BUF, ptr::addr_of_mut!((*dma).data)) as u32;
+        (*dma).tag = (self.api.alloc_dma)(DMA_READ_BUF, ptr::addr_of_mut!((*dma).data)) as u32;
         (*dma).d_private = request as *mut c_void;
 
         let read_rq = Box::into_raw(Box::new(AsyncBdbmReq {
@@ -565,7 +654,7 @@ impl DeviceOperations for Bluedbm {
             private_data: dma as *mut c_void,
         }));
 
-        let ret = memio_read(
+        let ret = (self.api.read)(
             mio,
             lpn,
             page_size as u64,
@@ -623,7 +712,7 @@ impl DeviceOperations for Bluedbm {
         }
         let erase_size = pages_per_segment as usize * page_size;
         let lpn = segnum << BLUEDBM_BLOCK_SHIFT;
-        memio_trim(
+        (self.api.trim)(
             mio,
             lpn,
             erase_size as u64,
@@ -640,17 +729,17 @@ impl DeviceOperations for Bluedbm {
     /// `dev` is the device this backend was installed into.
     unsafe fn close(&self, dev: *mut device) -> c_int {
         if !self.mio.get().is_null() {
-            memio_close(self.mio.get());
+            (self.api.close)(self.mio.get());
             self.mio.set(ptr::null_mut());
         }
         if !(*dev).badseg_bitmap.is_null() {
             libc::free((*dev).badseg_bitmap as *mut c_void);
             (*dev).badseg_bitmap = ptr::null_mut();
         }
-        // The counters stay allocated. `wait_erase_finish` leaves a segment as
-        // soon as one block reports bad, so up to `blocks_per_segment - 1`
-        // callbacks for it can still be in flight, and they index these
-        // vectors. They go with the backend, at uninstall.
+        // The counters stay allocated, here and at uninstall. The wait leaves a
+        // segment as soon as one block reports bad, so up to
+        // `blocks_per_segment - 1` callbacks for it can still be in flight, and
+        // they index these vectors.
         0
     }
 }
@@ -658,25 +747,20 @@ impl DeviceOperations for Bluedbm {
 /// The `memio_trim` erase callback, mirroring C's `bluedbm_erase_end_request`.
 ///
 /// It counts one erase for `segnum` and, when `is_bad`, one bad detection.
-/// `ctx` is the [`Bluedbm`] the trim was issued from, which is what lets this
-/// reach the counters without a process global.
+/// `ctx` is the [`EraseCounters`] the trim was issued with, which is what lets
+/// this reach them without a process global.
 ///
 /// # Safety
-/// `ctx` is a live [`Bluedbm`] or null, and its counters outlive the call.
+/// `ctx` is a live [`EraseCounters`] or null, and it outlives the call.
 unsafe extern "C" fn erase_end_request(segnum: u64, is_bad: u8, ctx: *mut c_void) {
-    let Some(backend) = ctx.cast::<Bluedbm>().as_ref() else {
-        pr_err!("erase callback got no backend (segnum: {})", segnum);
+    let Some(counters) = ctx.cast::<EraseCounters>().as_ref() else {
+        pr_err!("erase callback got no counters (segnum: {})", segnum);
         return;
     };
-    let counters = &*backend.counters.get();
-
-    // A 32 bit target truncates a `usize` cast, which would turn a segment far
-    // outside the board into a small in range one.
-    let Ok(segnum) = usize::try_from(segnum) else {
-        pr_err!("segment number does not fit an index ({})", segnum);
-        return;
-    };
-    if segnum >= counters.erase.len() {
+    // Compared in `u64` so a 32 bit target cannot truncate a segment far
+    // outside the board into a small in range one. The index below is safe
+    // because this check bounds it.
+    if segnum >= counters.erase.len() as u64 {
         pr_err!(
             "counter index out of range (segnum: {}, counters: {})",
             segnum,
@@ -684,6 +768,7 @@ unsafe extern "C" fn erase_end_request(segnum: u64, is_bad: u8, ctx: *mut c_void
         );
         return;
     }
+    let segnum = segnum as usize;
     counters.erase[segnum].fetch_add(1, Ordering::SeqCst);
     if is_bad != 0 {
         counters.badseg[segnum].fetch_add(1, Ordering::SeqCst);
@@ -711,14 +796,14 @@ unsafe extern "C" fn end_rw_request(rw_req: *mut AsyncBdbmReq) {
     assert!(!user_rq.is_null());
 
     match (*rw_req).type_ {
-        REQTYPE_IO_WRITE => memio_free_dma(DMA_WRITE_BUF, (*dma).tag as c_int),
+        REQTYPE_IO_WRITE => ((*dma).free_dma)(DMA_WRITE_BUF, (*dma).tag as c_int),
         REQTYPE_IO_READ => {
             ptr::copy_nonoverlapping(
                 (*dma).data as *const u8,
                 (*user_rq).data as *mut u8,
                 (*user_rq).data_len,
             );
-            memio_free_dma(DMA_READ_BUF, (*dma).tag as c_int);
+            ((*dma).free_dma)(DMA_READ_BUF, (*dma).tag as c_int);
         }
         _ => pr_warn!("unknown request type detected (flag: {})", (*rw_req).type_),
     }
@@ -787,6 +872,7 @@ mod tests {
     };
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
+    use core::sync::atomic::AtomicUsize;
 
     fn zeroed_device() -> device {
         unsafe { MaybeUninit::<device>::zeroed().assume_init() }
@@ -801,16 +887,63 @@ mod tests {
         backend
     }
 
+    /// Counts the trims the backend issued.
+    static TRIMS: AtomicUsize = AtomicUsize::new(0);
+
+    /// Fails the request, so a caller can check the code is passed back.
+    unsafe extern "C" fn fake_read(
+        _mio: *mut memio_t,
+        _lba: u32,
+        _len: u64,
+        _data: *mut u8,
+        _is_async: c_int,
+        _req: *mut c_void,
+        _tag: c_int,
+    ) -> c_int {
+        -1
+    }
+
+    /// Report the erase of every block in the segment, the way the device
+    /// manager does from its own thread. `nr_punits` is 64, the value
+    /// libmemio reports for this board.
+    unsafe extern "C" fn fake_trim(
+        _mio: *mut memio_t,
+        lba: u32,
+        _len: u64,
+        end_req: EraseEndReqFn,
+        ctx: *mut c_void,
+    ) -> c_int {
+        TRIMS.fetch_add(1, Ordering::SeqCst);
+        let segnum = u64::from(lba >> BLUEDBM_BLOCK_SHIFT);
+        for _ in 0..BLUEDBM_NR_BLOCKS / 64 {
+            end_req(segnum, 0, ctx);
+        }
+        0
+    }
+
+    fn fake_api() -> MemioApi {
+        MemioApi {
+            read: fake_read,
+            trim: fake_trim,
+            ..MemioApi::system()
+        }
+    }
+
+    /// Counters installed, plus the fake memio table, for the paths that issue
+    /// a trim.
+    fn fake_backend(nr_segments: usize) -> Bluedbm {
+        let backend = Bluedbm::with_api(fake_api());
+        let counters = EraseCounters::try_new(nr_segments).expect("allocate counters");
+        backend.counters.set(Box::into_raw(Box::new(counters)));
+        backend
+    }
+
     /// A backend carrying `nr_segments` counters, the state
     /// [`Bluedbm::open_storage`] installs without libmemio.
     fn backend_with_counters(nr_segments: usize) -> Bluedbm {
         let backend = Bluedbm::new();
-        unsafe {
-            *backend.counters.get() = EraseCounters {
-                erase: (0..nr_segments).map(|_| AtomicI32::new(0)).collect(),
-                badseg: (0..nr_segments).map(|_| AtomicI32::new(0)).collect(),
-            };
-        }
+        let counters = EraseCounters::try_new(nr_segments).expect("allocate counters");
+        backend.counters.set(Box::into_raw(Box::new(counters)));
         backend
     }
 
@@ -985,10 +1118,8 @@ mod tests {
             // counters are replaced rather than reused.
             counters.erase[7].store(3, Ordering::SeqCst);
             assert_eq!(backend.open_storage(&mut dev, handle, 0), 0);
-            assert_eq!(
-                (&*backend.counters.get()).erase[7].load(Ordering::SeqCst),
-                0
-            );
+            let reinstalled = &*backend.counters.get();
+            assert_eq!(reinstalled.erase[7].load(Ordering::SeqCst), 0);
 
             // Clear the handle so close never hands the dangling pointer to
             // memio_close, then close releases the bitmap. The counters stay,
@@ -996,7 +1127,7 @@ mod tests {
             backend.mio.set(ptr::null_mut());
             assert_eq!(backend.close(&mut dev), 0);
             assert!(dev.badseg_bitmap.is_null());
-            assert_eq!((&*backend.counters.get()).erase.len(), dev.nr_segments());
+            assert_eq!((*backend.counters.get()).erase.len(), dev.nr_segments());
         }
     }
 
@@ -1059,12 +1190,10 @@ mod tests {
             // The wait leaves a bad segment while its other blocks are still
             // in flight, so a callback can arrive after close. It must find the
             // arrays it indexed before.
-            assert_eq!((&*backend.counters.get()).erase.len(), nr_segments);
+            let counters = &*backend.counters.get();
+            assert_eq!(counters.erase.len(), nr_segments);
             erase_end_request(0, 0, backend.context());
-            assert_eq!(
-                (&*backend.counters.get()).erase[0].load(Ordering::SeqCst),
-                1
-            );
+            assert_eq!(counters.erase[0].load(Ordering::SeqCst), 1);
         }
     }
 
@@ -1102,38 +1231,26 @@ mod tests {
     }
 
     #[test]
-    fn erase_waits_for_every_block_of_the_segment() {
-        let mut dev = zeroed_device();
-        unsafe { configure_geometry(&mut dev) };
-        let backend = backend_with_counters(dev.nr_segments());
-        backend.mio.set(NonNull::<memio_t>::dangling().as_ptr());
-        let mut request = Request::new().expect("allocate a request");
-
-        unsafe {
-            // The stub behind `memio_trim` reports every block of the segment,
-            // so the wait sees a finished erase and clears the counter.
-            request.flag = DeviceDirection::Erase.into();
-            request.paddr = device_address::from(5u32 << BLUEDBM_BLOCK_SHIFT);
-            assert_eq!(backend.erase(&mut dev, request.as_ptr()), 0);
-            let counters = &*backend.counters.get();
-            assert_eq!(counters.erase[5].load(Ordering::SeqCst), 0);
-            assert_eq!(counters.badseg[5].load(Ordering::SeqCst), 0);
-        }
-    }
-
-    #[test]
     fn open_with_create_clears_every_segment() {
         let mut dev = zeroed_device();
         unsafe { configure_geometry(&mut dev) };
-        let backend = Bluedbm::new();
-        let handle = NonNull::<memio_t>::dangling().as_ptr();
+        let backend = Bluedbm::with_api(fake_api());
 
         unsafe {
-            assert_eq!(backend.open_storage(&mut dev, handle, libc::O_CREAT), 0);
-            // `clear` trims every segment and the wait clears each counter once
-            // its blocks are reported, so nothing is left counted.
+            let before = TRIMS.load(Ordering::SeqCst);
+            assert_eq!(
+                backend.open_storage(
+                    &mut dev,
+                    NonNull::<memio_t>::dangling().as_ptr(),
+                    libc::O_CREAT
+                ),
+                0
+            );
+            // `TRIMS` counts the whole test binary, so this is a delta.
+            // `clear` trims every segment, and the wait clears each counter
+            // once its blocks are reported.
+            assert_eq!(TRIMS.load(Ordering::SeqCst) - before, dev.nr_segments());
             let counters = &*backend.counters.get();
-            assert_eq!(counters.erase.len(), dev.nr_segments());
             assert!(counters
                 .erase
                 .iter()
@@ -1145,6 +1262,44 @@ mod tests {
 
             backend.mio.set(ptr::null_mut());
             assert_eq!(backend.close(&mut dev), 0);
+        }
+    }
+
+    #[test]
+    fn erase_waits_for_every_block_of_the_segment() {
+        let mut dev = zeroed_device();
+        unsafe { configure_geometry(&mut dev) };
+        let backend = fake_backend(dev.nr_segments());
+        backend.mio.set(NonNull::<memio_t>::dangling().as_ptr());
+        let mut request = Request::new().expect("allocate a request");
+
+        unsafe {
+            // The fake reports every block of the segment, so the wait sees a
+            // finished erase and clears the counter it polled.
+            request.flag = DeviceDirection::Erase.into();
+            request.paddr = device_address::from(5u32 << BLUEDBM_BLOCK_SHIFT);
+            assert_eq!(backend.erase(&mut dev, request.as_ptr()), 0);
+            let counters = &*backend.counters.get();
+            assert_eq!(counters.erase[5].load(Ordering::SeqCst), 0);
+            assert_eq!(counters.badseg[5].load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[test]
+    fn read_reports_the_code_the_library_returned() {
+        let mut dev = zeroed_device();
+        unsafe { configure_geometry(&mut dev) };
+        let backend = Bluedbm::with_api(fake_api());
+        backend.mio.set(NonNull::<memio_t>::dangling().as_ptr());
+        let mut request = Request::new().expect("allocate a request");
+        let mut page = vec![0u8; dev.page_size()];
+
+        unsafe {
+            request.flag = DeviceDirection::Read.into();
+            request.paddr = device_address::from(0u32);
+            request.data = page.as_mut_ptr() as *mut c_void;
+            request.data_len = dev.page_size();
+            assert_eq!(backend.read(&mut dev, request.as_ptr()), -1);
         }
     }
 

@@ -135,9 +135,9 @@ assert the same formulas with `offset_of!` and `size_of!`.
 Third party types are mirrored the same way where the backend reads their
 fields. `src/device/zone.rs:150,170` mirrors `struct zbd_info` and
 `struct zbd_zone` and pins their sizes with `const _: () = assert!(...)` at
-`src/device/zone.rs:185-186`. `src/device/bluedbm.rs:131,151` mirrors
+`src/device/zone.rs:185-186`. `src/device/bluedbm.rs:149,173` mirrors
 `bluedbm_dma_t` and `async_bdbm_req`, with `memio_t` at
-`src/device/bluedbm.rs:122` kept as an opaque zero-sized type because only a
+`src/device/bluedbm.rs:140` kept as an opaque zero-sized type because only a
 pointer to it ever crosses.
 
 Other types are deliberately opaque. `PageFtlSegment` and `PageFtl`

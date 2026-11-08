@@ -96,19 +96,21 @@ them with a segment number that comes from the device manager, so
 update. The callback reaches the backend through the `ctx` that `memio_trim`
 hands back, which is why the arrays are no longer process globals.
 
-The arrays stay allocated for the life of the backend, because the wait leaves
-a bad segment while up to `blocks_per_segment - 1` of its callbacks can still
-arrive. The callback runs under the board, so a write past the array has no
+The arrays are never freed. The wait leaves a bad segment while up to
+`blocks_per_segment - 1` of its callbacks can still arrive, and `memio_close`
+does not drain the erase requests it issued, so a completion can follow the
+close. The callback runs under the board, so a write past the array has no
 operating system check behind it. That is the failure issue #16 reports. Two
 callers keep the range in bounds as well. The wait returns on a range past the
 counters, where it used to poll for an update that never arrives, and `erase`
 refuses a segment at or past `nr_segments` before the trim, so a caller gets
 `-EINVAL` rather than a success for an erase nobody waited for.
 
-Verified by `cargo test --lib --features bluedbm`, which needs libmemio at
-`afb9e5a` or later for the `memio_trim` context argument. CI compiles the
-feature with `cargo build --lib --features bluedbm` and runs the suite only
-where the library is installed.
+Verified by `cargo test --lib --features bluedbm`, which links libmemio at
+`afb9e5a` or later for the `memio_trim` context argument and swaps in a fake
+table of entry points for the tests. CI compiles the feature with
+`cargo build --lib --features bluedbm` and runs the suite only where the
+library is installed.
 
 ## Cargo features
 
@@ -159,7 +161,7 @@ raspberry switch also sets the `1/1/4/24` bit counts and a 2048 byte page
 Without that, the two sides would disagree about where the block field starts.
 The Rust constants behind the same geometry are `#[cfg]`-selected in
 `src/device/mod.rs:96-117` for `zone`, while bluedbm and raspberry keep their
-own counts beside their backends (`src/device/bluedbm.rs:109,113`,
+own counts beside their backends (`src/device/bluedbm.rs:120,124`,
 `src/device/raspberry.rs:104-116`).
 
 ## CI jobs
