@@ -106,11 +106,12 @@ counters, where it used to poll for an update that never arrives, and `erase`
 refuses a segment at or past `nr_segments` before the trim, so a caller gets
 `-EINVAL` rather than a success for an erase nobody waited for.
 
-Verified by `cargo test --lib --features bluedbm`. The feature still links
-libmemio, at `afb9e5a` or later, because the `memio_trim` it names takes the
-context argument. The suite runs against the `MemioApi` fake rather than the
-board. CI compiles the feature with `cargo build --lib --features bluedbm` and
-runs the suite only where the library is installed.
+Verified by `cargo test --lib --features bluedbm`, which runs on a machine
+without libmemio. A real build of the feature asks the linker for the library,
+at `afb9e5a` or later because the `memio_trim` it names takes the context
+argument, while a test build defines the seven symbols itself and swaps a fake
+table into `MemioApi` for the erase path. CI compiles the feature with
+`cargo build --lib --features bluedbm`.
 
 ## Cargo features
 
@@ -205,6 +206,7 @@ real dependency cannot run on every machine.
 | `module_init_with(table, ...)` | `src/device/mod.rs:781` | the backend table |
 | `NandApi` | `src/device/raspberry.rs:181` | the libnand entry points |
 | `MemioApi` | `src/device/bluedbm.rs:227` | the libmemio entry points |
+| libmemio symbols | `src/device/bluedbm.rs:889` | the library in a test build |
 | `Fixture` | `src/ftl/test_support.rs:39` | a small ramdisk geometry |
 
 The dispatch functions take their table as a parameter, so the shipped table

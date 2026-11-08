@@ -78,7 +78,8 @@
 //!   can drive `clear` or `erase`, because libmemio is absent from every machine
 //!   here. The signatures and the call order are C's. The completion callback
 //!   has no backend to ask, so the DMA structure carries the one entry point it
-//!   needs.
+//!   needs. A test build drops the `#[link]` and defines the seven symbols in
+//!   the test module, so the suite links without the library.
 //! - `bluedbm_open` is split at the `memio_open` call. [`Bluedbm::open`] fills
 //!   the geometry and opens the handle. [`Bluedbm::open_storage`] takes the
 //!   handle and allocates the bitmap and the two counters. The split lets the
@@ -90,6 +91,8 @@
 //! - On a re-open, C overwrites `dev->badseg_bitmap` and the two counter
 //!   globals and leaks the old buffers. The port frees the bitmap and clears
 //!   the counters in place, so the two paths cannot disagree.
+//! - A failed `memio_alloc_dma` returns `-ENOMEM` from `write` and `read`. C
+//!   carries on and copies through the `NULL` buffer it was handed.
 //! - When `memio_write` / `memio_read` returns a negative value, C returns it
 //!   and leaks the DMA and request structures. The port does the same: libmemio
 //!   may have run `end_rw_request` before returning, so freeing them here could
@@ -103,7 +106,7 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::size_of;
 use core::ptr;
 use core::slice;
-use core::sync::atomic::{AtomicI32, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
 
 use crate::bits::{set_bit, BITS_PER_UINT64};
 // The geometry is the shared, generated `ftl.yaml` bluedbm section, not a
@@ -184,38 +187,50 @@ struct AsyncBdbmReq {
 // names, this `extern "C"` block will not link. A narrow C++ wrapper compiled
 // with `g++` would be needed instead. The library is not installed here, so
 // that could not be observed. See the module docs.
-#[link(name = "memio")]
-extern "C" {
-    fn memio_open() -> *mut memio_t;
-    fn memio_close(mio: *mut memio_t);
-    fn memio_read(
-        mio: *mut memio_t,
-        lba: u32,
-        len: u64,
-        data: *mut u8,
-        is_async: c_int,
-        req: *mut c_void,
-        dma_tag: c_int,
-    ) -> c_int;
-    fn memio_write(
-        mio: *mut memio_t,
-        lba: u32,
-        len: u64,
-        data: *mut u8,
-        is_async: c_int,
-        req: *mut c_void,
-        dma_tag: c_int,
-    ) -> c_int;
-    fn memio_trim(
-        mio: *mut memio_t,
-        lba: u32,
-        len: u64,
-        end_req: EraseEndReqFn,
-        ctx: *mut c_void,
-    ) -> c_int;
-    fn memio_alloc_dma(type_: c_int, buf: *mut *mut c_char) -> c_int;
-    fn memio_free_dma(type_: c_int, dma_tag: c_int);
+macro_rules! memio_symbols {
+    ($(#[$attribute:meta])*) => {
+        $(#[$attribute])*
+        extern "C" {
+            fn memio_open() -> *mut memio_t;
+            fn memio_close(mio: *mut memio_t);
+            fn memio_read(
+                mio: *mut memio_t,
+                lba: u32,
+                len: u64,
+                data: *mut u8,
+                is_async: c_int,
+                req: *mut c_void,
+                dma_tag: c_int,
+            ) -> c_int;
+            fn memio_write(
+                mio: *mut memio_t,
+                lba: u32,
+                len: u64,
+                data: *mut u8,
+                is_async: c_int,
+                req: *mut c_void,
+                dma_tag: c_int,
+            ) -> c_int;
+            fn memio_trim(
+                mio: *mut memio_t,
+                lba: u32,
+                len: u64,
+                end_req: EraseEndReqFn,
+                ctx: *mut c_void,
+            ) -> c_int;
+            fn memio_alloc_dma(type_: c_int, buf: *mut *mut c_char) -> c_int;
+            fn memio_free_dma(type_: c_int, dma_tag: c_int);
+        }
+    };
 }
+
+// A real build asks the linker for the library. A test build supplies the
+// symbols itself, so `cargo test --lib --features bluedbm` links on a machine
+// where libmemio is not installed.
+#[cfg(not(test))]
+memio_symbols!(#[link(name = "memio")]);
+#[cfg(test)]
+memio_symbols!();
 
 /// The libmemio entry points the backend calls, as a table of function
 /// pointers.
@@ -260,6 +275,11 @@ struct EraseCounters {
     erase: Vec<AtomicI32>,
     /// Non-zero once the segment is reported bad.
     badseg: Vec<AtomicI32>,
+    /// Updates the callback had to drop, and the last segment number behind
+    /// them. The callback may not log, so it records and the FTL thread
+    /// reports.
+    dropped: AtomicUsize,
+    last_dropped: AtomicU64,
 }
 
 impl EraseCounters {
@@ -273,7 +293,12 @@ impl EraseCounters {
         badseg.try_reserve_exact(nr_segments).ok()?;
         erase.resize_with(nr_segments, || AtomicI32::new(0));
         badseg.resize_with(nr_segments, || AtomicI32::new(0));
-        Some(Self { erase, badseg })
+        Some(Self {
+            erase,
+            badseg,
+            dropped: AtomicUsize::new(0),
+            last_dropped: AtomicU64::new(0),
+        })
     }
 
     /// Clear every counter without moving the buffers, so a callback that is
@@ -281,6 +306,24 @@ impl EraseCounters {
     fn reset(&self) {
         for counter in self.erase.iter().chain(self.badseg.iter()) {
             counter.store(0, Ordering::SeqCst);
+        }
+        self.dropped.store(0, Ordering::SeqCst);
+        self.last_dropped.store(0, Ordering::SeqCst);
+    }
+
+    /// Report the updates the callback had to drop.
+    ///
+    /// The callback cannot report them itself: libmemio runs it on the device
+    /// manager's thread and forbids blocking or allocating there, which logging
+    /// does both. The FTL thread calls this after a trim instead.
+    fn report_dropped(&self) {
+        let dropped = self.dropped.swap(0, Ordering::SeqCst);
+        if dropped != 0 {
+            pr_err!(
+                "erase callback dropped {} update(s) (last segnum: {})",
+                dropped,
+                self.last_dropped.load(Ordering::SeqCst)
+            );
         }
     }
 }
@@ -352,9 +395,9 @@ impl Bluedbm {
     /// land after [`Bluedbm::close`] returns and after the backend itself is
     /// uninstalled, and a board whose geometry changes between two opens keeps
     /// the previous allocation for the same reason. One allocation per size is
-    /// the price of a callback that cannot land on freed memory. Before the first open the pointer is null,
-    /// and the callback logs the update and drops it, which is what C's null
-    /// check did.
+    /// the price of a callback that cannot land on freed memory. Before the
+    /// first open the pointer is null, and the callback drops the update, which
+    /// is what C's null check did.
     fn context(&self) -> *mut c_void {
         self.counters.get().cast::<c_void>()
     }
@@ -487,6 +530,9 @@ impl Bluedbm {
             );
             return;
         }
+        // Report what an earlier callback had to drop, then what this one
+        // drops while the loop polls.
+        counters.report_dropped();
         let blocks_per_segment = (*dev).blocks_per_segment();
         let mut segnum = segnum;
         while segnum < end_segment {
@@ -505,6 +551,7 @@ impl Bluedbm {
             }
             libc::sleep(1);
         }
+        counters.report_dropped();
     }
 }
 
@@ -582,6 +629,11 @@ impl DeviceOperations for Bluedbm {
         }));
         (*dma).tag = (self.api.alloc_dma)(DMA_WRITE_BUF, ptr::addr_of_mut!((*dma).data)) as u32;
         (*dma).d_private = request as *mut c_void;
+        if (*dma).data.is_null() {
+            pr_err!("DMA allocation failed");
+            drop(Box::from_raw(dma));
+            return -(libc::ENOMEM as isize);
+        }
         ptr::copy_nonoverlapping(
             (*request).data as *const u8,
             (*dma).data.cast::<u8>(),
@@ -658,6 +710,11 @@ impl DeviceOperations for Bluedbm {
         }));
         (*dma).tag = (self.api.alloc_dma)(DMA_READ_BUF, ptr::addr_of_mut!((*dma).data)) as u32;
         (*dma).d_private = request as *mut c_void;
+        if (*dma).data.is_null() {
+            pr_err!("DMA allocation failed");
+            drop(Box::from_raw(dma));
+            return -(libc::ENOMEM as isize);
+        }
 
         let read_rq = Box::into_raw(Box::new(AsyncBdbmReq {
             type_: REQTYPE_IO_READ,
@@ -761,22 +818,22 @@ impl DeviceOperations for Bluedbm {
 /// `ctx` is the [`EraseCounters`] the trim was issued with, which is what lets
 /// this reach them without a process global.
 ///
+/// It touches atomics only. libmemio runs it on the device manager's thread and
+/// its header forbids blocking or allocating here, so a rejected segment is
+/// recorded with [`EraseCounters::report_dropped`] left to report it.
+///
 /// # Safety
 /// `ctx` is a live [`EraseCounters`] or null, and it outlives the call.
 unsafe extern "C" fn erase_end_request(segnum: u64, is_bad: u8, ctx: *mut c_void) {
     let Some(counters) = ctx.cast::<EraseCounters>().as_ref() else {
-        pr_err!("erase callback got no counters (segnum: {})", segnum);
         return;
     };
     // Compared in `u64` so a 32 bit target cannot truncate a segment far
     // outside the board into a small in range one. The index below is safe
     // because this check bounds it.
     if segnum >= counters.erase.len() as u64 {
-        pr_err!(
-            "counter index out of range (segnum: {}, counters: {})",
-            segnum,
-            counters.erase.len()
-        );
+        counters.dropped.fetch_add(1, Ordering::SeqCst);
+        counters.last_dropped.store(segnum, Ordering::SeqCst);
         return;
     }
     let segnum = segnum as usize;
@@ -883,7 +940,6 @@ mod tests {
     };
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
-    use core::sync::atomic::AtomicUsize;
 
     fn zeroed_device() -> device {
         unsafe { MaybeUninit::<device>::zeroed().assume_init() }
@@ -898,8 +954,77 @@ mod tests {
         backend
     }
 
-    /// Counts the trims the backend issued.
-    static TRIMS: AtomicUsize = AtomicUsize::new(0);
+    // The symbols the declaration block names. A test build drops the
+    // `#[link]`, so these stand in for the library and the suite links without
+    // it. No test calls them: the tests that reach memio use [`MemioApi`].
+    #[no_mangle]
+    unsafe extern "C" fn memio_open() -> *mut memio_t {
+        NonNull::<memio_t>::dangling().as_ptr()
+    }
+    #[no_mangle]
+    unsafe extern "C" fn memio_close(_mio: *mut memio_t) {}
+    #[no_mangle]
+    unsafe extern "C" fn memio_read(
+        _mio: *mut memio_t,
+        _lba: u32,
+        _len: u64,
+        _data: *mut u8,
+        _is_async: c_int,
+        _req: *mut c_void,
+        _dma_tag: c_int,
+    ) -> c_int {
+        -1
+    }
+    #[no_mangle]
+    unsafe extern "C" fn memio_write(
+        _mio: *mut memio_t,
+        _lba: u32,
+        _len: u64,
+        _data: *mut u8,
+        _is_async: c_int,
+        _req: *mut c_void,
+        _dma_tag: c_int,
+    ) -> c_int {
+        -1
+    }
+    #[no_mangle]
+    unsafe extern "C" fn memio_trim(
+        _mio: *mut memio_t,
+        _lba: u32,
+        _len: u64,
+        _end_req: EraseEndReqFn,
+        _ctx: *mut c_void,
+    ) -> c_int {
+        -1
+    }
+    #[no_mangle]
+    unsafe extern "C" fn memio_alloc_dma(_type_: c_int, _buf: *mut *mut c_char) -> c_int {
+        -1
+    }
+    #[no_mangle]
+    unsafe extern "C" fn memio_free_dma(_type_: c_int, _dma_tag: c_int) {}
+
+    // Counts the trims the backend issued, per test thread, because libtest
+    // runs the unit tests in parallel inside one binary.
+    thread_local! {
+        static TRIMS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn trims() -> usize {
+        TRIMS.with(Cell::get)
+    }
+
+    /// Hands out a page sized buffer the test leaks, so the read path can
+    /// reach the library call it wraps.
+    unsafe extern "C" fn fake_alloc_dma(_type_: c_int, buf: *mut *mut c_char) -> c_int {
+        let page = Box::into_raw(vec![0u8; DEVICE_PAGE_SIZE].into_boxed_slice());
+        *buf = page as *mut c_char;
+        1
+    }
+
+    /// The buffer `fake_alloc_dma` hands out is leaked, so there is nothing to
+    /// release.
+    unsafe extern "C" fn fake_free_dma(_type_: c_int, _tag: c_int) {}
 
     /// Fails the request, so a caller can check the code is passed back.
     unsafe extern "C" fn fake_read(
@@ -924,9 +1049,9 @@ mod tests {
         end_req: EraseEndReqFn,
         ctx: *mut c_void,
     ) -> c_int {
-        TRIMS.fetch_add(1, Ordering::SeqCst);
+        TRIMS.with(|count| count.set(count.get() + 1));
         let segnum = u64::from(lba >> BLUEDBM_BLOCK_SHIFT);
-        for _ in 0..BLUEDBM_NR_BLOCKS / 64 {
+        for _ in 0..1usize << (BLUEDBM_NR_BUS_BITS + BLUEDBM_NR_CHIPS_BITS) {
             end_req(segnum, 0, ctx);
         }
         0
@@ -936,6 +1061,8 @@ mod tests {
         MemioApi {
             read: fake_read,
             trim: fake_trim,
+            alloc_dma: fake_alloc_dma,
+            free_dma: fake_free_dma,
             ..MemioApi::system()
         }
     }
@@ -1155,8 +1282,8 @@ mod tests {
             assert_eq!(counters.badseg[2].load(Ordering::SeqCst), 1);
             assert_eq!(counters.badseg[0].load(Ordering::SeqCst), 0);
 
-            // A callback with no backend behind the context is logged and
-            // dropped.
+            // A callback with no counters behind the context does nothing, and
+            // cannot even record it.
             erase_end_request(0, 1, ptr::null_mut());
         }
     }
@@ -1177,9 +1304,18 @@ mod tests {
             erase_end_request(2, 0, ctx);
             assert_eq!(counters.erase[2].load(Ordering::SeqCst), 1);
 
-            // A segment number that cannot become an index is dropped too.
+            // A segment number that cannot become an index is recorded for the
+            // wait to report, and no counter moves.
             erase_end_request(u64::MAX, 1, ctx);
             assert_eq!(counters.badseg[2].load(Ordering::SeqCst), 0);
+            assert_eq!(counters.dropped.load(Ordering::SeqCst), 2);
+            assert_eq!(counters.last_dropped.load(Ordering::SeqCst), u64::MAX);
+
+            // The wait drains the record and reports it.
+            let mut dev = zeroed_device();
+            configure_geometry(&mut dev);
+            backend.wait_erase_finish(&mut dev, 0, 0);
+            assert_eq!(counters.dropped.load(Ordering::SeqCst), 0);
         }
     }
 
@@ -1248,7 +1384,7 @@ mod tests {
         let backend = Bluedbm::with_api(fake_api());
 
         unsafe {
-            let before = TRIMS.load(Ordering::SeqCst);
+            let before = trims();
             assert_eq!(
                 backend.open_storage(
                     &mut dev,
@@ -1260,7 +1396,7 @@ mod tests {
             // `TRIMS` counts the whole test binary, so this is a delta.
             // `clear` trims every segment, and the wait clears each counter
             // once its blocks are reported.
-            assert_eq!(TRIMS.load(Ordering::SeqCst) - before, dev.nr_segments());
+            assert_eq!(trims() - before, dev.nr_segments());
             let counters = &*backend.counters.get();
             assert!(counters
                 .erase
@@ -1311,6 +1447,120 @@ mod tests {
             request.data = page.as_mut_ptr() as *mut c_void;
             request.data_len = dev.page_size();
             assert_eq!(backend.read(&mut dev, request.as_ptr()), -1);
+        }
+    }
+
+    #[test]
+    fn open_and_close_use_the_library_entry_points() {
+        let mut dev = zeroed_device();
+        let backend = Bluedbm::new();
+
+        unsafe {
+            // The stub behind `memio_open` hands back a non-null handle, so the
+            // open and close paths run without a board.
+            assert_eq!(backend.open(&mut dev, ptr::null(), 0), 0);
+            assert!(!backend.mio.get().is_null());
+            assert_eq!(backend.close(&mut dev), 0);
+            assert!(backend.mio.get().is_null());
+        }
+    }
+
+    #[test]
+    fn wait_without_counters_returns() {
+        let mut dev = zeroed_device();
+        unsafe { configure_geometry(&mut dev) };
+        let backend = Bluedbm::new();
+
+        unsafe {
+            // No counters installed, so there is nothing to poll.
+            backend.wait_erase_finish(&mut dev, 0, 1);
+        }
+    }
+
+    #[test]
+    fn a_new_geometry_installs_a_fresh_counter_allocation() {
+        let mut dev = zeroed_device();
+        unsafe { configure_geometry(&mut dev) };
+        let backend = backend_with_counters(1);
+
+        unsafe {
+            // The counters are too short for this geometry, so `open_storage`
+            // installs a new allocation and leaves the old one alone.
+            assert_eq!(
+                backend.open_storage(&mut dev, NonNull::<memio_t>::dangling().as_ptr(), 0),
+                0
+            );
+            let counters = &*backend.counters.get();
+            assert_eq!(counters.erase.len(), dev.nr_segments());
+        }
+    }
+
+    #[test]
+    fn dma_allocation_failures_are_reported() {
+        let mut dev = zeroed_device();
+        unsafe { configure_geometry(&mut dev) };
+        let backend = backend_with_handle();
+        let mut request = Request::new().expect("allocate a request");
+        let mut page = vec![0u8; dev.page_size()];
+
+        unsafe {
+            // The stub behind `memio_alloc_dma` fails, so neither direction
+            // reaches the library with a null buffer.
+            request.data = page.as_mut_ptr() as *mut c_void;
+            request.data_len = dev.page_size();
+            request.paddr = device_address::from(0u32);
+
+            request.flag = DeviceDirection::Write.into();
+            assert_eq!(
+                backend.write(&mut dev, request.as_ptr()),
+                -(libc::ENOMEM as isize)
+            );
+
+            request.flag = DeviceDirection::Read.into();
+            assert_eq!(
+                backend.read(&mut dev, request.as_ptr()),
+                -(libc::ENOMEM as isize)
+            );
+        }
+    }
+
+    // Counts what `end_rw_request` released.
+    thread_local! {
+        static FREED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    unsafe extern "C" fn counting_free_dma(_type_: c_int, _tag: c_int) {
+        FREED.with(|count| count.set(count.get() + 1));
+    }
+
+    #[test]
+    fn end_rw_request_releases_the_dma_for_both_directions() {
+        unsafe {
+            for type_ in [REQTYPE_IO_WRITE, REQTYPE_IO_READ] {
+                let mut dma_page = vec![0u8; DEVICE_PAGE_SIZE];
+                let mut user_page = vec![0u8; 16];
+                let mut request = Request::new().expect("allocate a request");
+                request.data = user_page.as_mut_ptr() as *mut c_void;
+                request.data_len = user_page.len();
+
+                let before = FREED.with(Cell::get);
+                let dma = Box::into_raw(Box::new(BluedbmDma {
+                    tag: 1,
+                    data: dma_page.as_mut_ptr() as *mut c_char,
+                    d_private: request.as_ptr() as *mut c_void,
+                    free_dma: counting_free_dma,
+                }));
+                let rw_req = Box::into_raw(Box::new(AsyncBdbmReq {
+                    type_,
+                    end_req: None,
+                    private_data: dma as *mut c_void,
+                }));
+
+                // The callback frees the DMA buffer, copies a read back, and
+                // releases both structures.
+                end_rw_request(rw_req);
+                assert_eq!(FREED.with(Cell::get) - before, 1);
+            }
         }
     }
 
