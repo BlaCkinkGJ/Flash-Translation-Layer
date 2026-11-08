@@ -23,11 +23,11 @@
 //!
 //! | C | symbol | Rust |
 //! |---|--------|------|
-//! | 22 | `g_badseg_counter` | [`EraseCounters::badseg`] |
-//! | 23 | `g_erase_counter` | [`EraseCounters::erase`] |
+//! | 22 | `g_badseg_counter` | `EraseCounters::badseg` |
+//! | 23 | `g_erase_counter` | `EraseCounters::erase` |
 //! | 34 | `bluedbm_erase_end_request` | [`erase_end_request`] |
 //! | 52 | `bluedbm_clear` | [`Bluedbm::clear`] |
-//! | 87 | `bluedbm_wait_erase_finish` | [`wait_erase_finish`] |
+//! | 87 | `bluedbm_wait_erase_finish` | [`Bluedbm::wait_erase_finish`] |
 //! | 115 | `bluedbm_open` | [`Bluedbm::open`] + [`Bluedbm::open_storage`] |
 //! | 199 | `bluedbm_end_rw_request` | [`end_rw_request`] |
 //! | 238 | `bluedbm_write` | [`Bluedbm::write`] |
@@ -141,11 +141,12 @@ struct memio_t {
     _private: [u8; 0],
 }
 
-/// Mirrors `bluedbm_dma_t` in `include/bluedbm.h`.
+/// The per request bookkeeping `bluedbm.c` keeps in `bluedbm_dma_t`.
 ///
-/// `data` is the DMA buffer `memio_alloc_dma` hands back. `tag` is its tag for
-/// `memio_free_dma`. `d_private` is the user `device_request`.
-#[repr(C)]
+/// The first three fields are C's. The fourth is the port's: the completion
+/// callback runs without a backend to ask, so the entry point it needs travels
+/// with the request. Nothing outside this module reads the structure, so it
+/// carries no `repr(C)`.
 struct BluedbmDma {
     tag: u32,
     data: *mut c_char,
@@ -300,6 +301,13 @@ pub struct Bluedbm {
 // callable from any thread and the caller must not issue overlapping requests,
 // which is the deal C's `bluedbm` makes. `Cell` is what would otherwise make
 // this `!Sync`.
+//
+// The counters are the one piece of state two threads reach at once: libmemio's
+// device manager thread runs [`erase_end_request`] while the FTL thread runs
+// [`Bluedbm::wait_erase_finish`]. Both sides touch only the `AtomicI32` elements
+// of that allocation, the callback with `fetch_add` and the wait with `load` and
+// `store`, so neither can observe a torn value. The allocation itself is never
+// freed, so the callback cannot outlive it.
 unsafe impl Sync for Bluedbm {}
 
 /// Fill the flash geometry, the first block of C's `bluedbm_open`: the bus and
@@ -342,8 +350,9 @@ impl Bluedbm {
     /// not drain the erase requests it issued (its wait tests
     /// `mio->rr[i].done`, which is never initialised), so a trim completion can
     /// land after [`Bluedbm::close`] returns and after the backend itself is
-    /// uninstalled. One allocation per board is the price of a callback that
-    /// cannot land on freed memory. Before the first open the pointer is null,
+    /// uninstalled, and a board whose geometry changes between two opens keeps
+    /// the previous allocation for the same reason. One allocation per size is
+    /// the price of a callback that cannot land on freed memory. Before the first open the pointer is null,
     /// and the callback logs the update and drops it, which is what C's null
     /// check did.
     fn context(&self) -> *mut c_void {
@@ -448,9 +457,11 @@ impl Bluedbm {
     /// polls, as C does.
     ///
     /// # Safety
-    /// `dev` is the device this backend was installed into. The counters may be
-    /// shorter than the range asked for, in which case this returns without
-    /// polling.
+    /// `dev` is the device this backend was installed into, and
+    /// `(*dev).badseg_bitmap` is a live allocation of
+    /// `nr_segments.div_ceil(64)` u64s when a segment can be reported bad. The
+    /// counters may be missing or shorter than the range asked for, in which
+    /// case this returns without polling.
     unsafe fn wait_erase_finish(&self, dev: *mut device, segnum: usize, nr_segments: usize) {
         let Some(counters) = self.counters.get().as_ref() else {
             pr_err!("erase wait has no counters (segnum: {})", segnum);

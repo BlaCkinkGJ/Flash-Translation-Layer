@@ -93,7 +93,7 @@ The BlueDBM backend keeps one erase counter per segment in `EraseCounters`,
 a pair of `Vec<AtomicI32>` on the backend. libmemio's trim callback indexes
 them with a segment number that comes from the device manager, so
 `erase_end_request` rejects an index past the vector's length and drops the
-update. The callback reaches the backend through the `ctx` that `memio_trim`
+update. The callback reaches the counters through the `ctx` that `memio_trim`
 hands back, which is why the arrays are no longer process globals.
 
 The arrays are never freed. The wait leaves a bad segment while up to
@@ -106,11 +106,11 @@ counters, where it used to poll for an update that never arrives, and `erase`
 refuses a segment at or past `nr_segments` before the trim, so a caller gets
 `-EINVAL` rather than a success for an erase nobody waited for.
 
-Verified by `cargo test --lib --features bluedbm`, which links libmemio at
-`afb9e5a` or later for the `memio_trim` context argument and swaps in a fake
-table of entry points for the tests. CI compiles the feature with
-`cargo build --lib --features bluedbm` and runs the suite only where the
-library is installed.
+Verified by `cargo test --lib --features bluedbm`. The feature still links
+libmemio, at `afb9e5a` or later, because the `memio_trim` it names takes the
+context argument. The suite runs against the `MemioApi` fake rather than the
+board. CI compiles the feature with `cargo build --lib --features bluedbm` and
+runs the suite only where the library is installed.
 
 ## Cargo features
 
@@ -203,7 +203,8 @@ real dependency cannot run on every machine.
 | --- | --- | --- |
 | `module_init_with(table, ...)` | `src/module.rs:61` | the submodule table |
 | `module_init_with(table, ...)` | `src/device/mod.rs:781` | the backend table |
-| `NandApi` | `src/device/raspberry.rs:191` | the libnand entry points |
+| `NandApi` | `src/device/raspberry.rs:181` | the libnand entry points |
+| `MemioApi` | `src/device/bluedbm.rs:227` | the libmemio entry points |
 | `Fixture` | `src/ftl/test_support.rs:39` | a small ramdisk geometry |
 
 The dispatch functions take their table as a parameter, so the shipped table
@@ -211,10 +212,11 @@ and a mock table run the same code. That is how
 `init_rejects_an_out_of_range_module_number` (`src/module.rs:246`) and
 `module_init_error_paths` (`src/device/mod.rs:1219`) drive the error paths,
 an out-of-range `modnum` and a failing submodule init, without a device.
-`NandApi` is a struct of function pointers filled from the real symbols in
-`NandApi::system` and from fakes in `fake_api`
-(`src/device/raspberry.rs:202,700`), which is what lets the raspberry backend
-have tests at all on a machine without libnand.
+`NandApi` and `MemioApi` are structs of function pointers filled from the real
+symbols in their `system` constructor and from fakes in `fake_api`
+(`src/device/raspberry.rs:202`, `src/device/bluedbm.rs:240`), which is what lets
+the raspberry and BlueDBM backends have tests at all on a machine without those
+libraries.
 `Fixture` wraps a real ramdisk backend narrowed to a four-segment geometry.
 
 These compile only with `cargo test`, and the `#[cfg(test)]` attribute is what

@@ -135,10 +135,12 @@ assert the same formulas with `offset_of!` and `size_of!`.
 Third party types are mirrored the same way where the backend reads their
 fields. `src/device/zone.rs:150,170` mirrors `struct zbd_info` and
 `struct zbd_zone` and pins their sizes with `const _: () = assert!(...)` at
-`src/device/zone.rs:185-186`. `src/device/bluedbm.rs:149,173` mirrors
-`bluedbm_dma_t` and `async_bdbm_req`, with `memio_t` at
-`src/device/bluedbm.rs:140` kept as an opaque zero-sized type because only a
-pointer to it ever crosses.
+`src/device/zone.rs:185-186`. `src/device/bluedbm.rs:174` mirrors
+`async_bdbm_req`, with `memio_t` at `src/device/bluedbm.rs:140` kept as an
+opaque zero-sized type because only a pointer to it ever crosses. The DMA
+bookkeeping at `src/device/bluedbm.rs:150` is Rust only: it starts from C's
+`bluedbm_dma_t` and adds the entry point the completion callback needs, so it
+carries no `repr(C)`.
 
 Other types are deliberately opaque. `PageFtlSegment` and `PageFtl`
 (`src/ftl/mod.rs:398,451`) are plain Rust types with no `repr` at all: C
