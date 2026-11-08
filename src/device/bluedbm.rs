@@ -301,6 +301,23 @@ impl EraseCounters {
         })
     }
 
+    /// Allocate the structure itself, so a failed allocation reports `-ENOMEM`
+    /// like the two vectors do instead of aborting. The caller owns the pointer
+    /// and never frees it.
+    ///
+    /// # Safety
+    /// The returned pointer is written once and then only read through the
+    /// shared references the callback and the wait take.
+    unsafe fn allocate(nr_segments: usize) -> Option<*mut Self> {
+        let counters = Self::try_new(nr_segments)?;
+        let raw = std::alloc::alloc(std::alloc::Layout::new::<Self>()).cast::<Self>();
+        if raw.is_null() {
+            return None;
+        }
+        raw.write(counters);
+        Some(raw)
+    }
+
     /// Clear every counter without moving the buffers, so a callback that is
     /// still indexing them keeps reading a live allocation.
     fn reset(&self) {
@@ -439,22 +456,22 @@ impl Bluedbm {
         // buffer.
         let installed = self.counters.get();
         if installed.is_null() {
-            let Some(fresh) = EraseCounters::try_new(nr_segments) else {
+            let Some(fresh) = EraseCounters::allocate(nr_segments) else {
                 pr_err!("memory allocation failed");
                 return -libc::ENOMEM;
             };
-            self.counters.set(Box::into_raw(Box::new(fresh)));
+            self.counters.set(fresh);
         } else if (*installed).erase.len() == nr_segments {
             (*installed).reset();
         } else {
             // The geometry changed, so the old arrays are too small. They are
             // left alone rather than freed, for the same reason as in
             // `context`.
-            let Some(fresh) = EraseCounters::try_new(nr_segments) else {
+            let Some(fresh) = EraseCounters::allocate(nr_segments) else {
                 pr_err!("memory allocation failed");
                 return -libc::ENOMEM;
             };
-            self.counters.set(Box::into_raw(Box::new(fresh)));
+            self.counters.set(fresh);
         }
 
         if self.o_flags.get() & libc::O_CREAT != 0 {
@@ -833,8 +850,10 @@ unsafe extern "C" fn erase_end_request(segnum: u64, is_bad: u8, ctx: *mut c_void
     // outside the board into a small in range one. The index below is safe
     // because this check bounds it.
     if segnum >= counters.erase.len() as u64 {
-        counters.dropped.fetch_add(1, Ordering::SeqCst);
+        // The number goes first, so a count the FTL thread reads always has the
+        // segment behind it already recorded.
         counters.last_dropped.store(segnum, Ordering::SeqCst);
+        counters.dropped.fetch_add(1, Ordering::SeqCst);
         return;
     }
     let segnum = segnum as usize;
@@ -1072,8 +1091,8 @@ mod tests {
     /// a trim.
     fn fake_backend(nr_segments: usize) -> Bluedbm {
         let backend = Bluedbm::with_api(fake_api());
-        let counters = EraseCounters::try_new(nr_segments).expect("allocate counters");
-        backend.counters.set(Box::into_raw(Box::new(counters)));
+        let counters = unsafe { EraseCounters::allocate(nr_segments) }.expect("allocate counters");
+        backend.counters.set(counters);
         backend
     }
 
@@ -1081,8 +1100,8 @@ mod tests {
     /// [`Bluedbm::open_storage`] installs without libmemio.
     fn backend_with_counters(nr_segments: usize) -> Bluedbm {
         let backend = Bluedbm::new();
-        let counters = EraseCounters::try_new(nr_segments).expect("allocate counters");
-        backend.counters.set(Box::into_raw(Box::new(counters)));
+        let counters = unsafe { EraseCounters::allocate(nr_segments) }.expect("allocate counters");
+        backend.counters.set(counters);
         backend
     }
 
