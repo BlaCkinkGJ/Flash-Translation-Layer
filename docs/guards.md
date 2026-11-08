@@ -162,7 +162,7 @@ raspberry switch also sets the `1/1/4/24` bit counts and a 2048 byte page
 Without that, the two sides would disagree about where the block field starts.
 The Rust constants behind the same geometry are `#[cfg]`-selected in
 `src/device/mod.rs:96-117` for `zone`, while bluedbm and raspberry keep their
-own counts beside their backends (`src/device/bluedbm.rs:120,124`,
+own counts beside their backends (`src/device/bluedbm.rs:123,127`,
 `src/device/raspberry.rs:104-116`).
 
 ## CI jobs
@@ -205,8 +205,8 @@ real dependency cannot run on every machine.
 | `module_init_with(table, ...)` | `src/module.rs:61` | the submodule table |
 | `module_init_with(table, ...)` | `src/device/mod.rs:781` | the backend table |
 | `NandApi` | `src/device/raspberry.rs:181` | the libnand entry points |
-| `MemioApi` | `src/device/bluedbm.rs:227` | the libmemio entry points |
-| libmemio symbols | `src/device/bluedbm.rs:961` | the library in a test build |
+| `MemioApi` | `src/device/bluedbm.rs:242` | the libmemio entry points |
+| libmemio symbols | `src/device/bluedbm.rs:962` | the library in a test build |
 | `Fixture` | `src/ftl/test_support.rs:39` | a small ramdisk geometry |
 
 The dispatch functions take their table as a parameter, so the shipped table
@@ -216,9 +216,9 @@ and a mock table run the same code. That is how
 an out-of-range `modnum` and a failing submodule init, without a device.
 `NandApi` and `MemioApi` are structs of function pointers filled from the real
 symbols in their `system` constructor and from fakes in `fake_api`
-(`src/device/raspberry.rs:202`, `src/device/bluedbm.rs:240`), which is what lets
-the raspberry and BlueDBM backends have tests at all on a machine without those
-libraries.
+(`src/device/raspberry.rs:192,660`, `src/device/bluedbm.rs:255,1061`), which is
+what lets the raspberry and BlueDBM backends have tests at all on a machine
+without those libraries.
 `Fixture` wraps a real ramdisk backend narrowed to a four-segment geometry.
 
 These compile only with `cargo test`, and the `#[cfg(test)]` attribute is what
