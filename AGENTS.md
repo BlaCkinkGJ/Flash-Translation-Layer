@@ -214,9 +214,10 @@ checks are green, the findings are settled and the coverage gate holds.
   exported ABI headers in `include/`. New C ABI symbols carry the `ffi_` prefix,
   dead C sources and the declarations of deleted symbols are deleted with them.
 - No semicolons and no em dashes in prose, comments, or commit messages.
-- Run the `humanizer` skill over anything a person reads before posting it: pull
-  request descriptions, pull request and issue comments, and the prose blocks of
-  code comments. It names the patterns that make text read as generated.
+- Run the `humanizer` skill over anything a person reads before posting or
+  committing it: issue bodies, pull request descriptions, pull request and issue
+  comments, `docs/**`, `README.md`, `AGENTS.md`, and the prose blocks of code
+  comments. It names the patterns that make text read as generated.
 - Do not hard wrap a pull request description or a comment. The only 80 column
   rule here is `clang-format`'s, for `include/*.h`, and GitHub soft wraps
   anyway, so a hard wrap only turns a one sentence edit into a diff of the
