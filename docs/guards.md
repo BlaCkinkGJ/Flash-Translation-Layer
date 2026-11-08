@@ -206,7 +206,7 @@ real dependency cannot run on every machine.
 | `module_init_with(table, ...)` | `src/device/mod.rs:781` | the backend table |
 | `NandApi` | `src/device/raspberry.rs:181` | the libnand entry points |
 | `MemioApi` | `src/device/bluedbm.rs:227` | the libmemio entry points |
-| libmemio symbols | `src/device/bluedbm.rs:889` | the library in a test build |
+| libmemio symbols | `src/device/bluedbm.rs:961` | the library in a test build |
 | `Fixture` | `src/ftl/test_support.rs:39` | a small ramdisk geometry |
 
 The dispatch functions take their table as a parameter, so the shipped table

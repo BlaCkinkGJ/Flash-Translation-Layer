@@ -347,10 +347,11 @@ pub struct Bluedbm {
 //
 // The counters are the one piece of state two threads reach at once: libmemio's
 // device manager thread runs [`erase_end_request`] while the FTL thread runs
-// [`Bluedbm::wait_erase_finish`]. Both sides touch only the `AtomicI32` elements
-// of that allocation, the callback with `fetch_add` and the wait with `load` and
-// `store`, so neither can observe a torn value. The allocation itself is never
-// freed, so the callback cannot outlive it.
+// [`Bluedbm::wait_erase_finish`]. Both sides touch only the atomic elements of
+// that allocation, the callback with `fetch_add` and `store` and the wait with
+// `load`, `store` and `swap`, so neither can observe a torn value and no
+// non-atomic field is written. The allocation itself is never freed, so the
+// callback cannot outlive it.
 unsafe impl Sync for Bluedbm {}
 
 /// Fill the flash geometry, the first block of C's `bluedbm_open`: the bus and
