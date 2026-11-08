@@ -87,6 +87,27 @@ Verified by `make test` for the Rust half and `make consumer-check` for the C
 half, which compiles the assertions against the consumer compiler's own
 offsets.
 
+## Counter bounds
+
+The BlueDBM backend keeps one erase counter per segment in `EraseCounters`,
+a pair of `Vec<AtomicI32>` on the backend. libmemio's trim callback indexes
+them with a segment number that comes from the device manager, so
+`erase_end_request` rejects an index past the vector's length and drops the
+update. The callback reaches the backend through the `ctx` that `memio_trim`
+hands back, which is why the arrays are no longer process globals.
+
+The callback runs under the board, so a write past the array has no operating
+system check behind it. That is the failure issue #16 reports. Two callers keep
+the range in bounds as well. The wait returns on a range past the counters,
+where it used to poll for an update that never arrives, and `erase` refuses a
+segment at or past `nr_segments` before the trim, so a caller gets `-EINVAL`
+rather than a success for an erase nobody waited for.
+
+Verified by `cargo test --lib --features bluedbm`, which needs libmemio at
+`afb9e5a` or later for the `memio_trim` context argument. CI compiles the
+feature with `cargo build --lib --features bluedbm` and runs the suite only
+where the library is installed.
+
 ## Cargo features
 
 Five features gate whole backends or behaviours. A feature that is off
@@ -136,7 +157,7 @@ raspberry switch also sets the `1/1/4/24` bit counts and a 2048 byte page
 Without that, the two sides would disagree about where the block field starts.
 The Rust constants behind the same geometry are `#[cfg]`-selected in
 `src/device/mod.rs:96-117` for `zone`, while bluedbm and raspberry keep their
-own counts beside their backends (`src/device/bluedbm.rs:100-102`,
+own counts beside their backends (`src/device/bluedbm.rs:109,113`,
 `src/device/raspberry.rs:104-116`).
 
 ## CI jobs
