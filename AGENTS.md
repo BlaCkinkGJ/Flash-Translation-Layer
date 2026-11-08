@@ -222,4 +222,7 @@ checks are green, the findings are settled and the coverage gate holds.
   rule here is `clang-format`'s, for `include/*.h`, and GitHub soft wraps
   anyway, so a hard wrap only turns a one sentence edit into a diff of the
   whole block.
+- Keep a pull request description under 1000 characters. Past that it is a
+  document, and a document belongs in `docs/`, where it stays in the tree and a
+  reviewer can cite the line they mean.
 - Never force-push `main`, and never merge a pull request whose checks are red.
