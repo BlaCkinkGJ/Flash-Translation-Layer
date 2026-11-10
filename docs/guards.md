@@ -107,11 +107,11 @@ refuses a segment at or past `nr_segments` before the trim, so a caller gets
 `-EINVAL` rather than a success for an erase nobody waited for.
 
 Verified by `cargo test --lib --features bluedbm`, which runs on a machine
-without libmemio. A real build of the feature asks the linker for the library,
-at `afb9e5a` or later because the `memio_trim` it names takes the context
-argument, while a test build defines the seven symbols itself and swaps a fake
-table into `MemioApi` for the erase path. CI compiles the feature with
-`cargo build --lib --features bluedbm`.
+without libmemio, by the `bluedbm-feature` CI job, and by the coverage job that
+records the lines it hits. A real build of the feature asks the linker for the
+library, at `afb9e5a` or later because the `memio_trim` it names takes the
+context argument, while a test build defines the seven symbols itself and swaps
+a fake table into `MemioApi` for the erase path.
 
 ## Cargo features
 
@@ -167,15 +167,16 @@ own counts beside their backends (`src/device/bluedbm.rs:123,127`,
 
 ## CI jobs
 
-Two jobs run on every pull request, and Codacy runs a third check.
+Three jobs run on every pull request, and Codacy runs a fourth check.
 
 | Job | Uniquely catches |
 | --- | --- |
 | `build-and-test-x86_64` | header analysis, the C consumer, clippy |
+| `bluedbm-feature` | the BlueDBM counter bound and the erase path |
 | `zone-emulator` | the libzbd build and the zoned paths against a real device |
 | Codacy | markdownlint over the documentation |
 
-`build-and-test-x86_64` (`.github/workflows/build.yml:10-63`) runs `make
+`build-and-test-x86_64` (`.github/workflows/build.yml:9-92`) runs `make
 check` (cppcheck, flawfinder and lizard over the headers,
 `Makefile:222-228`), `make flow` (cflow, `Makefile:233-234`), builds the
 archive and the two programs, runs the integration test and the benchmark
@@ -183,7 +184,12 @@ twice, runs `make consumer-check`, runs the Rust suite with the `silent`
 feature, runs clippy as `-D warnings` and builds `--features silent`. It is
 the only job that compiles C and the only one that runs the consumer.
 
-`zone-emulator` (`.github/workflows/build.yml:70-127`) installs `libzbd-dev`,
+`bluedbm-feature` (`.github/workflows/build.yml:93-122`) runs the suite for the
+BlueDBM backend, which a test build can do without libmemio because it defines
+the seven symbols itself, and measures the coverage of those lines. It catches
+a regression in the erase bound that no other job compiles with the tests on.
+
+`zone-emulator` (`.github/workflows/build.yml:123-193`) installs `libzbd-dev`,
 builds and lints with `--features zone`, creates an emulated zoned device
 through `null_blk`, falling back to `zloop`, and runs `make zone-smoke` plus
 `cargo test --features zone`. It also measures coverage of those paths. It
