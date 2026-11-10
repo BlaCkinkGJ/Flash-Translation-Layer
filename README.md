@@ -79,7 +79,8 @@ A backend that talks to hardware binds its library by hand, so build and link
 against the one you enable. The default build needs none of them.
 
 - zone: [libzbd](https://github.com/westerndigitalcorporation/libzbd)
-- bluedbm: [libmemio](https://github.com/pnuoslab/Flash-Board-Tester)
+- bluedbm: [libmemio](https://github.com/pnuoslab/Flash-Board-Tester), at
+  `afb9e5a` or later, where `memio_trim` takes the erase callback's context
 - raspberry: `libnand` and `wiringPi`
 
 After you download the packages, you must receive this project code using

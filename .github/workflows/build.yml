@@ -74,6 +74,11 @@ jobs:
     # hardware library.
     - name: cargo build --lib --features bluedbm
       run: cargo build --lib --features bluedbm
+    # A test build defines the libmemio symbols itself, so the suite runs
+    # without the hardware library. This is the only place the `bluedbm`
+    # feature's code is exercised.
+    - name: cargo test --lib --features bluedbm
+      run: cargo test --lib --features bluedbm
     - name: cargo build --lib --features raspberry
       run: cargo build --lib --features raspberry
     - name: cargo build --features silent
@@ -85,6 +90,30 @@ jobs:
     # stay in the Codacy run and are linted here too.
     - name: lint the markdown
       run: npx -y markdownlint-cli2 "docs/**/*.md" README.md AGENTS.md
+
+  # The `bluedbm` feature is compiled by the job above but never run by it, and
+  # the zone job compiles the module out. This job runs the suite, which a test
+  # build can do without libmemio, and measures the coverage of the lines it
+  # covers, which is what the changed line gate in AGENTS.md is read from.
+  bluedbm-feature:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: install cargo-llvm-cov
+      run: |
+        rustup component add llvm-tools-preview
+        cargo install cargo-llvm-cov --locked
+    - name: cargo test --lib --features bluedbm
+      run: cargo test --lib --features bluedbm
+    - name: coverage of the bluedbm backend
+      run: |
+        cargo llvm-cov --no-report --lib --features bluedbm
+        cargo llvm-cov report --lcov --output-path coverage-bluedbm.lcov
+        cargo llvm-cov report --summary-only
+    - uses: actions/upload-artifact@v4
+      with:
+        name: coverage-bluedbm-lcov
+        path: coverage-bluedbm.lcov
 
   # The zoned backend (#108) needs libzbd and a zoned block device, and the job
   # above has neither. A GitHub runner has sudo and the `null_blk` driver can

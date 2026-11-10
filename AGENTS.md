@@ -33,7 +33,8 @@ where `gcc` is only used by `make consumer-check`, the one C compile left.
 Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
 [libzbd](https://github.com/westerndigitalcorporation/libzbd),
 `USE_BLUEDBM_DEVICE=1` needs
-[libmemio](https://github.com/pnuoslab/Flash-Board-Tester),
+[libmemio](https://github.com/pnuoslab/Flash-Board-Tester) at `afb9e5a` or
+later, where `memio_trim` takes the erase callback's context,
 `USE_RASPBERRY_DEVICE=1` needs `libnand` and `wiringPi`. The backends bind
 those libraries by hand, so a consumer of that build links them too.
 `make check` needs `cppcheck`, `flawfinder` and `lizard==1.17.0`,

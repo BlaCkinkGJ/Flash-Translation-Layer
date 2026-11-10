@@ -87,6 +87,32 @@ Verified by `make test` for the Rust half and `make consumer-check` for the C
 half, which compiles the assertions against the consumer compiler's own
 offsets.
 
+## Counter bounds
+
+The BlueDBM backend keeps one erase counter per segment in `EraseCounters`,
+a pair of `Vec<AtomicI32>` on the backend. libmemio's trim callback indexes
+them with a segment number that comes from the device manager, so
+`erase_end_request` rejects an index past the vector's length and drops the
+update. The callback reaches the counters through the `ctx` that `memio_trim`
+hands back, which is why the arrays are no longer process globals.
+
+The arrays are never freed. The wait leaves a bad segment while up to
+`blocks_per_segment - 1` of its callbacks can still arrive, and `memio_close`
+does not drain the erase requests it issued, so a completion can follow the
+close. The callback runs under the board, so a write past the array has no
+operating system check behind it. That is the failure issue #16 reports. Two
+callers keep the range in bounds as well. The wait returns on a range past the
+counters, where it used to poll for an update that never arrives, and `erase`
+refuses a segment at or past `nr_segments` before the trim, so a caller gets
+`-EINVAL` rather than a success for an erase nobody waited for.
+
+Verified by `cargo test --lib --features bluedbm`, which runs on a machine
+without libmemio, by the `bluedbm-feature` CI job, and by the coverage job that
+records the lines it hits. A real build of the feature asks the linker for the
+library, at `afb9e5a` or later because the `memio_trim` it names takes the
+context argument, while a test build defines the seven symbols itself and swaps
+a fake table into `MemioApi` for the erase path.
+
 ## Cargo features
 
 Five features gate whole backends or behaviours. A feature that is off
@@ -136,20 +162,21 @@ raspberry switch also sets the `1/1/4/24` bit counts and a 2048 byte page
 Without that, the two sides would disagree about where the block field starts.
 The Rust constants behind the same geometry are `#[cfg]`-selected in
 `src/device/mod.rs:96-117` for `zone`, while bluedbm and raspberry keep their
-own counts beside their backends (`src/device/bluedbm.rs:100-102`,
+own counts beside their backends (`src/device/bluedbm.rs:123,127`,
 `src/device/raspberry.rs:104-116`).
 
 ## CI jobs
 
-Two jobs run on every pull request, and Codacy runs a third check.
+Three jobs run on every pull request, and Codacy runs a fourth check.
 
 | Job | Uniquely catches |
 | --- | --- |
 | `build-and-test-x86_64` | header analysis, the C consumer, clippy |
+| `bluedbm-feature` | the BlueDBM counter bound and the erase path |
 | `zone-emulator` | the libzbd build and the zoned paths against a real device |
 | Codacy | markdownlint over the documentation |
 
-`build-and-test-x86_64` (`.github/workflows/build.yml:10-63`) runs `make
+`build-and-test-x86_64` (`.github/workflows/build.yml:9-92`) runs `make
 check` (cppcheck, flawfinder and lizard over the headers,
 `Makefile:222-228`), `make flow` (cflow, `Makefile:233-234`), builds the
 archive and the two programs, runs the integration test and the benchmark
@@ -157,7 +184,12 @@ twice, runs `make consumer-check`, runs the Rust suite with the `silent`
 feature, runs clippy as `-D warnings` and builds `--features silent`. It is
 the only job that compiles C and the only one that runs the consumer.
 
-`zone-emulator` (`.github/workflows/build.yml:70-127`) installs `libzbd-dev`,
+`bluedbm-feature` (`.github/workflows/build.yml:93-122`) runs the suite for the
+BlueDBM backend, which a test build can do without libmemio because it defines
+the seven symbols itself, and measures the coverage of those lines. It catches
+a regression in the erase bound that no other job compiles with the tests on.
+
+`zone-emulator` (`.github/workflows/build.yml:123-193`) installs `libzbd-dev`,
 builds and lints with `--features zone`, creates an emulated zoned device
 through `null_blk`, falling back to `zloop`, and runs `make zone-smoke` plus
 `cargo test --features zone`. It also measures coverage of those paths. It
@@ -178,7 +210,9 @@ real dependency cannot run on every machine.
 | --- | --- | --- |
 | `module_init_with(table, ...)` | `src/module.rs:61` | the submodule table |
 | `module_init_with(table, ...)` | `src/device/mod.rs:781` | the backend table |
-| `NandApi` | `src/device/raspberry.rs:191` | the libnand entry points |
+| `NandApi` | `src/device/raspberry.rs:181` | the libnand entry points |
+| `MemioApi` | `src/device/bluedbm.rs:242` | the libmemio entry points |
+| libmemio symbols | `src/device/bluedbm.rs:962` | the library in a test build |
 | `Fixture` | `src/ftl/test_support.rs:39` | a small ramdisk geometry |
 
 The dispatch functions take their table as a parameter, so the shipped table
@@ -186,10 +220,11 @@ and a mock table run the same code. That is how
 `init_rejects_an_out_of_range_module_number` (`src/module.rs:246`) and
 `module_init_error_paths` (`src/device/mod.rs:1219`) drive the error paths,
 an out-of-range `modnum` and a failing submodule init, without a device.
-`NandApi` is a struct of function pointers filled from the real symbols in
-`NandApi::system` and from fakes in `fake_api`
-(`src/device/raspberry.rs:202,700`), which is what lets the raspberry backend
-have tests at all on a machine without libnand.
+`NandApi` and `MemioApi` are structs of function pointers filled from the real
+symbols in their `system` constructor and from fakes in `fake_api`
+(`src/device/raspberry.rs:192,660`, `src/device/bluedbm.rs:255,1061`), which is
+what lets the raspberry and BlueDBM backends have tests at all on a machine
+without those libraries.
 `Fixture` wraps a real ramdisk backend narrowed to a four-segment geometry.
 
 These compile only with `cargo test`, and the `#[cfg(test)]` attribute is what
