@@ -20,7 +20,7 @@ maintainer (<ss5kijun@gmail.com>).
 
 ## Documentation
 
-Three documents cover the parts this README does not:
+These documents cover the parts this README does not:
 
 - [docs/architecture.md](docs/architecture.md): what the layers are, how a
   read, a write and a garbage collection pass move through them, and where the
@@ -48,7 +48,7 @@ The tree, in one table:
 | `tools/` | the generator from `ftl.yaml`, and its tests |
 | `tests/` | the cargo integration test |
 | `example/` | a small cargo example, `rw_example` |
-| `docs/` | the three documents above |
+| `docs/` | the documents above |
 | `benchmark.rs` | a cargo bin, the benchmark, at the crate root |
 | `integration-test.rs` | a cargo bin, the end-to-end test, at the crate root |
 
