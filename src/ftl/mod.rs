@@ -320,12 +320,19 @@
 //!   pointer twice (`ftl/page/page-interface.c:406-407`).
 //! - The page sized staging buffer is gone. C allocates it in
 //!   `page_ftl_read_interface` (`ftl/page/page-interface.c:200-205`) and copies
-//!   each chunk out of it (`:241`). [`page_read::read_page`] stages the device
-//!   read in its own scratch page and copies the requested subrange into the
-//!   request's buffer. C's `-ENOMEM` from that `malloc` therefore has no Rust
-//!   equivalent. The per chunk request allocation keeps its `-ENOMEM`
-//!   (`ftl/page/page-interface.c:222-227`), and the read interface reports
-//!   `-EINVAL` for every other failure exactly as C does (`:236-239`).
+//!   each chunk out of it (`:241`). [`page_read::read_page`] hands a whole-page
+//!   request to the device directly and stages only a partial one in its own
+//!   scratch page, copying the requested subrange out of that. C's `-ENOMEM`
+//!   from that `malloc` therefore has no Rust equivalent. The per chunk request
+//!   allocation keeps its `-ENOMEM` (`ftl/page/page-interface.c:222-227`), and
+//!   the read interface reports `-EINVAL` for every other failure exactly as C
+//!   does (`:236-239`).
+//! - A whole-page overwrite does not read the page it replaces. C always runs
+//!   `page_ftl_read_for_overwrite` (`ftl/page/page-write.c:93-103`), so a
+//!   device read failure fails the write with `-EFAULT`. Nothing of the old
+//!   page survives a write that covers it, so [`page_write::write_page`] skips
+//!   that read, and such a write cannot fail that way. A partial write keeps
+//!   C's behaviour.
 //! - C lets a `NULL` write buffer through to the `memcpy` in `page_ftl_write`
 //!   (`ftl/page/page-write.c:211`), which faults there. The port's write path
 //!   refuses it with `-EINVAL` before the splice, and the write interface

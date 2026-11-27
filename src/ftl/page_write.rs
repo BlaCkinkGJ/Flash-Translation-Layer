@@ -7,9 +7,10 @@
 //!
 //! The flow matches C's. Resolve the logical page and the in-page offset.
 //! Reject a logical page past the L2P table, and a write that runs past its
-//! page. Take a free physical page and build the page buffer, zeroed or filled
-//! with the previous contents when the LPN is already mapped. Splice the
-//! caller's bytes in, hand the page to the device, then update the L2P table.
+//! page. Take a free physical page and hand a whole page to the device, either
+//! the caller's own bytes when the request covers the page, or a staging page
+//! that is zeroed or filled with the previous contents when the LPN is already
+//! mapped, with the caller's bytes spliced in. Then update the L2P table.
 //! The old mapping is dropped, and its segment joins the GC queue once the
 //! segment has no free page left. The return value is the caller's byte count,
 //! not the page the device wrote.
@@ -31,12 +32,14 @@ use crate::ftl::page_read::read_page;
 use crate::ftl::{PageFtl, PageFtlLock};
 use crate::{pr_debug, pr_err};
 
-/// C's `page_ftl_write_end_rq`: release the scratch page and the request that
-/// carried it.
+/// C's `page_ftl_write_end_rq`: release the staging page, when this write owned
+/// one, and the request that carried it.
 ///
 /// # Safety
-/// `request` is a live request whose `data` points at a `data_len` byte page
-/// buffer allocated by [`write_page`], and it is not used afterwards.
+/// `request` is a live request produced by [`write_page`], and it is not used
+/// afterwards. Its `data` points at a `data_len` byte page buffer, which is a
+/// forgotten `Vec` the callback must free when `rq_private` is not null, and the
+/// caller's own buffer, which it must not free, when `rq_private` is null.
 unsafe extern "C" fn write_end_rq(request: *mut device_request) {
     // C's `free(request->data)` (`ftl/page/page-write.c:61`). A staging page
     // came from `vec![0u8; page_size]`, so its length equals its capacity. A
@@ -211,7 +214,8 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
     }
 
     // C's `memcpy(&buffer[offset], request->data, write_size)`
-    // (`ftl/page/page-write.c:211`).
+    // (`ftl/page/page-write.c:211`). Only the staged path copies: a whole-page
+    // write hands `request->data` to the device.
     let src = match unsafe { request.buffer_mut() } {
         Some(src) => src,
         None => {
@@ -258,8 +262,8 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
     };
     if ret != page_size as isize {
         pr_err!("device write failed (ppn: {})", paddr);
-        // A backend that fails does not run the completion callback, so the
-        // scratch page and the request are still ours.
+        // A backend that fails does not run the completion callback, so a
+        // staging page and the request are still ours.
         unsafe {
             if staged {
                 drop(Vec::from_raw_parts(buffer_ptr, page_size, page_size));
@@ -333,12 +337,26 @@ mod tests {
         let mut first: Vec<u8> = (0..DEVICE_PAGE_SIZE).map(|byte| byte as u8).collect();
         assert_eq!(write_at(&mut f, 0, &mut first).unwrap(), DEVICE_PAGE_SIZE);
 
-        // The second write covers the page, so no byte of the previous page may
-        // survive. The staging free would also abort here if the completion
-        // callback released the caller's buffer.
+        // Every device read fails from here, with the real write still in place,
+        // so a partial write to this LPN would fail with `EFAULT`. A whole-page
+        // write replaces every byte, so it must not read at all.
+        let saved = unsafe { (*f.dev).d_op };
+        let failing = device_operations {
+            open: unsafe { (*saved).open },
+            write: unsafe { (*saved).write },
+            read: Some(failing_read),
+            erase: unsafe { (*saved).erase },
+            close: unsafe { (*saved).close },
+        };
+        unsafe { (*f.dev).d_op = &failing };
+
+        // The staging free would also abort here if the completion callback
+        // released the caller's buffer.
         let mut second = vec![0xa5u8; DEVICE_PAGE_SIZE];
         second[DEVICE_PAGE_SIZE - 1] = 0x5a;
         assert_eq!(write_at(&mut f, 0, &mut second).unwrap(), DEVICE_PAGE_SIZE);
+
+        unsafe { (*f.dev).d_op = saved };
 
         let mut page = vec![0u8; DEVICE_PAGE_SIZE];
         assert_eq!(read_at(&mut f, 0, &mut page).unwrap(), DEVICE_PAGE_SIZE);
@@ -576,6 +594,25 @@ mod tests {
         assert_eq!(f.free(0), PAGES_PER_SEGMENT as i32 - 1);
         assert_eq!(f.valid(0), 1);
         assert_eq!(f.lpn_list_len(0), 0);
+    }
+
+    #[test]
+    fn failed_whole_page_write_leaves_the_caller_buffer_alone() {
+        let mut f = new_fixture();
+
+        // Program device page 0 behind the FTL's back, so the whole-page write
+        // the allocator hands that page fails on the device.
+        let mut page = vec![0x5au8; DEVICE_PAGE_SIZE];
+        write_physical_page(&mut f, 0, &mut page);
+
+        let mut data = vec![0x11u8; DEVICE_PAGE_SIZE];
+        let err = write_at(&mut f, 0, &mut data).unwrap_err();
+        assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+
+        // No staging page existed to free, and the caller's buffer is still the
+        // caller's, which a second free would have aborted.
+        assert!(data.iter().all(|byte| *byte == 0x11));
+        assert_eq!(f.pgftl.trans_map[0], PADDR_EMPTY);
     }
 
     /// Reports one byte less than the page the FTL asked for and never runs the

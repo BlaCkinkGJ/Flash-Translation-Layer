@@ -7,9 +7,10 @@
 //! The flow matches C's. Resolve the logical page and the in-page offset, then
 //! look the physical address up in the L2P table. An unmapped page is served
 //! with zeros, and a read that runs past the page is rejected. A mapped read
-//! reads the whole page into a scratch buffer through the device layer, then
+//! reads the whole page through the device layer into the caller's buffer, or
+//! into a scratch buffer when the request covers only part of the page, then
 //! waits on the request's condition variable. The completion callback copies
-//! the requested subrange out.
+//! the requested subrange out only in the scratch case.
 //!
 //! Deliberate deviations from C are listed in the [`crate::ftl`] module docs.
 
@@ -25,8 +26,8 @@ use crate::device::{
 use crate::ftl::{PageFtl, PageFtlLock};
 use crate::{pr_err, pr_warn};
 
-/// Release the scratch page buffer and the internal read request that were
-/// handed to the device but never completed.
+/// Release the staging page, when the read owned one, and the internal read
+/// request, both handed to the device but never completed.
 ///
 /// C nulls both locals before its cleanup label on a negative `d_op->read`
 /// (`ftl/page/page-read.c:121-127`) and leaks them. Keeping the reclaim here
@@ -50,19 +51,22 @@ unsafe fn reclaim_scratch(
     ffi_device_free_request(read_rq);
 }
 
-/// C's `page_ftl_read_end_rq`: copy the requested subrange out of the finished
-/// page read, release the scratch buffer and the internal request, then signal
-/// the caller's request finished.
+/// C's `page_ftl_read_end_rq`: copy the requested subrange out of a finished
+/// staged page read, release what it owns and the internal request, then signal
+/// the caller's request finished. A whole-page read already filled the caller's
+/// buffer, so it copies nothing and frees no staging page.
 ///
 /// The device's completion path runs this while [`read_page`] still holds its
 /// borrows, so it works entirely through raw pointers. It never forms a second
 /// reference to the page FTL or to the caller's request.
 ///
 /// # Safety
-/// `read_rq` is a live request produced by [`read_page`]. Its `data` came from
-/// a `Vec<u8>` of `data_len` bytes that was forgotten, so its length equals its
-/// capacity. `rq_private` holds the live caller request, whose `data` points at
-/// its own `data_len` writable bytes and stays valid until this returns.
+/// `read_rq` is a live request produced by [`read_page`]. Its `data` is either
+/// the caller's buffer, when the request covered the whole page, or a forgotten
+/// `Vec<u8>` of `data_len` bytes whose length equals its capacity, which this
+/// callback must free. `rq_private` holds the live caller request, whose `data`
+/// points at its own `data_len` writable bytes and stays valid until this
+/// returns.
 unsafe extern "C" fn read_end_rq(read_rq: *mut device_request) {
     let request = (*read_rq).rq_private as *mut device_request;
 
@@ -82,7 +86,8 @@ unsafe extern "C" fn read_end_rq(read_rq: *mut device_request) {
     }
 
     // C's `free(read_rq->data)`, then `device_free_request(read_rq)`
-    // (`ftl/page/page-read.c:33-34`).
+    // (`ftl/page/page-read.c:33-34`). A whole-page read has no scratch page to
+    // free.
     if !borrowed {
         drop(Vec::from_raw_parts(
             (*read_rq).data as *mut u8,
@@ -535,6 +540,20 @@ mod tests {
 
             let err = read_page(&mut pgftl, &mut request).unwrap_err();
             assert_eq!(err.raw_os_error(), Some(libc::EIO));
+
+            // A whole-page read has no scratch page to reclaim, and the
+            // caller's buffer must survive the failure.
+            let mut whole = vec![0u8; DEVICE_PAGE_SIZE];
+            let mut request = Request::new().expect("allocate a request");
+            request.flag = DeviceDirection::Read.into();
+            request.sector = 0;
+            request.data_len = whole.len();
+            request.data = whole.as_mut_ptr() as *mut c_void;
+            request.end_rq = None;
+
+            let err = read_page(&mut pgftl, &mut request).unwrap_err();
+            assert_eq!(err.raw_os_error(), Some(libc::EIO));
+            assert!(whole.iter().all(|byte| *byte == 0));
 
             // The scratch page buffer and the internal read request are
             // reclaimed at the single `reclaim_scratch` site before the error
