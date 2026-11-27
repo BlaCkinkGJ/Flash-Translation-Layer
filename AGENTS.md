@@ -20,6 +20,7 @@ include/           Public C headers (installed to $(PREFIX)/include/ftl)
 src/               Rust sources (cargo staticlib → libftl_rust.a), src/ftl/
 tests/             Rust integration test (integration.rs)
 tools/             gen_config.py and its tests
+docs/              Architecture, the C ABI and the guards
 ftl.yaml           Source of truth for the GC tuning and device geometry
 example/           Rust example program (rw_example), a cargo example
 benchmark.rs        Performance benchmark → benchmark.out
@@ -226,6 +227,6 @@ checks are green, the findings are settled and the coverage gate holds.
   rule here is `clang-format`'s, for `include/*.h`, and GitHub soft wraps
   anyway, so a hard wrap only turns a one sentence edit into a diff of the
   whole block.
-- Keep a pull request body under 1000 characters. If it needs more, write it up
-  in `docs/`, add it to the README list, and link the file.
+- Keep a pull request description under 1000 characters. If it needs more, write
+  it up in `docs/`, add it to the README list, and link the file.
 - Never force-push `main`, and never merge a pull request whose checks are red.
