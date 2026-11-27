@@ -11,6 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    # The runner image carries whatever stable release is current, and a new
+    # stable lint can turn `-D warnings` red with no commit behind it. Pin the
+    # release `docker/Dockerfile` installs, so CI and the container agree on the
+    # compiler and its lints.
+    - name: pin the rust toolchain
+      run: |
+        rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+        rustup default 1.99.1
     - name: prepare environment
       run: |
         sudo apt-get update -y && sudo apt-get clean
@@ -99,6 +107,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - name: pin the rust toolchain
+      run: |
+        rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+        rustup default 1.99.1
     - name: install cargo-llvm-cov
       run: |
         rustup component add llvm-tools-preview
@@ -124,6 +136,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - name: pin the rust toolchain
+      run: |
+        rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+        rustup default 1.99.1
     - name: prepare environment
       run: |
         sudo apt-get update -y && sudo apt-get clean

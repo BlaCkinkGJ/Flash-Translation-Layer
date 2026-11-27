@@ -30,6 +30,8 @@ integration-test.rs End-to-end test → integration-test.out
 
 Linux (Ubuntu >= 16.04) needs `git make gcc` and the Rust toolchain (`cargo`),
 where `gcc` is only used by `make consumer-check`, the one C compile left.
+CI installs the release `docker/Dockerfile` pins, so the compiler and its lints
+are fixed rather than following the runner image.
 Backends and tooling are optional: `USE_ZONE_DEVICE=1` needs
 [libzbd](https://github.com/westerndigitalcorporation/libzbd),
 `USE_BLUEDBM_DEVICE=1` needs
