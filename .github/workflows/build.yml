@@ -12,13 +12,14 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     # The runner image carries whatever stable release is current, and a new
-    # stable lint can turn `-D warnings` red with no commit behind it. Pin the
-    # release `docker/Dockerfile` installs, so CI and the container agree on the
-    # compiler and its lints.
+    # stable lint can turn `-D warnings` red with no commit behind it. The
+    # release is read from `docker/Dockerfile`, so the container and CI cannot
+    # disagree about the compiler and its lints.
     - name: pin the rust toolchain
       run: |
-        rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
-        rustup default 1.99.1
+        version=$(sed -n 's/.*--default-toolchain \([0-9][0-9.]*\).*/\1/p' docker/Dockerfile)
+        rustup toolchain install "$version" --profile minimal --component clippy --component rustfmt
+        rustup default "$version"
     - name: prepare environment
       run: |
         sudo apt-get update -y && sudo apt-get clean
@@ -107,14 +108,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    # The runner image carries whatever stable release is current, and a new
+    # stable lint can turn `-D warnings` red with no commit behind it. The
+    # release is read from `docker/Dockerfile`, so the container and CI cannot
+    # disagree about the compiler and its lints.
     - name: pin the rust toolchain
       run: |
-        rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
-        rustup default 1.99.1
+        version=$(sed -n 's/.*--default-toolchain \([0-9][0-9.]*\).*/\1/p' docker/Dockerfile)
+        rustup toolchain install "$version" --profile minimal --component clippy --component rustfmt
+        rustup default "$version"
     - name: install cargo-llvm-cov
       run: |
         rustup component add llvm-tools-preview
-        cargo install cargo-llvm-cov --locked
+        cargo install cargo-llvm-cov --version 0.9.2 --locked
     - name: cargo test --lib --features bluedbm
       run: cargo test --lib --features bluedbm
     - name: coverage of the bluedbm backend
@@ -136,10 +142,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    # The runner image carries whatever stable release is current, and a new
+    # stable lint can turn `-D warnings` red with no commit behind it. The
+    # release is read from `docker/Dockerfile`, so the container and CI cannot
+    # disagree about the compiler and its lints.
     - name: pin the rust toolchain
       run: |
-        rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
-        rustup default 1.99.1
+        version=$(sed -n 's/.*--default-toolchain \([0-9][0-9.]*\).*/\1/p' docker/Dockerfile)
+        rustup toolchain install "$version" --profile minimal --component clippy --component rustfmt
+        rustup default "$version"
     - name: prepare environment
       run: |
         sudo apt-get update -y && sudo apt-get clean
@@ -196,7 +207,7 @@ jobs:
     - name: cargo test --features zone
       run: cargo test --features zone
     - name: install cargo-llvm-cov
-      run: cargo install cargo-llvm-cov --locked
+      run: cargo install cargo-llvm-cov --version 0.9.2 --locked
     - name: coverage of the zoned backend
       run: |
         cargo llvm-cov --no-report --all-targets --features zone

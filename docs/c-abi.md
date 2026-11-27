@@ -219,9 +219,9 @@ ramdisk round trip returns the value written. Nothing is added to the
 repository, and a header that stops compiling fails the target.
 
 CI runs it as its own step, `make clean && make consumer-check`
-(`.github/workflows/build.yml:50-51`). It is also the only C compilation in
+(`.github/workflows/build.yml:65-66`). It is also the only C compilation in
 the tree, which is why `gcc` is the only compiler a Linux build needs
-(`.github/workflows/build.yml:17-19`).
+(`.github/workflows/build.yml:26-28`).
 
 The C++ half of the wrapper is not exercised by any target, because no C++
 source lives here and the build deliberately needs no `g++`

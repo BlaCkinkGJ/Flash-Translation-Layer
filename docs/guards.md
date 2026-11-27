@@ -132,7 +132,7 @@ The features are declared at `Cargo.toml:36` (`silent`), `:41`
 (`zone`). The `silent` feature is the Rust side of `-DENABLE_LOG_SILENT` and
 swaps `pr_info!`, `pr_warn!` and `pr_err!` for no-ops (`src/log.rs:50-87`),
 which CI builds with `make clean && make test USE_LOG_SILENT=1`
-(`.github/workflows/build.yml:58-59`). `legacy-random` drops the `getentropy`
+(`.github/workflows/build.yml:73-74`). `legacy-random` drops the `getentropy`
 seed (`benchmark.rs:555`). The three backend features are what select a
 backend module into the tree: `#[cfg(feature = "zone")] mod zone;` and the
 matching entry in the device table (`src/device/mod.rs:597-629`).
@@ -176,7 +176,7 @@ Three jobs run on every pull request, and Codacy runs a fourth check.
 | `zone-emulator` | the libzbd build and the zoned paths against a real device |
 | Codacy | markdownlint over the documentation |
 
-`build-and-test-x86_64` (`.github/workflows/build.yml:9-92`) runs `make
+`build-and-test-x86_64` (`.github/workflows/build.yml:9-101`) runs `make
 check` (cppcheck, flawfinder and lizard over the headers,
 `Makefile:222-228`), `make flow` (cflow, `Makefile:233-234`), builds the
 archive and the two programs, runs the integration test and the benchmark
@@ -184,12 +184,12 @@ twice, runs `make consumer-check`, runs the Rust suite with the `silent`
 feature, runs clippy as `-D warnings` and builds `--features silent`. It is
 the only job that compiles C and the only one that runs the consumer.
 
-`bluedbm-feature` (`.github/workflows/build.yml:93-122`) runs the suite for the
+`bluedbm-feature` (`.github/workflows/build.yml:107-134`) runs the suite for the
 BlueDBM backend, which a test build can do without libmemio because it defines
 the seven symbols itself, and measures the coverage of those lines. It catches
 a regression in the erase bound that no other job compiles with the tests on.
 
-`zone-emulator` (`.github/workflows/build.yml:123-193`) installs `libzbd-dev`,
+`zone-emulator` (`.github/workflows/build.yml:141-220`) installs `libzbd-dev`,
 builds and lints with `--features zone`, creates an emulated zoned device
 through `null_blk`, falling back to `zloop`, and runs `make zone-smoke` plus
 `cargo test --features zone`. It also measures coverage of those paths. It
