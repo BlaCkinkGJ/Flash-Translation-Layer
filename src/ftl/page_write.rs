@@ -38,13 +38,17 @@ use crate::{pr_debug, pr_err};
 /// `request` is a live request whose `data` points at a `data_len` byte page
 /// buffer allocated by [`write_page`], and it is not used afterwards.
 unsafe extern "C" fn write_end_rq(request: *mut device_request) {
-    // C's `free(request->data)` (`ftl/page/page-write.c:61`). The buffer came
-    // from `vec![0u8; page_size]`, so its length equals its capacity.
-    drop(Vec::from_raw_parts(
-        (*request).data as *mut u8,
-        (*request).data_len,
-        (*request).data_len,
-    ));
+    // C's `free(request->data)` (`ftl/page/page-write.c:61`). A staging page
+    // came from `vec![0u8; page_size]`, so its length equals its capacity. A
+    // whole-page write left `rq_private` null, and then `data` is the caller's
+    // buffer, which must not be freed here.
+    if !(*request).rq_private.is_null() {
+        drop(Vec::from_raw_parts(
+            (*request).data as *mut u8,
+            (*request).data_len,
+            (*request).data_len,
+        ));
+    }
     ffi_device_free_request(request);
 }
 
@@ -146,6 +150,10 @@ fn update_metadata(pgftl: &mut PageFtl, paddr: device_address, sector: usize) {
 /// mapping is invalidated afterwards, so an overwrite leaves the old page
 /// untouched on the device.
 ///
+/// A request that covers the whole page replaces every byte of it, so it skips
+/// both the staging page and the read for overwrite and hands the caller's
+/// bytes to the device.
+///
 /// Returns the number of bytes written, which is `request.data_len`, not the
 /// page size.
 ///
@@ -187,10 +195,18 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
         return Err(io::Error::from_raw_os_error(libc::EFAULT));
     };
 
-    let mut buffer = vec![0u8; page_size];
+    // A whole-page write replaces every byte of the page, so it needs neither a
+    // staging page nor the read for overwrite: the device can take the caller's
+    // bytes, and the completion callback then has nothing to free. A partial
+    // write still stages a page, because NAND cannot be written in place.
+    let staged = !(offset == 0 && write_size == page_size && !request.data.is_null());
 
-    let is_exist = pgftl.trans_map[lpn] != PADDR_EMPTY;
-    if is_exist {
+    let mut buffer = if staged {
+        vec![0u8; page_size]
+    } else {
+        Vec::new()
+    };
+    if staged && pgftl.trans_map[lpn] != PADDR_EMPTY {
         read_for_overwrite(pgftl, lpn, &mut buffer)?;
     }
 
@@ -203,7 +219,15 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
             return Err(io::Error::from_raw_os_error(libc::EINVAL));
         }
     };
-    buffer[offset..offset + write_size].copy_from_slice(src);
+
+    let buffer_ptr = if staged {
+        buffer[offset..offset + write_size].copy_from_slice(src);
+        let buffer_ptr = buffer.as_mut_ptr();
+        mem::forget(buffer);
+        buffer_ptr
+    } else {
+        src.as_mut_ptr()
+    };
 
     let page_rq = unsafe { ffi_device_alloc_request(DEVICE_DEFAULT_REQUEST) };
     if page_rq.is_null() {
@@ -211,13 +235,17 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
         return Err(io::Error::from_raw_os_error(libc::ENOMEM));
     }
 
-    let buffer_ptr = buffer.as_mut_ptr();
-    mem::forget(buffer);
     unsafe {
         (*page_rq).flag = DeviceDirection::Write.into();
         (*page_rq).data = buffer_ptr as *mut c_void;
         (*page_rq).paddr = paddr;
-        (*page_rq).rq_private = pgftl as *mut PageFtl as *mut c_void;
+        // A null `rq_private` tells `write_end_rq` that `data` is the caller's
+        // buffer, not a staging page it owns.
+        (*page_rq).rq_private = if staged {
+            pgftl as *mut PageFtl as *mut c_void
+        } else {
+            core::ptr::null_mut()
+        };
         (*page_rq).data_len = page_size;
         (*page_rq).end_rq = Some(write_end_rq);
     }
@@ -233,7 +261,9 @@ pub fn write_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resu
         // A backend that fails does not run the completion callback, so the
         // scratch page and the request are still ours.
         unsafe {
-            drop(Vec::from_raw_parts(buffer_ptr, page_size, page_size));
+            if staged {
+                drop(Vec::from_raw_parts(buffer_ptr, page_size, page_size));
+            }
             ffi_device_free_request(page_rq);
         }
         let errno = if ret < 0 { -ret as i32 } else { libc::EIO };
@@ -294,6 +324,29 @@ mod tests {
     /// [`crate::ftl::test_support`], shared with the garbage collection tests.
     fn new_fixture() -> Fixture {
         Fixture::new(NR_SEGMENTS, PAGES_PER_SEGMENT)
+    }
+
+    #[test]
+    fn whole_page_write_needs_no_read_for_overwrite() {
+        let mut f = new_fixture();
+
+        let mut first: Vec<u8> = (0..DEVICE_PAGE_SIZE).map(|byte| byte as u8).collect();
+        assert_eq!(write_at(&mut f, 0, &mut first).unwrap(), DEVICE_PAGE_SIZE);
+
+        // The second write covers the page, so no byte of the previous page may
+        // survive. The staging free would also abort here if the completion
+        // callback released the caller's buffer.
+        let mut second = vec![0xa5u8; DEVICE_PAGE_SIZE];
+        second[DEVICE_PAGE_SIZE - 1] = 0x5a;
+        assert_eq!(write_at(&mut f, 0, &mut second).unwrap(), DEVICE_PAGE_SIZE);
+
+        let mut page = vec![0u8; DEVICE_PAGE_SIZE];
+        assert_eq!(read_at(&mut f, 0, &mut page).unwrap(), DEVICE_PAGE_SIZE);
+        assert_eq!(page, second);
+
+        // The old page was invalidated rather than rewritten, so segment 0 still
+        // holds exactly one valid page.
+        assert_eq!(f.valid(0), 1);
     }
 
     #[test]

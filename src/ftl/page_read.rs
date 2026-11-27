@@ -35,10 +35,18 @@ use crate::{pr_err, pr_warn};
 /// allocation failure path can use this too.
 ///
 /// # Safety
-/// `page_ptr` came from a `Vec<u8>` of `page_size` bytes that was forgotten,
-/// and `read_rq` is either `NULL` or came from [`ffi_device_alloc_request`].
-unsafe fn reclaim_scratch(page_ptr: *mut u8, page_size: usize, read_rq: *mut device_request) {
-    drop(Vec::from_raw_parts(page_ptr, page_size, page_size));
+/// `page_ptr` came from a `Vec<u8>` of `page_size` bytes that was forgotten
+/// unless `staged` is false, in which case it is the caller's own buffer, and
+/// `read_rq` is either `NULL` or came from [`ffi_device_alloc_request`].
+unsafe fn reclaim_scratch(
+    page_ptr: *mut u8,
+    page_size: usize,
+    read_rq: *mut device_request,
+    staged: bool,
+) {
+    if staged {
+        drop(Vec::from_raw_parts(page_ptr, page_size, page_size));
+    }
     ffi_device_free_request(read_rq);
 }
 
@@ -64,7 +72,10 @@ unsafe extern "C" fn read_end_rq(read_rq: *mut device_request) {
     let offset = (*request).sector % page_size;
     let len = (*request).data_len;
 
-    if len > 0 {
+    // A whole-page request had the device write into the caller's own buffer, so
+    // there is nothing to move and nothing to free.
+    let borrowed = (*read_rq).data as *const u8 == (*request).data as *const u8;
+    if len > 0 && !borrowed {
         let src = core::slice::from_raw_parts((*read_rq).data as *const u8, offset + len);
         let dst = core::slice::from_raw_parts_mut((*request).data as *mut u8, len);
         dst.copy_from_slice(&src[offset..offset + len]);
@@ -72,11 +83,13 @@ unsafe extern "C" fn read_end_rq(read_rq: *mut device_request) {
 
     // C's `free(read_rq->data)`, then `device_free_request(read_rq)`
     // (`ftl/page/page-read.c:33-34`).
-    drop(Vec::from_raw_parts(
-        (*read_rq).data as *mut u8,
-        page_size,
-        page_size,
-    ));
+    if !borrowed {
+        drop(Vec::from_raw_parts(
+            (*read_rq).data as *mut u8,
+            page_size,
+            page_size,
+        ));
+    }
     ffi_device_free_request(read_rq);
 
     // C signals `request->cond` under `request->mutex` and stores `is_finish`
@@ -98,6 +111,9 @@ unsafe extern "C" fn read_end_rq(read_rq: *mut device_request) {
 /// what C does at `ftl/page/page-read.c:80-86`. A read that runs past the end
 /// of its page fails with `EINVAL`. A device failure returns the device's
 /// negated error code.
+///
+/// A request that covers the whole page lets the device fill `request.data`
+/// directly, so no staging page is allocated and nothing is copied afterwards.
 ///
 /// The request is borrowed, not consumed. Its `data` must point at
 /// `data_len` writable bytes that stay valid for the duration of the call.
@@ -139,9 +155,19 @@ pub fn read_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resul
         return Err(io::Error::from_raw_os_error(libc::EINVAL));
     }
 
-    let mut page = vec![0u8; page_size];
-    let page_ptr = page.as_mut_ptr();
-    core::mem::forget(page);
+    // A request that covers the whole page needs no staging buffer. The device
+    // moves whole pages only, so the caller's bytes can be its target, and the
+    // completion callback then has nothing to copy. A partial read still stages
+    // a page.
+    let staged = !(offset == 0 && request.data_len == page_size && !request.data.is_null());
+    let page_ptr = if staged {
+        let mut page = vec![0u8; page_size];
+        let page_ptr = page.as_mut_ptr();
+        core::mem::forget(page);
+        page_ptr
+    } else {
+        request.data as *mut u8
+    };
 
     // The native API borrows the request, so a request reused across reads can
     // still carry the previous completion. C frees the request on the zero fill
@@ -154,7 +180,7 @@ pub fn read_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resul
     let read_rq = unsafe { ffi_device_alloc_request(DEVICE_DEFAULT_REQUEST) };
     if read_rq.is_null() {
         pr_err!("request allocation failed");
-        unsafe { reclaim_scratch(page_ptr, page_size, read_rq) };
+        unsafe { reclaim_scratch(page_ptr, page_size, read_rq, staged) };
         return Err(io::Error::from_raw_os_error(libc::ENOMEM));
     }
 
@@ -176,7 +202,7 @@ pub fn read_page(pgftl: &mut PageFtl, request: &mut device_request) -> io::Resul
     };
     if ret < 0 {
         pr_err!("device read failed (ppn: {})", paddr);
-        unsafe { reclaim_scratch(page_ptr, page_size, read_rq) };
+        unsafe { reclaim_scratch(page_ptr, page_size, read_rq, staged) };
         return Err(io::Error::from_raw_os_error((-ret) as i32));
     }
 
