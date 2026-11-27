@@ -184,12 +184,12 @@ twice, runs `make consumer-check`, runs the Rust suite with the `silent`
 feature, runs clippy as `-D warnings` and builds `--features silent`. It is
 the only job that compiles C and the only one that runs the consumer.
 
-`bluedbm-feature` (`.github/workflows/build.yml:107-134`) runs the suite for the
+`bluedbm-feature` (`.github/workflows/build.yml:107-131`) runs the suite for the
 BlueDBM backend, which a test build can do without libmemio because it defines
 the seven symbols itself, and measures the coverage of those lines. It catches
 a regression in the erase bound that no other job compiles with the tests on.
 
-`zone-emulator` (`.github/workflows/build.yml:141-220`) installs `libzbd-dev`,
+`zone-emulator` (`.github/workflows/build.yml:138-214`) installs `libzbd-dev`,
 builds and lints with `--features zone`, creates an emulated zoned device
 through `null_blk`, falling back to `zloop`, and runs `make zone-smoke` plus
 `cargo test --features zone`. It also measures coverage of those paths. It
