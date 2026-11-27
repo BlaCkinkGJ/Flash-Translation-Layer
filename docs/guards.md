@@ -176,7 +176,7 @@ Three jobs run on every pull request, and Codacy runs a fourth check.
 | `zone-emulator` | the libzbd build and the zoned paths against a real device |
 | Codacy | markdownlint over the documentation |
 
-`build-and-test-x86_64` (`.github/workflows/build.yml:9-101`) runs `make
+`build-and-test-x86_64` (`.github/workflows/build.yml:10-101`) runs `make
 check` (cppcheck, flawfinder and lizard over the headers,
 `Makefile:222-228`), `make flow` (cflow, `Makefile:233-234`), builds the
 archive and the two programs, runs the integration test and the benchmark
