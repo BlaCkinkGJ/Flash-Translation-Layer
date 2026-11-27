@@ -227,9 +227,9 @@ check:
 	@echo "[[ STATIC ANALYSIS ROUTINE ]]"
 	lizard $(HEADERS)
 
+# doxygen never deletes output it did not write, so a page whose source is
+# gone survives every later run. Start from an empty directory.
 documents:
-	# doxygen never deletes output it did not write, so a page whose source
-	# is gone survives every later run. Start from an empty directory.
 	rm -rf doxygen
 	doxygen -s Doxyfile
 

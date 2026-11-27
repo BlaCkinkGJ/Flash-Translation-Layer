@@ -816,6 +816,8 @@ INPUT_ENCODING         = UTF-8
 # *.m, *.markdown, *.md, *.mm, *.dox, *.py, *.pyw, *.f90, *.f95, *.f03, *.f08,
 # *.f, *.for, *.tcl, *.vhd, *.vhdl, *.ucf and *.qsf.
 
+# `*.d` is dropped from the default list: it is the D language extension, and
+# Cargo writes dep info files with it.
 FILE_PATTERNS          = *.c \
                          *.cc \
                          *.cxx \
